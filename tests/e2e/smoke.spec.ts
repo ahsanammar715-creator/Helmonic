@@ -45,8 +45,29 @@ test.describe("key interactive flows", () => {
     await page.goto("/");
     await page.getByText(/Founders.{1,2}Vision/).first().click();
     await expect(page.getByText("Helmonic exists because")).toBeVisible();
+    await expect(page.getByAltText("Jim Dunne, Founder")).toBeVisible();
     await page.getByRole("button", { name: "Close" }).click();
     await expect(page.getByText("Helmonic exists because")).toBeHidden();
+  });
+
+  test("landing: Sign in opens a form with a Google option", async ({ page }) => {
+    await page.goto("/");
+    await page.getByText("Sign in", { exact: true }).click();
+    await expect(page.getByText("Sign in to Helmonic")).toBeVisible();
+    await expect(page.getByPlaceholder("you@iacoustics.com")).toBeVisible();
+    await expect(page.getByText("Continue with Google")).toBeVisible();
+    await page.getByRole("button", { name: "Close sign-in" }).click();
+    await expect(page.getByText("Sign in to Helmonic")).toBeHidden();
+  });
+
+  test("landing: Founder articles popover opens an article", async ({ page }) => {
+    await page.goto("/");
+    await page.getByText("Founder articles").click();
+    await expect(page.getByText("Acoustics is the art of shaping calm")).toBeVisible();
+    await page.getByText("Acoustics is the art of shaping calm").click();
+    await expect(page.getByText("This article is a placeholder")).toBeVisible();
+    await page.getByRole("button", { name: "Close article" }).click();
+    await expect(page.getByText("This article is a placeholder")).toBeHidden();
   });
 
   test("consult: new-project conversation runs start to review", async ({ page }) => {
