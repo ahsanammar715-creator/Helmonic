@@ -78,7 +78,7 @@ export default function EmptyStateShell({
                   <LineChart size={17} strokeWidth={1.6} />
                   {disabledQuestion}
                 </div>
-                <span className="bg-ink text-white text-[12px] px-2.5 py-2 rounded-md whitespace-nowrap hidden sm:inline">
+                <span className="bg-ink text-canvas text-[12px] px-2.5 py-2 rounded-md whitespace-nowrap hidden sm:inline">
                   Not yet available
                 </span>
               </div>

@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AudioWaveform, ArrowRight, X, Zap, ShieldCheck, Users, ChevronDown } from "lucide-react";
+import { ArrowRight, X, Zap, ShieldCheck, Users, ChevronDown } from "lucide-react";
+import EqualizerIcon from "@/components/EqualizerIcon";
 
 const examples = [
   "Check this result against ISO 16283",
@@ -74,7 +75,7 @@ export default function LandingPage() {
   }, []);
 
   function submitPrompt() {
-    if (!prompt.trim()) return;
+    if (!prompt.trim()) setPrompt(examples[exampleIndex]);
     setChooserOpen(true);
   }
 
@@ -105,7 +106,7 @@ export default function LandingPage() {
         <header className="flex items-center justify-between px-6 md:px-10 py-5">
           <div className="flex items-center gap-2.5">
             <span className="flex items-center justify-center w-[26px] h-[26px] bg-primary rounded-md text-white">
-              <AudioWaveform size={15} strokeWidth={1.8} />
+              <EqualizerIcon size={14} />
             </span>
             <span className="font-bold text-[16px] tracking-tight">Helmonic</span>
           </div>
@@ -144,11 +145,7 @@ export default function LandingPage() {
 
             <div className="relative">
               <div className="flex items-center gap-3 bg-white/94 backdrop-blur rounded-md border border-white/40 px-4 py-3.5 shadow-lg">
-                <AudioWaveform
-                  size={17}
-                  strokeWidth={1.8}
-                  className="text-primary shrink-0 animate-pulse-glow"
-                />
+                <EqualizerIcon size={17} className="text-primary" />
                 <input
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
