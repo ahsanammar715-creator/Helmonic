@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Paperclip, ArrowRight } from "lucide-react";
+import { Paperclip, ArrowRight, X } from "lucide-react";
+import AttachPopover from "./AttachPopover";
 
 export default function ChatComposer({
   placeholder,
@@ -15,6 +16,8 @@ export default function ChatComposer({
   disabled?: boolean;
 }) {
   const [value, setValue] = useState("");
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [attachments, setAttachments] = useState<string[]>([]);
 
   function submit() {
     if (!value.trim() || disabled) return;
@@ -24,14 +27,45 @@ export default function ChatComposer({
 
   return (
     <div className="px-6 md:px-10 pb-5 pt-3.5 flex flex-col gap-2">
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {attachments.map((name, i) => (
+            <span
+              key={`${name}-${i}`}
+              className="flex items-center gap-2 border border-line rounded-md bg-surface px-2.5 py-1.5 text-[12px]"
+            >
+              <Paperclip size={12} strokeWidth={1.8} className="text-faint" />
+              {name}
+              <button
+                onClick={() => setAttachments((a) => a.filter((_, idx) => idx !== i))}
+                aria-label={`Remove ${name}`}
+                className="text-faint hover:text-ink"
+              >
+                <X size={12} strokeWidth={1.8} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="flex items-center gap-3 border border-line rounded-md bg-surface px-3.5 py-3">
-        <button
-          type="button"
-          className="flex items-center gap-2 px-3 py-1.5 border border-line rounded-md text-[13px] text-primary hover:bg-primary-tint-2 hover:border-primary shrink-0"
-        >
-          <Paperclip size={15} strokeWidth={1.6} />
-          Attach
-        </button>
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setAttachOpen((o) => !o)}
+            aria-expanded={attachOpen}
+            className="flex items-center gap-2 px-3 py-1.5 border border-line rounded-md text-[13px] text-primary hover:bg-primary-tint-2 hover:border-primary disabled:opacity-40 disabled:pointer-events-none"
+          >
+            <Paperclip size={15} strokeWidth={1.6} />
+            Attach
+          </button>
+          {attachOpen && (
+            <AttachPopover
+              onClose={() => setAttachOpen(false)}
+              onAttach={(name) => setAttachments((a) => [...a, name])}
+            />
+          )}
+        </div>
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}

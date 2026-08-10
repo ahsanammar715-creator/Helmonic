@@ -15,7 +15,7 @@ export default function ConsultPage() {
       questions={consultQuestions.slice(0, 2)}
       disabledQuestion={consultQuestions[2]}
       actionHref="/consult/new"
-      actionLabel="New survey project"
+      actionLabel="New project"
       composerPlaceholder="Ask Helmonic about this project…"
     />
   );

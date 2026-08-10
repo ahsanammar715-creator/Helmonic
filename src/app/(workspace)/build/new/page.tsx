@@ -5,9 +5,19 @@ import Link from "next/link";
 import { Check, ChevronDown, X } from "lucide-react";
 import TopBar from "@/components/TopBar";
 import ChatComposer from "@/components/ChatComposer";
-import { roomUseOptions, roomSubtypes, floorAreas, extraRooms, bomLines, costBreakdown } from "@/lib/data";
+import {
+  roomUseOptions,
+  roomSubtypes,
+  floorAreas,
+  extraRooms,
+  bomLines,
+  costBreakdown,
+  indicativeCostEur,
+} from "@/lib/data";
+import { useCurrency, formatCurrency, Currency } from "@/lib/currency";
 
 export default function BuildNewPage() {
+  const [currency, setCurrency] = useCurrency();
   const [complete, setComplete] = useState(false);
   const [roomUse, setRoomUse] = useState(roomUseOptions[0]);
   const [floorArea, setFloorArea] = useState(floorAreas[4]);
@@ -260,15 +270,19 @@ export default function BuildNewPage() {
                 LIVE SPEC &amp; BILL OF MATERIALS
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="border border-primary rounded px-1.5 py-1 text-[10px] font-semibold text-primary">
-                  € EUR
-                </span>
-                <span className="border border-line rounded px-1.5 py-1 text-[10px] font-semibold text-muted">
-                  £
-                </span>
-                <span className="border border-line rounded px-1.5 py-1 text-[10px] font-semibold text-muted">
-                  $
-                </span>
+                {(["EUR", "GBP", "USD"] as Currency[]).map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setCurrency(c)}
+                    className={`rounded px-1.5 py-1 text-[10px] font-semibold ${
+                      currency === c
+                        ? "border border-primary text-primary"
+                        : "border border-line text-muted hover:border-primary hover:text-primary"
+                    }`}
+                  >
+                    {c === "EUR" ? "€ EUR" : c === "GBP" ? "£ GBP" : "$ USD"}
+                  </button>
+                ))}
               </span>
             </div>
             <div className="flex-1 px-5.5 py-5 flex flex-col gap-1.5 min-h-0 overflow-auto">
@@ -315,12 +329,14 @@ export default function BuildNewPage() {
                   costBreakdown.map((c) => (
                     <div key={c.label} className="flex items-center justify-between text-[12px] text-sub">
                       <span>{c.label}</span>
-                      <span className="font-semibold">{c.amount}</span>
+                      <span className="font-semibold">{formatCurrency(c.amountEur, currency)}</span>
                     </div>
                   ))}
                 <div className="flex items-center justify-between border-t border-line pt-2.5">
                   <span className="text-[12px] text-muted">Indicative cost</span>
-                  <span className="font-bold text-[18px] text-primary">€26 900,00</span>
+                  <span className="font-bold text-[18px] text-primary">
+                    {formatCurrency(indicativeCostEur, currency)}
+                  </span>
                 </div>
               </div>
             </div>

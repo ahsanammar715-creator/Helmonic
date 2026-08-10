@@ -3,7 +3,7 @@ export type WorkspaceKey = "consult" | "build" | "logistics" | "socials";
 export const workspaces: { key: WorkspaceKey; label: string; badge?: string; href: string }[] = [
   { key: "consult", label: "Consult", badge: "iA", href: "/consult" },
   { key: "build", label: "Build", badge: "SS", href: "/build" },
-  { key: "logistics", label: "Logistics", href: "/logistics" },
+  { key: "logistics", label: "Logistics", badge: "SS", href: "/logistics" },
   { key: "socials", label: "Socials", href: "/socials/marketing" },
 ];
 
@@ -99,10 +99,11 @@ export const bomLines = [
 ];
 
 export const costBreakdown = [
-  { label: "Materials", amount: "€18 400,00" },
-  { label: "Labour, indicative", amount: "€6 500,00" },
-  { label: "Isolation hardware", amount: "€2 000,00" },
+  { label: "Materials", amountEur: 18400 },
+  { label: "Labour, indicative", amountEur: 6500 },
+  { label: "Isolation hardware", amountEur: 2000 },
 ];
+export const indicativeCostEur = 26900;
 
 export const logisticsPrompts = [
   "Estimate the travel and accommodation cost for four installers travelling from Dublin to Berlin for eight nights.",
