@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, ChevronDown, AlertTriangle } from "lucide-react";
 import TopBar from "@/components/TopBar";
 import ChatComposer from "@/components/ChatComposer";
+import WaveDivider from "@/components/WaveDivider";
 import { UserBubble, AssistantBubble } from "@/components/ChatBubble";
 import WhatThisCreates from "@/components/WhatThisCreates";
 import { siteTypes, surveyTypes, parsedRows } from "@/lib/data";
@@ -51,6 +52,9 @@ export default function ConsultNewProjectPage() {
                   <h3 className="m-0 font-bold text-[22px] md:text-[24px] tracking-tight">
                     Start by telling Helmonic what the job is.
                   </h3>
+                  <div className="w-[110px]">
+                    <WaveDivider color="var(--color-primary)" />
+                  </div>
                   <p className="m-0 text-[14px] text-muted">
                     Drop measurement files, paste the client brief, or just describe the room.
                     Helmonic pulls out the project details as you go, and you can bind a standard

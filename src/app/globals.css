@@ -15,6 +15,10 @@
   --primary-tint-2: #F3F4F6;
   --teal: #1AC8B4;
   --teal-tint: #E8F7F4;
+  --amber: #B45309;
+  --amber-tint: #FDF1E4;
+  --violet: #7C3AED;
+  --violet-tint: #F2ECFE;
   --warning: #B45309;
   --success: #0E7C63;
   --hero: #0C0D0D;
@@ -36,6 +40,10 @@
   --primary-tint-2: #1C2126;
   --teal: #2FE0C8;
   --teal-tint: #10302C;
+  --amber: #E8A33D;
+  --amber-tint: #2E2211;
+  --violet: #A78BFA;
+  --violet-tint: #241C3D;
   --warning: #E8A33D;
   --success: #34D399;
   --hero: #0C0D0D;
@@ -57,6 +65,10 @@
   --color-primary-tint-2: var(--primary-tint-2);
   --color-teal: var(--teal);
   --color-teal-tint: var(--teal-tint);
+  --color-amber: var(--amber);
+  --color-amber-tint: var(--amber-tint);
+  --color-violet: var(--violet);
+  --color-violet-tint: var(--violet-tint);
   --color-warning: var(--warning);
   --color-success: var(--success);
   --color-hero: var(--hero);
@@ -65,6 +77,34 @@
 
   --radius-md: 6px;
   --radius-lg: 8px;
+}
+
+/*
+ * The landing page's hero is permanently dark (photo background), and its
+ * overlaid popups (prompt chooser, sign-in, Founders' Vision, articles) were
+ * designed as light UI chrome regardless of the visitor's site-wide theme
+ * preference. Pin the semantic tokens back to their light values for that
+ * subtree so a dark-mode visitor still gets legible light popups here.
+ */
+.theme-locked-light {
+  --canvas: #F8F9FA;
+  --surface: #FFFFFF;
+  --line: #E2E4E8;
+  --line-soft: #EEF0F3;
+  --ink: #1E1E1E;
+  --muted: #6B7280;
+  --faint: #9CA3AF;
+  --sub: #4B5563;
+  --primary: #1763FF;
+  --primary-hover: #0E4FD6;
+  --primary-tint: #F3F6FF;
+  --primary-tint-2: #F3F4F6;
+  --teal: #1AC8B4;
+  --teal-tint: #E8F7F4;
+  --amber: #B45309;
+  --amber-tint: #FDF1E4;
+  --violet: #7C3AED;
+  --violet-tint: #F2ECFE;
 }
 
 @layer base {

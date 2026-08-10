@@ -3,7 +3,9 @@ import { Search, FileText, LineChart } from "lucide-react";
 import TopBar from "@/components/TopBar";
 import SourcesPanel from "@/components/SourcesPanel";
 import ChatComposer from "@/components/ChatComposer";
+import WaveDivider from "@/components/WaveDivider";
 import { WorkspaceKey } from "@/lib/data";
+import { workspaceTheme } from "@/lib/workspaceTheme";
 
 export default function EmptyStateShell({
   workspace,
@@ -31,6 +33,7 @@ export default function EmptyStateShell({
   composerPlaceholder: string;
 }) {
   const icons = [Search, FileText, LineChart];
+  const { accent, tint } = workspaceTheme[workspace];
 
   return (
     <div className="flex h-full min-w-0">
@@ -38,13 +41,19 @@ export default function EmptyStateShell({
         <TopBar workspace={workspace} title={title} subtitle={subtitle} mode={mode} />
         <div className="flex-1 flex items-center justify-center p-8 md:p-10">
           <div className="w-full max-w-[640px] border border-line rounded-md bg-surface p-7 md:p-9 flex flex-col gap-5.5 items-start">
-            <span className="inline-flex items-center justify-center w-9 h-9 bg-primary-tint-2 rounded-md text-primary">
+            <span
+              className="inline-flex items-center justify-center w-9 h-9 rounded-md"
+              style={{ background: tint, color: accent }}
+            >
               <LineChart size={19} strokeWidth={1.6} />
             </span>
-            <div className="flex flex-col gap-2.5">
+            <div className="flex flex-col gap-2.5 w-full">
               <h1 className="m-0 font-bold text-[28px] md:text-[32px] leading-tight tracking-tight">
                 {heading}
               </h1>
+              <div className="w-[120px]">
+                <WaveDivider color={accent} />
+              </div>
               <p className="m-0 text-[15px] leading-[1.6] text-muted max-w-[480px]">{body}</p>
             </div>
             <div className="flex flex-col gap-2 w-full">

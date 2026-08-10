@@ -84,7 +84,7 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="relative min-h-dvh w-full overflow-hidden bg-hero text-white">
+    <div className="theme-locked-light relative min-h-dvh w-full overflow-hidden bg-hero text-white">
       <Image
         src="/images/smart-studio-mix-room.jpg"
         alt=""

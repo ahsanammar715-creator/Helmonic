@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Check, ChevronDown, X } from "lucide-react";
 import TopBar from "@/components/TopBar";
 import ChatComposer from "@/components/ChatComposer";
+import WaveDivider from "@/components/WaveDivider";
 import {
   roomUseOptions,
   roomSubtypes,
@@ -56,6 +57,9 @@ export default function BuildNewPage() {
                     <h3 className="m-0 font-bold text-[22px] tracking-tight">
                       Four basics and the spec writes itself.
                     </h3>
+                    <div className="w-[110px]">
+                      <WaveDivider color="var(--color-teal)" />
+                    </div>
                     <p className="m-0 text-[14px] text-muted">
                       Enter a few basics · Helmonic fills in the Smart Studio spec so you only
                       override what is truly bespoke.
