@@ -1,5 +1,6 @@
-import { Info, MessageSquare, Wrench } from "lucide-react";
+import { Info } from "lucide-react";
 import { WorkspaceKey } from "@/lib/data";
+import { workspaceTheme } from "@/lib/workspaceTheme";
 
 export default function TopBar({
   workspace,
@@ -14,9 +15,7 @@ export default function TopBar({
   mode?: string;
   right?: React.ReactNode;
 }) {
-  const isBuild = workspace === "build";
-  const accent = isBuild ? "var(--color-teal)" : "var(--color-primary)";
-  const Icon = isBuild ? Wrench : MessageSquare;
+  const { accent, tint, icon: Icon } = workspaceTheme[workspace];
 
   return (
     <div
@@ -26,10 +25,7 @@ export default function TopBar({
       <div className="flex items-center gap-3 min-w-0">
         <span
           className="inline-flex items-center justify-center w-[26px] h-[26px] rounded-md"
-          style={{
-            background: isBuild ? "var(--color-teal-tint)" : "var(--color-primary-tint)",
-            color: accent,
-          }}
+          style={{ background: tint, color: accent }}
         >
           <Icon size={15} strokeWidth={1.7} />
         </span>

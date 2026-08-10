@@ -127,9 +127,14 @@ test.describe("key interactive flows", () => {
     await expect(page.locator("html")).not.toHaveClass(/dark/);
   });
 
-  test("sidebar: Logistics carries the Smart Studio badge", async ({ page }) => {
+  test("logistics: switching to the iAcoustics tab shows engagements", async ({ page }) => {
     await page.goto("/logistics");
-    await expect(page.getByRole("link", { name: /Logistics/ }).getByText("SS")).toBeVisible();
+    await expect(page.getByText("Plan travel and site mobilisation.")).toBeVisible();
+    await page.getByRole("button", { name: /iAcoustics/ }).click();
+    await expect(page.getByText("Plan and cost iAcoustics site visits.")).toBeVisible();
+    await expect(page.getByText("Manchester listening room survey").first()).toBeVisible();
+    await page.getByText("Manchester listening room survey").first().click();
+    await expect(page.getByText("No draft yet.")).toBeVisible();
   });
 
   test("composer: Attach opens a popover and attaching a file shows a chip", async ({ page }) => {

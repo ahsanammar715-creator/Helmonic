@@ -3,7 +3,7 @@ export type WorkspaceKey = "consult" | "build" | "logistics" | "socials";
 export const workspaces: { key: WorkspaceKey; label: string; badge?: string; href: string }[] = [
   { key: "consult", label: "Consult", badge: "iA", href: "/consult" },
   { key: "build", label: "Build", badge: "SS", href: "/build" },
-  { key: "logistics", label: "Logistics", badge: "SS", href: "/logistics" },
+  { key: "logistics", label: "Logistics", href: "/logistics" },
   { key: "socials", label: "Socials", href: "/socials/marketing" },
 ];
 
@@ -144,6 +144,77 @@ export const logisticsScenarios = [
     perDay: "€1 851",
     duration: "9.5 h door-to-door",
     cancellation: "Fully flexible",
+  },
+];
+
+export type EngagementStatus = "Scheduled" | "Awaiting dates" | "Planning";
+
+export const iAcousticsEngagements: {
+  name: string;
+  client: string;
+  city: string;
+  dates: string;
+  status: EngagementStatus;
+}[] = [
+  {
+    name: "Manchester listening room survey",
+    client: "Northbank Studios",
+    city: "Manchester",
+    dates: "02 to 05 Oct",
+    status: "Scheduled",
+  },
+  {
+    name: "Berlin boardroom acoustic sign-off",
+    client: "Harrow Property Group",
+    city: "Berlin",
+    dates: "22 Sep",
+    status: "Awaiting dates",
+  },
+  {
+    name: "Cork mastering suite verification",
+    client: "Independent",
+    city: "Cork",
+    dates: "30 Sep",
+    status: "Planning",
+  },
+];
+
+export type TravelPlanStatus = "Awaiting approval" | "Recheck required" | "Booked" | "Approved";
+
+export const iAcousticsTravelPlans: {
+  engagement: string;
+  note: string;
+  when: string;
+  cost: string;
+  status: TravelPlanStatus;
+}[] = [
+  {
+    engagement: "Manchester listening room survey",
+    note: "Consultant site visit · Scenario B",
+    when: "20 min ago",
+    cost: "€1 140",
+    status: "Awaiting approval",
+  },
+  {
+    engagement: "Cork mastering suite verification",
+    note: "Measurement visit",
+    when: "Yesterday",
+    cost: "€480",
+    status: "Recheck required",
+  },
+  {
+    engagement: "Galway mix room training",
+    note: "Handover visit",
+    when: "1 week ago",
+    cost: "€620",
+    status: "Booked",
+  },
+  {
+    engagement: "Dublin office measurement",
+    note: "Local site visit",
+    when: "2 weeks ago",
+    cost: "€90",
+    status: "Approved",
   },
 ];
 

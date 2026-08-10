@@ -15,7 +15,7 @@ export default function SocialsLayout({ children }: { children: React.ReactNode 
         <Link
           href="/socials/marketing"
           className={`px-3.5 py-2.5 text-[13px] font-semibold border-b-2 -mb-px ${
-            !isLeads ? "border-primary text-primary" : "border-transparent text-muted hover:text-ink"
+            !isLeads ? "border-violet text-violet" : "border-transparent text-muted hover:text-ink"
           }`}
         >
           Marketing
@@ -23,7 +23,7 @@ export default function SocialsLayout({ children }: { children: React.ReactNode 
         <Link
           href="/socials/leads"
           className={`px-3.5 py-2.5 text-[13px] font-semibold border-b-2 -mb-px ${
-            isLeads ? "border-primary text-primary" : "border-transparent text-muted hover:text-ink"
+            isLeads ? "border-violet text-violet" : "border-transparent text-muted hover:text-ink"
           }`}
         >
           Lead Generation

@@ -9,11 +9,13 @@ export default function ChatComposer({
   helper,
   onSend,
   disabled = false,
+  attachLabel = "Attach",
 }: {
   placeholder: string;
   helper?: string;
   onSend?: (value: string) => void;
   disabled?: boolean;
+  attachLabel?: string;
 }) {
   const [value, setValue] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
@@ -57,7 +59,7 @@ export default function ChatComposer({
             className="flex items-center gap-2 px-3 py-1.5 border border-line rounded-md text-[13px] text-primary hover:bg-primary-tint-2 hover:border-primary disabled:opacity-40 disabled:pointer-events-none"
           >
             <Paperclip size={15} strokeWidth={1.6} />
-            Attach
+            {attachLabel}
           </button>
           {attachOpen && (
             <AttachPopover
