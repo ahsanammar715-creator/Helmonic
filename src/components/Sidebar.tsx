@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AudioWaveform, Settings } from "lucide-react";
 import { workspaces, recentThreads, founder, WorkspaceKey } from "@/lib/data";
+import SettingsPanel from "./SettingsPanel";
 
 function activeFromPath(pathname: string): WorkspaceKey | null {
   if (pathname.startsWith("/consult")) return "consult";
@@ -16,6 +18,7 @@ function activeFromPath(pathname: string): WorkspaceKey | null {
 export default function Sidebar() {
   const pathname = usePathname();
   const active = activeFromPath(pathname);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <nav className="hidden md:flex w-[280px] shrink-0 border-r border-line bg-surface flex-col justify-between px-5 py-6">
@@ -45,8 +48,7 @@ export default function Sidebar() {
                   }`}
                 >
                   <span
-                    className="w-[3px] h-[18px] rounded-sm"
-                    style={{ background: isActive ? "#1763FF" : "transparent" }}
+                    className={`w-[3px] h-[18px] rounded-sm ${isActive ? "bg-primary" : "bg-transparent"}`}
                   />
                   <span className="flex-1">{w.label}</span>
                   {w.badge && (
@@ -96,7 +98,18 @@ export default function Sidebar() {
             <span className="text-[13px]">{founder.name}</span>
             <span className="text-[11px] text-faint">{founder.role}</span>
           </div>
-          <Settings size={18} strokeWidth={1.6} className="text-muted hover:text-primary" />
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSettingsOpen((o) => !o)}
+              aria-expanded={settingsOpen}
+              aria-label="Settings"
+              className="text-muted hover:text-primary"
+            >
+              <Settings size={18} strokeWidth={1.6} />
+            </button>
+            {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+          </div>
         </div>
       </div>
     </nav>

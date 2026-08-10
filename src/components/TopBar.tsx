@@ -15,7 +15,7 @@ export default function TopBar({
   right?: React.ReactNode;
 }) {
   const isBuild = workspace === "build";
-  const accent = isBuild ? "#1AC8B4" : "#1763FF";
+  const accent = isBuild ? "var(--color-teal)" : "var(--color-primary)";
   const Icon = isBuild ? Wrench : MessageSquare;
 
   return (
@@ -27,7 +27,7 @@ export default function TopBar({
         <span
           className="inline-flex items-center justify-center w-[26px] h-[26px] rounded-md"
           style={{
-            background: isBuild ? "#E8F7F4" : "#F3F6FF",
+            background: isBuild ? "var(--color-teal-tint)" : "var(--color-primary-tint)",
             color: accent,
           }}
         >

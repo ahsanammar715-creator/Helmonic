@@ -1,33 +1,67 @@
 @import "tailwindcss";
 
 :root {
-  --background: #F8F9FA;
-  --foreground: #1E1E1E;
+  --canvas: #F8F9FA;
+  --surface: #FFFFFF;
+  --line: #E2E4E8;
+  --line-soft: #EEF0F3;
+  --ink: #1E1E1E;
+  --muted: #6B7280;
+  --faint: #9CA3AF;
+  --sub: #4B5563;
+  --primary: #1763FF;
+  --primary-hover: #0E4FD6;
+  --primary-tint: #F3F6FF;
+  --primary-tint-2: #F3F4F6;
+  --teal: #1AC8B4;
+  --teal-tint: #E8F7F4;
+  --warning: #B45309;
+  --success: #0E7C63;
+  --hero: #0C0D0D;
+  --overlay: rgba(12, 13, 13, 0.6);
+}
+
+:root.dark {
+  --canvas: #0B0D10;
+  --surface: #16191D;
+  --line: #262B31;
+  --line-soft: #1E2227;
+  --ink: #F2F3F5;
+  --muted: #9AA3AE;
+  --faint: #6B7480;
+  --sub: #C4CAD1;
+  --primary: #3D82FF;
+  --primary-hover: #6DA1FF;
+  --primary-tint: #182741;
+  --primary-tint-2: #1C2126;
+  --teal: #2FE0C8;
+  --teal-tint: #10302C;
+  --warning: #E8A33D;
+  --success: #34D399;
+  --hero: #0C0D0D;
+  --overlay: rgba(0, 0, 0, 0.75);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-sub: var(--sub);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-tint: var(--primary-tint);
+  --color-primary-tint-2: var(--primary-tint-2);
+  --color-teal: var(--teal);
+  --color-teal-tint: var(--teal-tint);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-hero: var(--hero);
+  --color-overlay: var(--overlay);
   --font-sans: var(--font-inter);
-
-  /* Helmonic v4 design tokens */
-  --color-canvas: #F8F9FA;
-  --color-surface: #FFFFFF;
-  --color-line: #E2E4E8;
-  --color-line-soft: #EEF0F3;
-  --color-ink: #1E1E1E;
-  --color-muted: #6B7280;
-  --color-faint: #9CA3AF;
-  --color-sub: #4B5563;
-  --color-primary: #1763FF;
-  --color-primary-hover: #0E4FD6;
-  --color-primary-tint: #F3F6FF;
-  --color-primary-tint-2: #F3F4F6;
-  --color-teal: #1AC8B4;
-  --color-teal-tint: #E8F7F4;
-  --color-warning: #B45309;
-  --color-success: #0E7C63;
-  --color-hero: #0C0D0D;
 
   --radius-md: 6px;
   --radius-lg: 8px;

@@ -109,10 +109,11 @@ export default function LandingPage() {
             </span>
             <span className="font-bold text-[16px] tracking-tight">Helmonic</span>
           </div>
-          <nav className="hidden sm:flex items-center gap-6 text-[13px] font-medium text-white/85">
-            <Link href="/consult" className="hover:text-white">Consult</Link>
-            <Link href="/build" className="hover:text-white">Build</Link>
-            <Link href="/socials/marketing" className="hover:text-white">Socials</Link>
+          <nav className="hidden sm:flex items-center gap-6 text-[13px] font-medium">
+            <Link href="/consult" className="text-white/85 hover:text-white">Consult</Link>
+            <Link href="/build" className="text-white/85 hover:text-white">Build</Link>
+            <Link href="/logistics" className="text-white/85 hover:text-white">Logistics</Link>
+            <Link href="/socials/marketing" className="text-white/85 hover:text-white">Socials</Link>
             <button
               onClick={() => setSignInOpen(true)}
               className="border border-white/30 rounded-md px-3.5 py-1.5 hover:border-white hover:text-white"
@@ -122,13 +123,20 @@ export default function LandingPage() {
           </nav>
         </header>
 
-        <main className="flex-1 flex flex-col justify-center px-6 md:px-10 py-8">
-          <div className="w-full max-w-[720px] flex flex-col gap-6">
+        <main className="flex-1 flex flex-col justify-center px-6 md:px-10 py-10">
+          <div className="w-full max-w-[780px] flex flex-col gap-7">
             <div className="flex flex-col gap-4">
-              <h1 className="m-0 font-extrabold text-[36px] sm:text-[46px] leading-[1.08] tracking-tight text-balance">
+              <span className="self-start flex items-center gap-2 border border-white/25 rounded-full pl-1.5 pr-3 py-1 text-[12px] font-medium text-white/85">
+                <span className="flex -space-x-1.5">
+                  <span className="w-4 h-4 rounded-full bg-primary border border-hero" />
+                  <span className="w-4 h-4 rounded-full bg-teal border border-hero" />
+                </span>
+                Powered by iAcoustics × Smart Studio
+              </span>
+              <h1 className="m-0 font-extrabold text-[36px] sm:text-[48px] leading-[1.08] tracking-tight text-balance">
                 Where industry insiders shape acoustic excellence.
               </h1>
-              <p className="m-0 text-[16px] leading-[1.6] text-white/80 max-w-[560px]">
+              <p className="m-0 text-[16px] leading-[1.6] text-white/80 max-w-[600px]">
                 One workspace for standards interpretation, acoustic surveys, studio design and
                 indicative build cost, with every figure traceable to its source.
               </p>
@@ -161,7 +169,7 @@ export default function LandingPage() {
                 <div className="absolute top-[calc(100%+10px)] left-0 right-0 sm:right-auto sm:w-[440px] bg-surface border border-line rounded-md shadow-xl p-4 flex flex-col gap-3 z-20 text-ink">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-[14px]">
-                      Where should Helbot use this prompt?
+                      Where should Helmonic use this prompt?
                     </span>
                     <button onClick={() => setChooserOpen(false)} className="text-muted hover:text-ink">
                       <X size={16} strokeWidth={1.8} />
@@ -207,10 +215,15 @@ export default function LandingPage() {
               </button>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-5 sm:gap-8 pt-2 border-t border-white/15 mt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
               {values.map(({ icon: Icon, title, body }) => (
-                <div key={title} className="flex items-start gap-2.5 max-w-[220px] pt-4">
-                  <Icon size={16} strokeWidth={1.7} className="text-white/70 shrink-0 mt-0.5" />
+                <div
+                  key={title}
+                  className="flex items-start gap-3 border border-white/15 bg-white/[0.04] backdrop-blur-sm rounded-md p-4"
+                >
+                  <span className="flex items-center justify-center w-8 h-8 rounded-md bg-teal/15 text-teal shrink-0">
+                    <Icon size={16} strokeWidth={1.8} />
+                  </span>
                   <div className="flex flex-col gap-0.5">
                     <span className="font-semibold text-[13px]">{title}</span>
                     <span className="text-[12px] leading-[1.5] text-white/65">{body}</span>
