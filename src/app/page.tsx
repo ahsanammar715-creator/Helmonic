@@ -5,8 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, X, Zap, ShieldCheck, Users, ChevronDown } from "lucide-react";
-import EqualizerIcon from "@/components/EqualizerIcon";
 import HelmonicMark from "@/components/HelmonicMark";
+import RippleEqualizer from "@/components/RippleEqualizer";
 
 const examples = [
   "Check this result against ISO 16283",
@@ -141,7 +141,7 @@ export default function LandingPage() {
 
             <div className="relative">
               <div className="flex items-center gap-3 bg-white/94 backdrop-blur rounded-md border border-white/40 px-4 py-3.5 shadow-lg">
-                <EqualizerIcon size={17} className="text-primary" />
+                <RippleEqualizer size={17} className="text-primary" />
                 <input
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
