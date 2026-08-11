@@ -65,8 +65,8 @@ export default function BuildBomPage() {
             <span>Isolation hardware</span>
             <span>€2 000,00</span>
           </div>
-          <div className="flex justify-between border-t border-line pt-1.5 font-bold text-[14px] text-primary">
-            <span>Indicative cost</span>
+          <div className="flex items-end justify-between border-t border-line pt-1.5 font-extrabold text-[18px] text-primary tabular-nums">
+            <span className="text-[12px] font-semibold text-sub pb-0.5">Indicative cost</span>
             <span>€26 900,00</span>
           </div>
         </div>

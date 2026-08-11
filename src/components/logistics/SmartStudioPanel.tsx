@@ -104,7 +104,7 @@ export default function SmartStudioPanel() {
                       >
                         <span className="font-semibold text-[13px]">{s.name}</span>
                         <span className="text-[12px] text-muted">{s.detail}</span>
-                        <span className="font-bold text-[16px] text-primary">{s.total}</span>
+                        <span className="font-extrabold text-[20px] text-primary tracking-tight tabular-nums">{s.total}</span>
                         <span className="text-[11px] text-faint">{s.cancellation}</span>
                       </button>
                     ))}
