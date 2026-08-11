@@ -3,6 +3,7 @@
 import { useSessionBoolean } from "@/lib/useSessionBoolean";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { sourcesCited } from "@/lib/data";
+import SourcesList from "@/components/SourcesList";
 
 export default function SourcesPanel({ defaultOpen = true }: { defaultOpen?: boolean }) {
   const [isOpen, setOpen] = useSessionBoolean("helmonic.sources", defaultOpen);
@@ -59,16 +60,7 @@ export default function SourcesPanel({ defaultOpen = true }: { defaultOpen?: boo
         </span>
       </div>
       <div className="flex-1 flex flex-col gap-3 px-[18px] py-4 overflow-auto">
-        {sourcesCited.map((s) => (
-          <div
-            key={s.title}
-            className="border border-line rounded-md bg-surface p-3.5 flex flex-col gap-1.5 hover:border-primary"
-          >
-            <div className="font-semibold text-[14px]">{s.title}</div>
-            <div className="text-[11px] text-faint tracking-[0.03em]">{s.meta}</div>
-            <div className="text-[12px] leading-[1.55] text-muted">{s.body}</div>
-          </div>
-        ))}
+        <SourcesList />
       </div>
       <div className="px-[18px] pb-5 text-[11px] text-faint text-center">
         Citations link back to the page they came from.

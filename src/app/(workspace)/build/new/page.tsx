@@ -6,7 +6,7 @@ import { Check, ChevronDown, X } from "lucide-react";
 import TopBar from "@/components/TopBar";
 import ChatComposer from "@/components/ChatComposer";
 import WaveDivider from "@/components/WaveDivider";
-import SourcesPanel from "@/components/SourcesPanel";
+import SourcesList from "@/components/SourcesList";
 import {
   roomUseOptions,
   roomSubtypes,
@@ -15,11 +15,13 @@ import {
   bomLines,
   costBreakdown,
   indicativeCostEur,
+  sourcesCited,
 } from "@/lib/data";
 import { useCurrency, formatCurrency, Currency } from "@/lib/currency";
 
 export default function BuildNewPage() {
   const [currency, setCurrency] = useCurrency();
+  const [panelTab, setPanelTab] = useState<"spec" | "sources">("spec");
   const [complete, setComplete] = useState(false);
   const [roomUse, setRoomUse] = useState(roomUseOptions[0]);
   const [floorArea, setFloorArea] = useState(floorAreas[4]);
@@ -270,85 +272,116 @@ export default function BuildNewPage() {
           </div>
 
           <div className="hidden lg:flex w-[380px] shrink-0 border-l border-line bg-surface flex-col min-w-0">
-            <div className="flex items-center justify-between px-5.5 py-4 border-b border-line">
-              <span className="text-[11px] font-semibold text-muted tracking-[0.09em]">
-                LIVE SPEC &amp; BILL OF MATERIALS
-              </span>
-              <span className="flex items-center gap-1.5">
-                {(["EUR", "GBP", "USD"] as Currency[]).map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setCurrency(c)}
-                    className={`rounded px-1.5 py-1 text-[10px] font-semibold ${
-                      currency === c
-                        ? "border border-primary text-primary"
-                        : "border border-line text-muted hover:border-primary hover:text-primary"
-                    }`}
-                  >
-                    {c === "EUR" ? "€ EUR" : c === "GBP" ? "£ GBP" : "$ USD"}
-                  </button>
-                ))}
-              </span>
+            <div className="flex items-center gap-1 px-5.5 pt-3.5 border-b border-line">
+              <button
+                onClick={() => setPanelTab("spec")}
+                className={`cursor-pointer px-1 pb-2.5 mr-4 text-[13px] font-semibold border-b-2 -mb-px ${
+                  panelTab === "spec" ? "border-primary text-ink" : "border-transparent text-muted hover:text-ink"
+                }`}
+              >
+                Live Spec &amp; BOM
+              </button>
+              <button
+                onClick={() => setPanelTab("sources")}
+                className={`cursor-pointer px-1 pb-2.5 text-[13px] font-semibold border-b-2 -mb-px flex items-center gap-1.5 ${
+                  panelTab === "sources" ? "border-primary text-ink" : "border-transparent text-muted hover:text-ink"
+                }`}
+              >
+                Sources
+                <span className="border border-line rounded px-1.5 py-0.5 text-[10px] font-semibold text-faint">
+                  {sourcesCited.length}
+                </span>
+              </button>
             </div>
-            <div className="flex-1 px-5.5 py-5 flex flex-col gap-1.5 min-h-0 overflow-auto">
-              {[
-                ["Floor area", floorArea],
-                ["Wall area", "96.8 m²"],
-                ["Wall build-up", "SS-W12 · 92 mm"],
-                ["Ceiling system", "SS-C3 isolated raft"],
-                ["Target DnT,w", "62 dB"],
-                ...(complete ? [["Additional rooms", rooms]] : []),
-              ].map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between py-2.5 border-b border-line text-[13px]">
-                  <span className="text-sub">{label}</span>
-                  <span className="font-semibold">{value}</span>
-                </div>
-              ))}
 
-              {!complete ? (
-                <div className="mt-3.5 border border-line rounded-md p-3.5 text-[12px] leading-[1.55] text-sub bg-canvas">
-                  Additional rooms not yet set, so the indicative cost covers the theatre only.
-                </div>
-              ) : (
-                <div className="mt-3 border border-line rounded-md overflow-hidden">
-                  <div className="grid grid-cols-[1.6fr_0.5fr_0.6fr] bg-primary-tint-2 text-[10px] font-semibold tracking-[0.06em] text-sub">
-                    <div className="px-2.5 py-2">ITEM</div>
-                    <div className="px-2.5 py-2 text-right">QTY</div>
-                    <div className="px-2.5 py-2">UNIT</div>
-                  </div>
-                  {bomLines.map((l) => (
-                    <div key={l.item} className="grid grid-cols-[1.6fr_0.5fr_0.6fr] border-t border-line text-[12px]">
-                      <div className="px-2.5 py-2">{l.item}</div>
-                      <div className="px-2.5 py-2 text-right">{l.qty}</div>
-                      <div className="px-2.5 py-2 text-muted">{l.unit}</div>
-                    </div>
-                  ))}
-                  <div className="border-t border-line px-2.5 py-2 text-[12px] text-primary bg-canvas">
-                    28 more lines
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-auto flex flex-col gap-2 border-t border-line pt-3.5">
-                {complete &&
-                  costBreakdown.map((c) => (
-                    <div key={c.label} className="flex items-center justify-between text-[12px] text-sub">
-                      <span>{c.label}</span>
-                      <span className="font-semibold">{formatCurrency(c.amountEur, currency)}</span>
-                    </div>
-                  ))}
-                <div className="flex items-center justify-between border-t border-line pt-2.5">
-                  <span className="text-[12px] text-muted">Indicative cost</span>
-                  <span className="font-bold text-[18px] text-primary">
-                    {formatCurrency(indicativeCostEur, currency)}
+            {panelTab === "spec" ? (
+              <>
+                <div className="flex items-center justify-end px-5.5 py-3 border-b border-line">
+                  <span className="flex items-center gap-1.5">
+                    {(["EUR", "GBP", "USD"] as Currency[]).map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => setCurrency(c)}
+                        className={`rounded px-1.5 py-1 text-[10px] font-semibold ${
+                          currency === c
+                            ? "border border-primary text-primary"
+                            : "border border-line text-muted hover:border-primary hover:text-primary"
+                        }`}
+                      >
+                        {c === "EUR" ? "€ EUR" : c === "GBP" ? "£ GBP" : "$ USD"}
+                      </button>
+                    ))}
                   </span>
                 </div>
-              </div>
-            </div>
+                <div className="flex-1 px-5.5 py-5 flex flex-col gap-1.5 min-h-0 overflow-auto">
+                  {[
+                    ["Floor area", floorArea],
+                    ["Wall area", "96.8 m²"],
+                    ["Wall build-up", "SS-W12 · 92 mm"],
+                    ["Ceiling system", "SS-C3 isolated raft"],
+                    ["Target DnT,w", "62 dB"],
+                    ...(complete ? [["Additional rooms", rooms]] : []),
+                  ].map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between py-2.5 border-b border-line text-[13px]">
+                      <span className="text-sub">{label}</span>
+                      <span className="font-semibold">{value}</span>
+                    </div>
+                  ))}
+
+                  {!complete ? (
+                    <div className="mt-3.5 border border-line rounded-md p-3.5 text-[12px] leading-[1.55] text-sub bg-canvas">
+                      Additional rooms not yet set, so the indicative cost covers the theatre only.
+                    </div>
+                  ) : (
+                    <div className="mt-3 border border-line rounded-md overflow-hidden">
+                      <div className="grid grid-cols-[1.6fr_0.5fr_0.6fr] bg-primary-tint-2 text-[10px] font-semibold tracking-[0.06em] text-sub">
+                        <div className="px-2.5 py-2">ITEM</div>
+                        <div className="px-2.5 py-2 text-right">QTY</div>
+                        <div className="px-2.5 py-2">UNIT</div>
+                      </div>
+                      {bomLines.map((l) => (
+                        <div key={l.item} className="grid grid-cols-[1.6fr_0.5fr_0.6fr] border-t border-line text-[12px]">
+                          <div className="px-2.5 py-2">{l.item}</div>
+                          <div className="px-2.5 py-2 text-right">{l.qty}</div>
+                          <div className="px-2.5 py-2 text-muted">{l.unit}</div>
+                        </div>
+                      ))}
+                      <div className="border-t border-line px-2.5 py-2 text-[12px] text-primary bg-canvas">
+                        28 more lines
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-auto flex flex-col gap-2 border-t border-line pt-3.5">
+                    {complete &&
+                      costBreakdown.map((c) => (
+                        <div key={c.label} className="flex items-center justify-between text-[12px] text-sub">
+                          <span>{c.label}</span>
+                          <span className="font-semibold">{formatCurrency(c.amountEur, currency)}</span>
+                        </div>
+                      ))}
+                    <div className="flex items-center justify-between border-t border-line pt-2.5">
+                      <span className="text-[12px] text-muted">Indicative cost</span>
+                      <span className="font-bold text-[18px] text-primary">
+                        {formatCurrency(indicativeCostEur, currency)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex-1 flex flex-col gap-3 px-5.5 py-4 overflow-auto">
+                  <SourcesList />
+                </div>
+                <div className="px-5.5 pb-5 text-[11px] text-faint text-center">
+                  Citations link back to the page they came from.
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
-      <SourcesPanel />
     </div>
   );
 }
