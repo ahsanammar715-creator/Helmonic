@@ -127,11 +127,8 @@ export default function LandingPage() {
         <main className="flex-1 flex flex-col justify-center px-6 md:px-10 py-10">
           <div className="w-full max-w-[780px] flex flex-col gap-7">
             <div className="flex flex-col gap-4">
-              <span className="self-start flex items-center gap-2 border border-white/25 rounded-full pl-1.5 pr-3 py-1 text-[12px] font-medium text-white/85">
-                <span className="flex -space-x-1.5">
-                  <span className="w-4 h-4 rounded-full bg-primary border border-hero" />
-                  <span className="w-4 h-4 rounded-full bg-teal border border-hero" />
-                </span>
+              <span className="self-start flex items-center gap-2 border border-white/25 rounded-full pl-3 pr-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/85">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal shrink-0" />
                 Powered by iAcoustics × Smart Studio
               </span>
               <h1 className="m-0 font-extrabold text-[36px] sm:text-[48px] leading-[1.08] tracking-tight text-balance">
