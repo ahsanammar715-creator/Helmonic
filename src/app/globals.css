@@ -120,6 +120,12 @@
   a:hover {
     color: var(--color-primary-hover);
   }
+
+  /* Tailwind's Preflight leaves buttons at the browser default (arrow)
+     cursor; every clickable button in this app should read as clickable. */
+  button:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
 @keyframes pulse-glow {
