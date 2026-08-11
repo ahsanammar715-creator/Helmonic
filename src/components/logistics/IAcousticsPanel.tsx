@@ -28,6 +28,8 @@ function StatusDot({ className }: { className: string }) {
   return <span className={`w-1.5 h-1.5 rounded-full ${className.split(" ")[0].replace("text-", "bg-")}`} />;
 }
 
+const COMPOSER_ID = "iacoustics-composer-input";
+
 export default function IAcousticsPanel() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [selected, setSelected] = useState<number | null>(null);
@@ -43,7 +45,7 @@ export default function IAcousticsPanel() {
                 Plan and cost iAcoustics site visits.
               </h3>
               <div className="w-[110px]">
-                <WaveDivider color="var(--color-primary)" />
+                <WaveDivider color="var(--color-amber)" />
               </div>
               <p className="m-0 text-[14px] text-muted max-w-[520px]">
                 Select an engagement and describe the visit. Helmonic researches transport and
@@ -51,7 +53,13 @@ export default function IAcousticsPanel() {
                 estimate, and tracks it from draft to actual cost.
               </p>
             </div>
-            <button className="shrink-0 flex items-center gap-1.5 rounded-md bg-primary text-white px-3.5 py-2.5 text-[13px] font-semibold hover:bg-primary-hover">
+            <button
+              onClick={() => {
+                setSelected(null);
+                document.getElementById(COMPOSER_ID)?.focus();
+              }}
+              className="shrink-0 flex items-center gap-1.5 rounded-md bg-amber text-white px-3.5 py-2.5 text-[13px] font-semibold hover:opacity-90"
+            >
               <Plus size={15} strokeWidth={2} />
               Create Logistics plan
             </button>
@@ -118,6 +126,7 @@ export default function IAcousticsPanel() {
         </div>
 
         <ChatComposer
+          inputId={COMPOSER_ID}
           placeholder={
             selected !== null
               ? `Describe the ${iAcousticsEngagements[selected].name.toLowerCase()} visit…`

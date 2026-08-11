@@ -3,9 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AudioWaveform, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import { workspaces, recentThreads, founder, WorkspaceKey } from "@/lib/data";
+import { workspaceTheme } from "@/lib/workspaceTheme";
 import SettingsPanel from "./SettingsPanel";
+import HelmonicMark from "./HelmonicMark";
 
 function activeFromPath(pathname: string): WorkspaceKey | null {
   if (pathname.startsWith("/consult")) return "consult";
@@ -24,9 +26,7 @@ export default function Sidebar() {
     <nav className="hidden md:flex w-[280px] shrink-0 border-r border-line bg-surface flex-col justify-between px-5 py-6">
       <div className="flex flex-col gap-7">
         <Link href="/" className="flex items-center gap-2.5">
-          <span className="flex items-center justify-center w-[26px] h-[26px] bg-primary rounded-md text-white">
-            <AudioWaveform size={15} strokeWidth={1.8} />
-          </span>
+          <HelmonicMark />
           <span className="font-bold text-[16px] tracking-tight">Helmonic</span>
         </Link>
 
@@ -37,18 +37,22 @@ export default function Sidebar() {
           <div className="flex flex-col gap-0.5">
             {workspaces.map((w) => {
               const isActive = w.key === active;
+              const { accent, tint } = workspaceTheme[w.key];
               return (
                 <Link
                   key={w.key}
                   href={w.href}
-                  className={`flex items-center gap-2.5 px-2.5 py-2.5 rounded-md ${
+                  style={{ "--wa": accent, "--wt": tint } as React.CSSProperties}
+                  className={`flex items-center gap-2.5 px-2.5 py-2.5 rounded-md transition-colors ${
                     isActive
-                      ? "bg-primary-tint-2 font-semibold text-primary"
-                      : "text-sub hover:bg-primary-tint-2"
+                      ? "bg-[var(--wt)] font-semibold text-[var(--wa)]"
+                      : "text-sub hover:bg-[var(--wt)] hover:text-[var(--wa)]"
                   }`}
                 >
                   <span
-                    className={`w-[3px] h-[18px] rounded-sm ${isActive ? "bg-primary" : "bg-transparent"}`}
+                    className={`w-[3px] h-[18px] rounded-sm transition-colors ${
+                      isActive ? "bg-[var(--wa)]" : "bg-transparent"
+                    }`}
                   />
                   <span className="flex-1">{w.label}</span>
                   {w.badge && (

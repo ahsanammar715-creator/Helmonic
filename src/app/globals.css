@@ -157,7 +157,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse-glow,
-  .eq-bar {
+  .eq-bar,
+  .animate-ping {
     animation: none;
   }
 }

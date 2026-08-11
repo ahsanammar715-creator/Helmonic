@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, X, Zap, ShieldCheck, Users, ChevronDown } from "lucide-react";
 import EqualizerIcon from "@/components/EqualizerIcon";
+import HelmonicMark from "@/components/HelmonicMark";
 
 const examples = [
   "Check this result against ISO 16283",
@@ -105,9 +106,7 @@ export default function LandingPage() {
       <div className="relative z-10 flex min-h-dvh flex-col">
         <header className="flex items-center justify-between px-6 md:px-10 py-5">
           <div className="flex items-center gap-2.5">
-            <span className="flex items-center justify-center w-[26px] h-[26px] bg-primary rounded-md text-white">
-              <EqualizerIcon size={14} />
-            </span>
+            <HelmonicMark />
             <span className="font-bold text-[16px] tracking-tight">Helmonic</span>
           </div>
           <nav className="hidden sm:flex items-center gap-6 text-[13px] font-medium">
