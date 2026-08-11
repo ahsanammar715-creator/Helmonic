@@ -1,4 +1,4 @@
-import { AudioWaveform } from "lucide-react";
+import { AudioLines } from "lucide-react";
 
 /** The plain Helmonic brand badge, used wherever the wordmark appears (sidebar, headers). */
 export default function HelmonicMark({ size = 26, iconSize = 15 }: { size?: number; iconSize?: number }) {
@@ -11,7 +11,7 @@ export default function HelmonicMark({ size = 26, iconSize = 15 }: { size?: numb
         background: "linear-gradient(135deg, var(--color-primary), var(--color-violet))",
       }}
     >
-      <AudioWaveform size={iconSize} strokeWidth={2} />
+      <AudioLines size={iconSize} strokeWidth={2} />
     </span>
   );
 }
