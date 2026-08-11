@@ -10,12 +10,14 @@ export default function ChatComposer({
   onSend,
   disabled = false,
   attachLabel = "Attach",
+  inputId,
 }: {
   placeholder: string;
   helper?: string;
   onSend?: (value: string) => void;
   disabled?: boolean;
   attachLabel?: string;
+  inputId?: string;
 }) {
   const [value, setValue] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
@@ -69,6 +71,7 @@ export default function ChatComposer({
           )}
         </div>
         <input
+          id={inputId}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
