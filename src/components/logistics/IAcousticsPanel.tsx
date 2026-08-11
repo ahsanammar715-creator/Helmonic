@@ -58,7 +58,7 @@ export default function IAcousticsPanel() {
                 setSelected(null);
                 document.getElementById(COMPOSER_ID)?.focus();
               }}
-              className="shrink-0 flex items-center gap-1.5 rounded-md bg-amber text-white px-3.5 py-2.5 text-[13px] font-semibold hover:opacity-90"
+              className="shrink-0 flex items-center gap-1.5 rounded-md bg-primary text-white px-3.5 py-2.5 text-[13px] font-semibold hover:bg-primary-hover"
             >
               <Plus size={15} strokeWidth={2} />
               Create Logistics plan
