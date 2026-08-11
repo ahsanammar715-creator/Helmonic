@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AudioWaveform, ArrowRight, X, Zap, ShieldCheck, Users, ChevronDown } from "lucide-react";
+import { ArrowRight, X, Zap, ShieldCheck, Users, ChevronDown } from "lucide-react";
+import EqualizerIcon from "@/components/EqualizerIcon";
 
 const examples = [
   "Check this result against ISO 16283",
@@ -74,7 +75,7 @@ export default function LandingPage() {
   }, []);
 
   function submitPrompt() {
-    if (!prompt.trim()) return;
+    if (!prompt.trim()) setPrompt(examples[exampleIndex]);
     setChooserOpen(true);
   }
 
@@ -105,7 +106,7 @@ export default function LandingPage() {
         <header className="flex items-center justify-between px-6 md:px-10 py-5">
           <div className="flex items-center gap-2.5">
             <span className="flex items-center justify-center w-[26px] h-[26px] bg-primary rounded-md text-white">
-              <AudioWaveform size={15} strokeWidth={1.8} />
+              <EqualizerIcon size={14} />
             </span>
             <span className="font-bold text-[16px] tracking-tight">Helmonic</span>
           </div>
@@ -126,11 +127,8 @@ export default function LandingPage() {
         <main className="flex-1 flex flex-col justify-center px-6 md:px-10 py-10">
           <div className="w-full max-w-[780px] flex flex-col gap-7">
             <div className="flex flex-col gap-4">
-              <span className="self-start flex items-center gap-2 border border-white/25 rounded-full pl-1.5 pr-3 py-1 text-[12px] font-medium text-white/85">
-                <span className="flex -space-x-1.5">
-                  <span className="w-4 h-4 rounded-full bg-primary border border-hero" />
-                  <span className="w-4 h-4 rounded-full bg-teal border border-hero" />
-                </span>
+              <span className="self-start flex items-center gap-2 border border-white/25 rounded-full pl-3 pr-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/85">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal shrink-0" />
                 Powered by iAcoustics × Smart Studio
               </span>
               <h1 className="m-0 font-extrabold text-[36px] sm:text-[48px] leading-[1.08] tracking-tight text-balance">
@@ -144,11 +142,7 @@ export default function LandingPage() {
 
             <div className="relative">
               <div className="flex items-center gap-3 bg-white/94 backdrop-blur rounded-md border border-white/40 px-4 py-3.5 shadow-lg">
-                <AudioWaveform
-                  size={17}
-                  strokeWidth={1.8}
-                  className="text-primary shrink-0 animate-pulse-glow"
-                />
+                <EqualizerIcon size={17} className="text-primary" />
                 <input
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
@@ -296,17 +290,17 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="flex-1 flex flex-col gap-3.5 p-6 md:p-7 overflow-auto">
-              <h3 className="m-0 font-bold text-[20px] tracking-tight">Founders&rsquo; Vision</h3>
+              <h3 className="m-0 font-bold text-[20px] leading-tight tracking-tight">
+                Thirty years of rooms, in one place your team can actually use.
+              </h3>
               <div className="w-[120px] h-[2px] bg-primary" />
               <p className="m-0 text-[14px] leading-[1.65] text-sub">
-                Helmonic exists because two companies I built kept solving the same problem twice
-                – iAcoustics interpreting a standard, Smart Studio applying it on site. Putting
-                them in one workspace means a consultant&rsquo;s finding and a builder&rsquo;s
-                spec are never more than one thread apart, and every answer carries the source it
-                came from back to the client.
-              </p>
-              <p className="m-0 text-[14px] italic text-sub">
-                &ldquo;Great rooms sound right the first time.&rdquo; – Jim Dunne
+                Helmonic exists because good acoustic work is still passed around as folklore, a
+                spreadsheet here, a decade-old report there. We wanted the insider knowledge that
+                shapes great rooms available the moment a decision gets made, not weeks later.
+                iAcoustics brings the measurement discipline. Smart Studio brings the delivery
+                craft. Together they give consultants, builders and clients one source of truth,
+                cited and auditable, so every room sounds right the first time.
               </p>
               <button
                 onClick={() => setVisionOpen(false)}

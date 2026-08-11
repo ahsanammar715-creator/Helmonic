@@ -120,6 +120,12 @@
   a:hover {
     color: var(--color-primary-hover);
   }
+
+  /* Tailwind's Preflight leaves buttons at the browser default (arrow)
+     cursor; every clickable button in this app should read as clickable. */
+  button:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
 @keyframes pulse-glow {
@@ -137,8 +143,21 @@
   animation: pulse-glow 2.4s ease-in-out infinite;
 }
 
+@keyframes eq-bounce {
+  0%, 100% { transform: scaleY(0.25); }
+  50% { transform: scaleY(1); }
+}
+
+.eq-bar {
+  transform-origin: bottom;
+  animation-name: eq-bounce;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-pulse-glow {
+  .animate-pulse-glow,
+  .eq-bar {
     animation: none;
   }
 }

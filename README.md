@@ -1,5 +1,7 @@
 # Helmonic
 
+[![CI](https://github.com/ahsanammar715-creator/Helmonic/actions/workflows/ci.yml/badge.svg)](https://github.com/ahsanammar715-creator/Helmonic/actions/workflows/ci.yml)
+
 This repository contains the **approved Helmonic frontend / UI implementation** — a
 Next.js application implementing the Helmonic v4 product design (landing page, Consult,
 Build, Logistics, and Socials workspaces). It runs entirely on **local/mock application

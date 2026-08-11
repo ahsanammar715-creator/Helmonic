@@ -25,7 +25,7 @@ export default function LogisticsPage() {
       <div className="flex items-center gap-1 px-6 md:px-10 pt-4 border-b border-line">
         <button
           onClick={() => setTab("smartStudio")}
-          className={`px-3.5 py-2.5 text-[13px] font-semibold border-b-2 -mb-px flex items-center gap-1.5 ${
+          className={`cursor-pointer px-3.5 py-2.5 text-[13px] font-semibold border-b-2 -mb-px flex items-center gap-1.5 ${
             tab === "smartStudio" ? "border-amber text-ink" : "border-transparent text-muted hover:text-ink"
           }`}
         >
@@ -36,7 +36,7 @@ export default function LogisticsPage() {
         </button>
         <button
           onClick={() => setTab("iAcoustics")}
-          className={`px-3.5 py-2.5 text-[13px] font-semibold border-b-2 -mb-px flex items-center gap-1.5 ${
+          className={`cursor-pointer px-3.5 py-2.5 text-[13px] font-semibold border-b-2 -mb-px flex items-center gap-1.5 ${
             tab === "iAcoustics" ? "border-amber text-ink" : "border-transparent text-muted hover:text-ink"
           }`}
         >

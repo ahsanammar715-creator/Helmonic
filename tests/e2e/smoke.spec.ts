@@ -41,6 +41,12 @@ test.describe("key interactive flows", () => {
     await expect(page).toHaveURL(/\/consult\/new$/);
   });
 
+  test("landing: Try a prompt still works with nothing typed (uses the shown example)", async ({ page }) => {
+    await page.goto("/");
+    await page.getByText("Try a prompt").click();
+    await expect(page.getByText("Where should Helmonic use this prompt?")).toBeVisible();
+  });
+
   test("landing: Founders' Vision opens and closes the modal", async ({ page }) => {
     await page.goto("/");
     await page.getByText(/Founders.{1,2}Vision/).first().click();
