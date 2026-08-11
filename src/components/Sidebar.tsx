@@ -27,7 +27,7 @@ export default function Sidebar() {
       <div className="flex flex-col gap-7">
         <Link href="/" className="flex items-center gap-2.5">
           <HelmonicMark />
-          <span className="font-bold text-[16px] tracking-tight">Helmonic</span>
+          <span className="font-semibold text-[16px] tracking-tight">Helmonic</span>
         </Link>
 
         <div className="flex flex-col gap-2.5">

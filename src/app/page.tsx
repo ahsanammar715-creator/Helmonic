@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, X, Zap, ShieldCheck, Users, ChevronDown } from "lucide-react";
 import HelmonicMark from "@/components/HelmonicMark";
-import RippleEqualizer from "@/components/RippleEqualizer";
+import RadiatingMark from "@/components/RadiatingMark";
 
 const examples = [
   "Check this result against ISO 16283",
@@ -107,7 +107,7 @@ export default function LandingPage() {
         <header className="flex items-center justify-between px-6 md:px-10 py-5">
           <div className="flex items-center gap-2.5">
             <HelmonicMark />
-            <span className="font-bold text-[16px] tracking-tight">Helmonic</span>
+            <span className="font-semibold text-[16px] tracking-tight text-white/90">Helmonic</span>
           </div>
           <nav className="hidden sm:flex items-center gap-6 text-[13px] font-medium">
             <Link href="/consult" className="text-white/85 hover:text-white">Consult</Link>
@@ -141,7 +141,7 @@ export default function LandingPage() {
 
             <div className="relative">
               <div className="flex items-center gap-3 bg-white/94 backdrop-blur rounded-md border border-white/40 px-4 py-3.5 shadow-lg">
-                <RippleEqualizer size={17} className="text-primary" />
+                <RadiatingMark size={26} />
                 <input
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
