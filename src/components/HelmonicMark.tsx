@@ -4,10 +4,14 @@ import { AudioWaveform } from "lucide-react";
 export default function HelmonicMark({ size = 26, iconSize = 15 }: { size?: number; iconSize?: number }) {
   return (
     <span
-      className="flex items-center justify-center bg-primary rounded-md text-white shrink-0"
-      style={{ width: size, height: size }}
+      className="flex items-center justify-center rounded-xl text-white shrink-0"
+      style={{
+        width: size,
+        height: size,
+        background: "linear-gradient(135deg, var(--color-primary), var(--color-violet))",
+      }}
     >
-      <AudioWaveform size={iconSize} strokeWidth={1.8} />
+      <AudioWaveform size={iconSize} strokeWidth={2} />
     </span>
   );
 }
