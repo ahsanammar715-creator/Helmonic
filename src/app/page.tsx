@@ -141,7 +141,7 @@ export default function LandingPage() {
 
             <div className="relative">
               <div className="flex items-center gap-3 bg-white/94 backdrop-blur rounded-md border border-white/40 px-4 py-3.5 shadow-lg">
-                <RippleEqualizer size={17} className="text-primary" />
+                <RippleEqualizer size={26} />
                 <input
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
