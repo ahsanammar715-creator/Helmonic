@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, X, Zap, ShieldCheck, Users, ChevronDown } from "lucide-react";
 import HelmonicMark from "@/components/HelmonicMark";
+import RadiatingMark from "@/components/RadiatingMark";
 
 const examples = [
   "Check this result against ISO 16283",
@@ -140,7 +141,7 @@ export default function LandingPage() {
 
             <div className="relative">
               <div className="flex items-center gap-3 bg-white/94 backdrop-blur rounded-md border border-white/40 px-4 py-3.5 shadow-lg">
-                <HelmonicMark size={26} />
+                <RadiatingMark size={26} />
                 <input
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
