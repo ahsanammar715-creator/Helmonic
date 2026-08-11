@@ -155,10 +155,26 @@
   animation-iteration-count: infinite;
 }
 
+@keyframes radiate-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.radiate-ring {
+  animation: radiate-ring 2.4s ease-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse-glow,
   .eq-bar,
-  .animate-ping {
+  .animate-ping,
+  .radiate-ring {
     animation: none;
   }
 }

@@ -6,8 +6,9 @@ export default function RippleEqualizer({ size = 26 }: { size?: number }) {
       className="relative inline-flex items-center justify-center shrink-0"
       style={{ width: size + pad, height: size + pad, margin: -pad / 2 }}
     >
-      <span className="absolute inset-0 rounded-full border border-primary animate-ping [animation-duration:2.2s]" />
-      <span className="absolute inset-0 rounded-full border border-primary animate-ping [animation-duration:2.2s] [animation-delay:1.1s]" />
+      <span className="absolute inset-0 rounded-full border-2 border-primary radiate-ring [animation-delay:0s]" />
+      <span className="absolute inset-0 rounded-full border-2 border-primary radiate-ring [animation-delay:0.8s]" />
+      <span className="absolute inset-0 rounded-full border-2 border-primary radiate-ring [animation-delay:1.6s]" />
       <span
         className="relative z-10 rounded-full shrink-0 animate-pulse-glow"
         style={{
