@@ -19,6 +19,7 @@ export default function EmptyStateShell({
   actionHref,
   actionLabel,
   composerPlaceholder,
+  showSources = true,
 }: {
   workspace: WorkspaceKey;
   title: string;
@@ -31,6 +32,7 @@ export default function EmptyStateShell({
   actionHref: string;
   actionLabel: string;
   composerPlaceholder: string;
+  showSources?: boolean;
 }) {
   const icons = [Search, FileText, LineChart];
   const { accent, tint } = workspaceTheme[workspace];
@@ -93,7 +95,7 @@ export default function EmptyStateShell({
         </div>
         <ChatComposer placeholder={composerPlaceholder} disabled />
       </div>
-      <SourcesPanel />
+      {showSources && <SourcesPanel />}
     </div>
   );
 }

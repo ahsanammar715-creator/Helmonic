@@ -6,6 +6,7 @@ import { Check, ChevronDown, X } from "lucide-react";
 import TopBar from "@/components/TopBar";
 import ChatComposer from "@/components/ChatComposer";
 import WaveDivider from "@/components/WaveDivider";
+import SourcesPanel from "@/components/SourcesPanel";
 import {
   roomUseOptions,
   roomSubtypes,
@@ -347,6 +348,7 @@ export default function BuildNewPage() {
           </div>
         </div>
       </div>
+      <SourcesPanel />
     </div>
   );
 }
