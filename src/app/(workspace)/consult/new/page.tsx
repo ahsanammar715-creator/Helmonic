@@ -7,7 +7,7 @@ import TopBar from "@/components/TopBar";
 import ChatComposer from "@/components/ChatComposer";
 import WaveDivider from "@/components/WaveDivider";
 import { UserBubble, AssistantBubble } from "@/components/ChatBubble";
-import WhatThisCreates from "@/components/WhatThisCreates";
+import SourcesPanel from "@/components/SourcesPanel";
 import { siteTypes, surveyTypes, parsedRows } from "@/lib/data";
 
 type Stage = "start" | "criteria" | "review";
@@ -322,15 +322,7 @@ export default function ConsultNewProjectPage() {
           />
         </div>
       </div>
-      {stage !== "start" && (
-        <WhatThisCreates
-          footer={
-            stage === "review"
-              ? "Creating the project also opens the Section 4 draft in Consult, with every figure traceable to a source."
-              : "Nothing is locked in. Criteria, targets and files stay editable in this thread after the project is created."
-          }
-        />
-      )}
+      {stage !== "start" && <SourcesPanel />}
     </div>
   );
 }

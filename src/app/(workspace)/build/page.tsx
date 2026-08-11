@@ -17,6 +17,7 @@ export default function BuildPage() {
       actionHref="/build/new"
       actionLabel="New studio build"
       composerPlaceholder="Ask Helmonic about this build…"
+      showSources={false}
     />
   );
 }
