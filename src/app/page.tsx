@@ -293,17 +293,17 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="flex-1 flex flex-col gap-3.5 p-6 md:p-7 overflow-auto">
-              <h3 className="m-0 font-bold text-[20px] tracking-tight">Founders&rsquo; Vision</h3>
+              <h3 className="m-0 font-bold text-[20px] leading-tight tracking-tight">
+                Thirty years of rooms, in one place your team can actually use.
+              </h3>
               <div className="w-[120px] h-[2px] bg-primary" />
               <p className="m-0 text-[14px] leading-[1.65] text-sub">
-                Helmonic exists because two companies I built kept solving the same problem twice
-                – iAcoustics interpreting a standard, Smart Studio applying it on site. Putting
-                them in one workspace means a consultant&rsquo;s finding and a builder&rsquo;s
-                spec are never more than one thread apart, and every answer carries the source it
-                came from back to the client.
-              </p>
-              <p className="m-0 text-[14px] italic text-sub">
-                &ldquo;Great rooms sound right the first time.&rdquo; – Jim Dunne
+                Helmonic exists because good acoustic work is still passed around as folklore, a
+                spreadsheet here, a decade-old report there. We wanted the insider knowledge that
+                shapes great rooms available the moment a decision gets made, not weeks later.
+                iAcoustics brings the measurement discipline. Smart Studio brings the delivery
+                craft. Together they give consultants, builders and clients one source of truth,
+                cited and auditable, so every room sounds right the first time.
               </p>
               <button
                 onClick={() => setVisionOpen(false)}
