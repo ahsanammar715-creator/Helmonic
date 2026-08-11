@@ -80,7 +80,9 @@ export default function LeadGenerationPage() {
                       <span className="border border-line rounded px-2 py-1 text-sub">
                         {f.value} {f.label}
                       </span>
-                      {i < leadFunnel.length - 1 && <ArrowRight size={11} className="text-faint" />}
+                      {i < leadFunnel.length - 1 && (
+                        <ArrowRight size={12} strokeWidth={1.8} className="text-faint" />
+                      )}
                     </span>
                   ))}
                 </div>

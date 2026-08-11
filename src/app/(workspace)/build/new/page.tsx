@@ -360,9 +360,9 @@ export default function BuildNewPage() {
                           <span className="font-semibold">{formatCurrency(c.amountEur, currency)}</span>
                         </div>
                       ))}
-                    <div className="flex items-center justify-between border-t border-line pt-2.5">
-                      <span className="text-[12px] text-muted">Indicative cost</span>
-                      <span className="font-bold text-[18px] text-primary">
+                    <div className="flex items-end justify-between border-t border-line pt-2.5">
+                      <span className="text-[12px] text-muted pb-0.5">Indicative cost</span>
+                      <span className="font-extrabold text-[26px] text-primary tracking-tight tabular-nums">
                         {formatCurrency(indicativeCostEur, currency)}
                       </span>
                     </div>
