@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, ChevronLeft, Check, MapPin, Plus } from "lucide-react";
+import { ChevronRight, ChevronLeft, Check, MapPin } from "lucide-react";
 import ChatComposer from "@/components/ChatComposer";
 import WaveDivider from "@/components/WaveDivider";
 import { UserBubble, AssistantBubble } from "@/components/ChatBubble";
@@ -9,46 +9,27 @@ import { logisticsPrompts, logisticsMissingQuestions, logisticsScenarios } from 
 
 type Stage = "empty" | "missing" | "scenarios" | "approved";
 
-const COMPOSER_ID = "smartstudio-composer-input";
-
 export default function SmartStudioPanel() {
   const [stage, setStage] = useState<Stage>("empty");
   const [panelOpen, setPanelOpen] = useState(true);
   const [selected, setSelected] = useState(0);
 
-  function startNewPlan() {
-    setStage("empty");
-    setSelected(0);
-    document.getElementById(COMPOSER_ID)?.focus();
-  }
-
   return (
     <div className="flex h-full min-w-0">
       <div className="flex-1 flex flex-col min-w-0 bg-canvas">
         <div className="flex-1 px-6 md:px-10 pt-6 flex flex-col gap-4 overflow-auto">
-          <div className="flex items-start justify-between gap-4 max-w-[820px]">
-            <div className="flex flex-col gap-1.5">
-              <h3 className="m-0 font-bold text-[24px] tracking-tight">
-                Plan travel and site mobilisation.
-              </h3>
-              <div className="w-[110px]">
-                <WaveDivider color="var(--color-amber)" />
-              </div>
-              <p className="m-0 text-[14px] text-muted">
-                Describe the trip in plain language. Helmonic asks only for what is missing,
-                researches transport and accommodation, and links the approved estimate to the
-                project budget.
-              </p>
+          <div className="flex flex-col gap-1.5 max-w-[640px]">
+            <h3 className="m-0 font-bold text-[24px] tracking-tight">
+              Plan travel and site mobilisation.
+            </h3>
+            <div className="w-[110px]">
+              <WaveDivider color="var(--color-amber)" />
             </div>
-            <button
-              onClick={startNewPlan}
-              disabled={stage === "empty"}
-              title={stage === "empty" ? "Describe a trip below to start a plan" : undefined}
-              className="shrink-0 flex items-center gap-1.5 rounded-md bg-primary text-white px-3.5 py-2.5 text-[13px] font-semibold hover:bg-primary-hover disabled:opacity-40 disabled:pointer-events-none"
-            >
-              <Plus size={15} strokeWidth={2} />
-              New travel plan
-            </button>
+            <p className="m-0 text-[14px] text-muted">
+              Describe the trip in plain language. Helmonic asks only for what is missing,
+              researches transport and accommodation, and links the approved estimate to the
+              project budget.
+            </p>
           </div>
 
           {stage === "empty" && (
@@ -165,7 +146,6 @@ export default function SmartStudioPanel() {
         </div>
 
         <ChatComposer
-          inputId={COMPOSER_ID}
           placeholder="Describe the trip, or answer Helmonic's question…"
           helper="All monetary values default to EUR. Estimates are indicative until booked."
           onSend={() => setStage("missing")}

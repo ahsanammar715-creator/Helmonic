@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, ChevronLeft, BookOpen, Plus } from "lucide-react";
+import { ChevronRight, ChevronLeft, BookOpen } from "lucide-react";
 import ChatComposer from "@/components/ChatComposer";
 import WaveDivider from "@/components/WaveDivider";
 import {
@@ -28,8 +28,6 @@ function StatusDot({ className }: { className: string }) {
   return <span className={`w-1.5 h-1.5 rounded-full ${className.split(" ")[0].replace("text-", "bg-")}`} />;
 }
 
-const COMPOSER_ID = "iacoustics-composer-input";
-
 export default function IAcousticsPanel() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [selected, setSelected] = useState<number | null>(null);
@@ -39,32 +37,18 @@ export default function IAcousticsPanel() {
     <div className="flex h-full min-w-0">
       <div className="flex-1 flex flex-col min-w-0 bg-canvas">
         <div className="flex-1 px-6 md:px-10 pt-6 flex flex-col gap-4 overflow-auto">
-          <div className="flex items-start justify-between gap-4 max-w-[900px]">
-            <div className="flex flex-col gap-1.5">
-              <h3 className="m-0 font-bold text-[22px] tracking-tight">
-                Plan and cost iAcoustics site visits.
-              </h3>
-              <div className="w-[110px]">
-                <WaveDivider color="var(--color-amber)" />
-              </div>
-              <p className="m-0 text-[14px] text-muted max-w-[520px]">
-                Select an engagement and describe the visit. Helmonic researches transport and
-                accommodation for consultants doing measurement and survey work, builds a cost
-                estimate, and tracks it from draft to actual cost.
-              </p>
+          <div className="flex flex-col gap-1.5 max-w-[900px]">
+            <h3 className="m-0 font-bold text-[22px] tracking-tight">
+              Plan and cost iAcoustics site visits.
+            </h3>
+            <div className="w-[110px]">
+              <WaveDivider color="var(--color-amber)" />
             </div>
-            <button
-              onClick={() => {
-                setSelected(null);
-                document.getElementById(COMPOSER_ID)?.focus();
-              }}
-              disabled={selected === null}
-              title={selected === null ? "Select an engagement first to start a new plan" : undefined}
-              className="shrink-0 flex items-center gap-1.5 rounded-md bg-primary text-white px-3.5 py-2.5 text-[13px] font-semibold hover:bg-primary-hover disabled:opacity-40 disabled:pointer-events-none"
-            >
-              <Plus size={15} strokeWidth={2} />
-              Create Logistics plan
-            </button>
+            <p className="m-0 text-[14px] text-muted max-w-[520px]">
+              Select an engagement and describe the visit. Helmonic researches transport and
+              accommodation for consultants doing measurement and survey work, builds a cost
+              estimate, and tracks it from draft to actual cost.
+            </p>
           </div>
 
           <div className="border border-line rounded-md bg-surface overflow-hidden max-w-[900px]">
@@ -128,7 +112,6 @@ export default function IAcousticsPanel() {
         </div>
 
         <ChatComposer
-          inputId={COMPOSER_ID}
           placeholder={
             selected !== null
               ? `Describe the ${iAcousticsEngagements[selected].name.toLowerCase()} visit…`
