@@ -322,7 +322,7 @@ export default function ConsultNewProjectPage() {
           />
         </div>
       </div>
-      {stage !== "start" && <SourcesPanel />}
+      <SourcesPanel />
     </div>
   );
 }
