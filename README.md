@@ -33,6 +33,10 @@ state**: there is no backend, database, or live API behind it yet.
 - Logistics (conversational trip planning, scenario comparison, budget-linked approval)
 - Socials → Marketing (conversation + collapsible Drafts panel, version history)
 - Socials → Lead Generation (research funnel, ranked list, company intelligence panel)
+- Socials → Tender Intelligence (iAcoustics, Irish market only — scans mock tender
+  notices, ranks fit, and separates tender facts/evidence from Helmonic analysis in a
+  right-side panel; "Send to Consult" hands a selected opportunity to Consult's
+  new-project flow)
 - Responsive/mobile behaviour (sidebar collapses to a bottom tab bar, side panels hide)
 - All flows above are interactive, driven by local React state and mock data — nothing
   is persisted or sent to a server
@@ -99,7 +103,7 @@ src/app/                    Next.js App Router routes
     consult/                 Consult workspace (empty state, new-project flow, report)
     build/                   Build workspace (empty state, cost estimator, BOM sheet)
     logistics/                Logistics workspace
-    socials/                  Socials workspace (Marketing, Lead Generation)
+    socials/                  Socials workspace (Marketing, Lead Generation, Tender Intelligence)
 src/components/              Shared UI: Sidebar, TopBar, SourcesPanel, chat bubbles, etc.
 src/lib/                     Mock data (src/lib/data.ts) and small shared hooks
 public/images/                Static assets (hero photo)
