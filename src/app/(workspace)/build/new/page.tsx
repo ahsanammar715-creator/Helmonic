@@ -295,9 +295,10 @@ export default function BuildNewPage() {
                 </span>
               </button>
               <button
+                type="button"
                 onClick={() => setPanelOpen(false)}
                 aria-label="Collapse panel"
-                className="ml-auto mb-2.5 flex items-center justify-center w-6 h-6 border border-line rounded-md bg-surface text-sub cursor-pointer hover:border-primary hover:text-primary"
+                className="ml-auto mb-2.5 flex items-center justify-center w-6 h-6 border border-line rounded-md bg-surface text-sub cursor-pointer hover:border-primary hover:text-primary focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
               >
                 <ChevronRight size={14} strokeWidth={1.8} />
               </button>
@@ -394,7 +395,7 @@ export default function BuildNewPage() {
             <button
               onClick={() => setPanelOpen(true)}
               aria-label="Expand panel"
-              className="flex items-center justify-center w-7 h-7 border border-line rounded-md bg-surface text-primary cursor-pointer hover:border-primary hover:bg-primary-tint-2"
+              className="flex items-center justify-center w-7 h-7 border border-line rounded-md bg-surface text-primary cursor-pointer hover:border-primary hover:bg-primary-tint-2 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
             >
               <ChevronLeft size={14} strokeWidth={1.8} />
             </button>

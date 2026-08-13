@@ -42,7 +42,9 @@ export default function SmartStudioPanel() {
             </div>
             <button
               onClick={startNewPlan}
-              className="shrink-0 flex items-center gap-1.5 rounded-md bg-primary text-white px-3.5 py-2.5 text-[13px] font-semibold hover:bg-primary-hover"
+              disabled={stage === "empty"}
+              title={stage === "empty" ? "Describe a trip below to start a plan" : undefined}
+              className="shrink-0 flex items-center gap-1.5 rounded-md bg-primary text-white px-3.5 py-2.5 text-[13px] font-semibold hover:bg-primary-hover disabled:opacity-40 disabled:pointer-events-none"
             >
               <Plus size={15} strokeWidth={2} />
               New travel plan
@@ -174,8 +176,13 @@ export default function SmartStudioPanel() {
           <div className="hidden lg:flex w-[380px] shrink-0 border-l border-line bg-surface flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-line">
               <span className="flex items-center gap-2 text-[11px] font-semibold text-muted tracking-[0.09em]">
-                <button onClick={() => setPanelOpen(false)} aria-label="Collapse travel plan" className="text-sub hover:text-primary">
-                  <ChevronRight size={15} strokeWidth={1.8} />
+                <button
+                  type="button"
+                  onClick={() => setPanelOpen(false)}
+                  aria-label="Collapse travel plan"
+                  className="flex items-center justify-center w-6 h-6 border border-line rounded-md bg-surface text-sub cursor-pointer hover:border-primary hover:text-primary focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                >
+                  <ChevronRight size={14} strokeWidth={1.8} />
                 </button>
                 TRAVEL PLAN
               </span>
@@ -242,7 +249,7 @@ export default function SmartStudioPanel() {
             <button
               onClick={() => setPanelOpen(true)}
               aria-label="Expand travel plan"
-              className="flex items-center justify-center w-7 h-7 border border-line rounded-md text-primary hover:border-primary hover:bg-primary-tint-2"
+              className="flex items-center justify-center w-7 h-7 border border-line rounded-md bg-surface text-primary cursor-pointer hover:border-primary hover:bg-primary-tint-2 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
             >
               <ChevronLeft size={14} strokeWidth={1.8} />
             </button>
