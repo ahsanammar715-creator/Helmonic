@@ -58,7 +58,9 @@ export default function IAcousticsPanel() {
                 setSelected(null);
                 document.getElementById(COMPOSER_ID)?.focus();
               }}
-              className="shrink-0 flex items-center gap-1.5 rounded-md bg-primary text-white px-3.5 py-2.5 text-[13px] font-semibold hover:bg-primary-hover"
+              disabled={selected === null}
+              title={selected === null ? "Select an engagement first to start a new plan" : undefined}
+              className="shrink-0 flex items-center gap-1.5 rounded-md bg-primary text-white px-3.5 py-2.5 text-[13px] font-semibold hover:bg-primary-hover disabled:opacity-40 disabled:pointer-events-none"
             >
               <Plus size={15} strokeWidth={2} />
               Create Logistics plan

@@ -42,7 +42,9 @@ export default function SmartStudioPanel() {
             </div>
             <button
               onClick={startNewPlan}
-              className="shrink-0 flex items-center gap-1.5 rounded-md bg-primary text-white px-3.5 py-2.5 text-[13px] font-semibold hover:bg-primary-hover"
+              disabled={stage === "empty"}
+              title={stage === "empty" ? "Describe a trip below to start a plan" : undefined}
+              className="shrink-0 flex items-center gap-1.5 rounded-md bg-primary text-white px-3.5 py-2.5 text-[13px] font-semibold hover:bg-primary-hover disabled:opacity-40 disabled:pointer-events-none"
             >
               <Plus size={15} strokeWidth={2} />
               New travel plan
