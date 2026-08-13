@@ -140,16 +140,19 @@ export default function IAcousticsPanel() {
       {panelOpen ? (
         <div className="hidden lg:flex w-[380px] shrink-0 border-l border-line bg-surface flex-col">
           <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-            <button
-              onClick={() => setPanelOpen(false)}
-              aria-label="Collapse logistics plan"
-              className="flex items-center gap-2 text-sub hover:text-primary"
-            >
-              <ChevronRight size={15} strokeWidth={1.8} />
+            <span className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPanelOpen(false)}
+                aria-label="Collapse logistics plan"
+                className="flex items-center justify-center w-6 h-6 border border-line rounded-md bg-surface text-sub cursor-pointer hover:border-primary hover:text-primary focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+              >
+                <ChevronRight size={14} strokeWidth={1.8} />
+              </button>
               <span className="text-[11px] font-semibold tracking-[0.09em] text-muted">
                 LOGISTICS PLAN &amp; COST DRAFT
               </span>
-            </button>
+            </span>
             <span className="text-[11px] text-faint">Updated just now</span>
           </div>
           <div className="flex-1 px-5 py-4 flex flex-col min-h-0">
@@ -183,7 +186,7 @@ export default function IAcousticsPanel() {
           <button
             onClick={() => setPanelOpen(true)}
             aria-label="Expand logistics plan"
-            className="flex items-center justify-center w-7 h-7 border border-line rounded-md text-primary hover:border-primary hover:bg-primary-tint-2"
+            className="flex items-center justify-center w-7 h-7 border border-line rounded-md bg-surface text-primary cursor-pointer hover:border-primary hover:bg-primary-tint-2 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
           >
             <ChevronLeft size={14} strokeWidth={1.8} />
           </button>
