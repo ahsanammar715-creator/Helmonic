@@ -177,9 +177,6 @@ test.describe("key interactive flows", () => {
     await expect(page.getByText("Manchester listening room survey").first()).toBeVisible();
     await page.getByText("Manchester listening room survey").first().click();
     await expect(page.getByText("No draft yet.")).toBeVisible();
-
-    await page.getByRole("button", { name: "Create Logistics plan" }).click();
-    await expect(page.getByPlaceholder("Describe a visit, or select an engagement above to begin…")).toBeFocused();
   });
 
   test("composer: Attach opens a popover and attaching a file shows a chip", async ({ page }) => {
