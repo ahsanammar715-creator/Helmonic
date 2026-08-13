@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import TopBar from "@/components/TopBar";
 import ChatComposer from "@/components/ChatComposer";
 import WaveDivider from "@/components/WaveDivider";
@@ -22,6 +22,7 @@ import { useCurrency, formatCurrency, Currency } from "@/lib/currency";
 export default function BuildNewPage() {
   const [currency, setCurrency] = useCurrency();
   const [panelTab, setPanelTab] = useState<"spec" | "sources">("spec");
+  const [panelOpen, setPanelOpen] = useState(true);
   const [complete, setComplete] = useState(false);
   const [roomUse, setRoomUse] = useState(roomUseOptions[0]);
   const [floorArea, setFloorArea] = useState(floorAreas[4]);
@@ -271,6 +272,7 @@ export default function BuildNewPage() {
             />
           </div>
 
+          {panelOpen ? (
           <div className="hidden lg:flex w-[380px] shrink-0 border-l border-line bg-surface flex-col min-w-0">
             <div className="flex items-center gap-1 px-5.5 pt-3.5 border-b border-line">
               <button
@@ -291,6 +293,13 @@ export default function BuildNewPage() {
                 <span className="border border-line rounded px-1.5 py-0.5 text-[10px] font-semibold text-faint">
                   {sourcesCited.length}
                 </span>
+              </button>
+              <button
+                onClick={() => setPanelOpen(false)}
+                aria-label="Collapse panel"
+                className="ml-auto mb-2.5 flex items-center justify-center w-6 h-6 border border-line rounded-md bg-surface text-sub cursor-pointer hover:border-primary hover:text-primary"
+              >
+                <ChevronRight size={14} strokeWidth={1.8} />
               </button>
             </div>
 
@@ -380,6 +389,23 @@ export default function BuildNewPage() {
               </>
             )}
           </div>
+          ) : (
+          <div className="hidden lg:flex w-11 shrink-0 border-l border-line bg-surface flex-col items-center gap-3.5 py-3.5">
+            <button
+              onClick={() => setPanelOpen(true)}
+              aria-label="Expand panel"
+              className="flex items-center justify-center w-7 h-7 border border-line rounded-md bg-surface text-primary cursor-pointer hover:border-primary hover:bg-primary-tint-2"
+            >
+              <ChevronLeft size={14} strokeWidth={1.8} />
+            </button>
+            <span
+              className="text-[11px] font-semibold text-sub tracking-[0.09em]"
+              style={{ writingMode: "vertical-rl" }}
+            >
+              {panelTab === "spec" ? "LIVE SPEC & BOM" : `SOURCES · ${sourcesCited.length}`}
+            </span>
+          </div>
+          )}
         </div>
       </div>
     </div>
