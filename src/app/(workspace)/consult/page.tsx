@@ -17,6 +17,7 @@ export default function ConsultPage() {
       actionHref="/consult/new"
       actionLabel="New project"
       composerPlaceholder="Ask Helmonic about this project…"
+      showSources={false}
     />
   );
 }
