@@ -113,7 +113,7 @@ export default function LandingPage() {
             <Link href="/consult" className="text-white/85 hover:text-white">Consult</Link>
             <Link href="/build" className="text-white/85 hover:text-white">Build</Link>
             <Link href="/logistics" className="text-white/85 hover:text-white">Logistics</Link>
-            <Link href="/socials/marketing" className="text-white/85 hover:text-white">Socials</Link>
+            <Link href="/growth/marketing" className="text-white/85 hover:text-white">Growth</Link>
             <button
               onClick={() => setSignInOpen(true)}
               className="border border-white/30 rounded-md px-3.5 py-1.5 hover:border-white hover:text-white"

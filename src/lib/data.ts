@@ -1,10 +1,10 @@
-export type WorkspaceKey = "consult" | "build" | "logistics" | "socials";
+export type WorkspaceKey = "consult" | "build" | "logistics" | "growth";
 
 export const workspaces: { key: WorkspaceKey; label: string; badge?: string; href: string }[] = [
   { key: "consult", label: "Consult", badge: "iA", href: "/consult" },
   { key: "build", label: "Build", badge: "SS", href: "/build" },
   { key: "logistics", label: "Logistics", href: "/logistics" },
-  { key: "socials", label: "Socials", href: "/socials/marketing" },
+  { key: "growth", label: "Growth", href: "/growth/marketing" },
 ];
 
 export const recentThreads = [
@@ -289,5 +289,260 @@ export const priorityLeads = [
     economicBuyer: "CFO",
     technicalBuyer: "Studio Manager",
     analysis: "Excellent long-term target, but limited evidence of an immediate facility investment.",
+  },
+];
+
+export const tenderSuggestions = [
+  "Scan Irish acoustic consultancy tenders",
+  "Find noise and environmental tenders closing in the next 30 days",
+  "Show public-sector tenders with strong iAcoustics fit",
+  "Find opportunities involving planning, environmental noise or building acoustics",
+];
+
+export const tenderScanSteps = [
+  "Searching approved tender sources",
+  "Checking acoustic and environmental relevance",
+  "Reading eligibility requirements",
+  "Reviewing deadlines and scope",
+  "Ranking opportunities",
+];
+
+export const tenderFunnel = [
+  { label: "Notices scanned", value: 58 },
+  { label: "Acoustic/environmental relevant", value: 19 },
+  { label: "Eligible for iAcoustics", value: 11 },
+  { label: "Strong fit", value: 6 },
+];
+
+export type TenderStatus = "New" | "Review" | "Shortlisted" | "Not pursuing";
+export type TenderFitBand = "High" | "Medium" | "Low";
+
+export const tenders: {
+  id: string;
+  title: string;
+  buyer: string;
+  category: string;
+  location: string;
+  deadline: string;
+  fitScore: number;
+  fitBand: TenderFitBand;
+  status: TenderStatus;
+  scope: string;
+  whyItFits: string[];
+  mandatoryRequirements: string[];
+  keyDates: { label: string; date: string }[];
+  risks: string[];
+  source: { name: string; meta: string; note: string };
+  analysis: string;
+}[] = [
+  {
+    id: "T-2026-014",
+    title: "Environmental Noise Impact Assessment – N7 Corridor Upgrade",
+    buyer: "Transport Infrastructure Ireland",
+    category: "Environmental noise",
+    location: "Kildare",
+    deadline: "18 Sep 2026",
+    fitScore: 91,
+    fitBand: "High",
+    status: "New",
+    scope:
+      "Baseline and predictive noise modelling along a 14 km road corridor, construction-phase monitoring plan, and a mitigation report referencing TII noise guidelines.",
+    whyItFits: [
+      "Matches iAcoustics' road and infrastructure noise track record",
+      "Multi-year monitoring plan suits an ongoing consultancy relationship",
+      "Above-threshold contract value justifies the bid effort",
+    ],
+    mandatoryRequirements: [
+      "Member of the Institute of Acoustics or equivalent",
+      "Minimum 3 comparable road-scheme noise assessments in the last 5 years",
+      "Professional indemnity insurance ≥ €2.5m",
+    ],
+    keyDates: [
+      { label: "Clarifications close", date: "28 Aug 2026" },
+      { label: "Submission deadline", date: "18 Sep 2026" },
+      { label: "Contract award (indicative)", date: "Nov 2026" },
+    ],
+    risks: [
+      "Construction-phase monitoring implies a multi-year commitment, not a single report.",
+      "Corridor spans two local authority areas – confirm which noise policy applies.",
+    ],
+    source: {
+      name: "eTenders notice 2026/TII/0447",
+      meta: "Published 4 Aug 2026",
+      note: "Open procedure, above EU threshold. Full tender pack available on eTenders.",
+    },
+    analysis:
+      "Strong fit: directly matches iAcoustics' road and infrastructure noise track record. The multi-year monitoring scope should be resourced before pursuing, not assumed as a one-off report.",
+  },
+  {
+    id: "T-2026-021",
+    title: "Acoustic Design Consultancy – Cork City Library Refurbishment",
+    buyer: "Cork City Council",
+    category: "Building acoustics",
+    location: "Cork",
+    deadline: "5 Oct 2026",
+    fitScore: 84,
+    fitBand: "High",
+    status: "Review",
+    scope:
+      "Room acoustics and sound insulation design for a public library refurbishment, including reading rooms, a public event space and mechanical plant noise control.",
+    whyItFits: [
+      "Direct room-acoustics and sound insulation design scope",
+      "Public-building acoustic design experience already held",
+      "High-visibility civic reference project",
+    ],
+    mandatoryRequirements: [
+      "RIAI or equivalent design-team registration to tender as sub-consultant",
+      "Evidence of at least 2 completed public-building acoustic designs",
+    ],
+    keyDates: [
+      { label: "Site visit (optional)", date: "22 Aug 2026" },
+      { label: "Submission deadline", date: "5 Oct 2026" },
+    ],
+    risks: [
+      "Tender is issued to the lead architect, not directly to acoustic consultants – requires a design-team partnership.",
+    ],
+    source: {
+      name: "eTenders notice 2026/CCC/1188",
+      meta: "Published 29 Jul 2026",
+      note: "Restricted procedure via the appointed lead architect's design team.",
+    },
+    analysis:
+      "Good technical fit, but iAcoustics cannot submit directly – pursuing this requires first confirming a design-team partnership with the lead architect before a bid is possible.",
+  },
+  {
+    id: "T-2026-009",
+    title: "Environmental Noise Monitoring Framework 2026–2029",
+    buyer: "Environmental Protection Agency",
+    category: "Environmental noise",
+    location: "National (Ireland)",
+    deadline: "30 Aug 2026",
+    fitScore: 76,
+    fitBand: "Medium",
+    status: "New",
+    scope:
+      "Multi-supplier framework for ambient and industrial noise monitoring call-off contracts across licensed facilities nationally, drawn down as individual work orders.",
+    whyItFits: [
+      "National monitoring accreditation already held",
+      "Framework place gives durable, multi-year visibility",
+      "Aligns with iAcoustics' existing UKAS/INAB methodology",
+    ],
+    mandatoryRequirements: [
+      "UKAS/INAB-accredited measurement methodology",
+      "Demonstrated national site coverage or a documented subcontracting plan",
+    ],
+    keyDates: [
+      { label: "Submission deadline", date: "30 Aug 2026" },
+      { label: "Framework term", date: "4 years, call-off basis" },
+    ],
+    risks: [
+      "Framework place does not guarantee work volume – call-offs are competed separately.",
+      "National coverage requirement may need a subcontracting arrangement outside Dublin/Cork.",
+    ],
+    source: {
+      name: "eTenders notice 2026/EPA/0212",
+      meta: "Published 12 Jul 2026",
+      note: "Open procedure, multi-supplier framework, above EU threshold.",
+    },
+    analysis:
+      "Fit is real but indirect: a framework place is a route to future work, not a contract in itself. Worth pursuing only if the call-off volume history from the outgoing framework can be checked first.",
+  },
+  {
+    id: "T-2026-033",
+    title: "Acoustic & Vibration Assessment – Data Centre Planning Application",
+    buyer: "Private developer (via planning consultant)",
+    category: "Planning support",
+    location: "Dublin",
+    deadline: "12 Sep 2026",
+    fitScore: 68,
+    fitBand: "Medium",
+    status: "Review",
+    scope:
+      "Noise and vibration assessment supporting a data centre planning application, including plant noise modelling and a submission to satisfy An Bord Pleanála conditions.",
+    whyItFits: [
+      "Plant noise modelling matches a core iAcoustics capability",
+      "Live private-sector lead, fast-moving",
+      "Planning-condition experience is a differentiator versus generalist consultancies",
+    ],
+    mandatoryRequirements: [
+      "Experience with An Bord Pleanála noise conditions for industrial/data centre planning",
+    ],
+    keyDates: [
+      { label: "Proposal deadline", date: "12 Sep 2026" },
+      { label: "Planning submission target", date: "Q1 2027" },
+    ],
+    risks: [
+      "Private tender, not on eTenders – terms and payment schedule need direct negotiation.",
+    ],
+    source: {
+      name: "Direct enquiry via planning consultant",
+      meta: "Received 6 Aug 2026",
+      note: "Private-sector approach, not a public procurement notice.",
+    },
+    analysis:
+      "Reasonable fit and a live private-sector lead, but it arrived outside the normal tender scan – confirm scope and fee expectations directly before treating it as qualified.",
+  },
+  {
+    id: "T-2026-041",
+    title: "Sound Insulation Testing – Social Housing Programme, Phase 3",
+    buyer: "Galway County Council",
+    category: "Building acoustics",
+    location: "Galway",
+    deadline: "25 Sep 2026",
+    fitScore: 58,
+    fitBand: "Low",
+    status: "New",
+    scope:
+      "Pre-completion sound insulation testing across 140 social housing units delivered in four phases, reporting against Part E / Technical Guidance Document E.",
+    whyItFits: [
+      "Routine ISO 16283 testing, well within existing capability",
+      "Steady, predictable volume of work across four phases",
+    ],
+    mandatoryRequirements: [
+      "UKAS-accredited testing to ISO 16283",
+      "Availability across four delivery phases over 18 months",
+    ],
+    keyDates: [{ label: "Submission deadline", date: "25 Sep 2026" }],
+    risks: [
+      "Volume-testing framework at public-sector rates – margin is thin compared to consultancy work.",
+    ],
+    source: {
+      name: "eTenders notice 2026/GCC/0356",
+      meta: "Published 1 Aug 2026",
+      note: "Open procedure, below EU threshold.",
+    },
+    analysis:
+      "Within capability but a low strategic fit: routine compliance testing at competitive public rates, with little consultancy upside. Lower priority unless capacity is otherwise idle.",
+  },
+  {
+    id: "T-2026-018",
+    title: "Noise Impact Assessment – Windfarm Extension",
+    buyer: "Private energy developer",
+    category: "Environmental noise",
+    location: "Donegal",
+    deadline: "9 Sep 2026",
+    fitScore: 72,
+    fitBand: "Medium",
+    status: "Not pursuing",
+    scope:
+      "Environmental noise impact assessment for a 12-turbine windfarm extension, supporting a planning application under the Wind Energy Development Guidelines.",
+    whyItFits: [
+      "IOA windfarm assessment methodology already in use",
+      "Would diversify iAcoustics into renewable-energy noise work",
+    ],
+    mandatoryRequirements: [
+      "Experience with IOA Good Practice Guide windfarm noise assessment",
+    ],
+    keyDates: [{ label: "Proposal deadline", date: "9 Sep 2026" }],
+    risks: [
+      "Outside iAcoustics' current geographic service area without a local site presence.",
+    ],
+    source: {
+      name: "Direct enquiry via developer",
+      meta: "Received 3 Aug 2026",
+      note: "Private-sector approach, not a public procurement notice.",
+    },
+    analysis:
+      "Technically feasible, but travel and site-visit costs from the nearest office make this uneconomic against the private windfarm sector's typical fee levels. Marked not pursuing on that basis.",
   },
 ];

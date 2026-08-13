@@ -2,21 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MessageSquare, Wrench, Truck, Share2 } from "lucide-react";
+import { MessageSquare, Wrench, Truck, TrendingUp } from "lucide-react";
 import { WorkspaceKey } from "@/lib/data";
 
 const items: { key: WorkspaceKey; label: string; href: string; icon: React.ElementType }[] = [
   { key: "consult", label: "Consult", href: "/consult", icon: MessageSquare },
   { key: "build", label: "Build", href: "/build", icon: Wrench },
   { key: "logistics", label: "Logistics", href: "/logistics", icon: Truck },
-  { key: "socials", label: "Socials", href: "/socials/marketing", icon: Share2 },
+  { key: "growth", label: "Growth", href: "/growth/marketing", icon: TrendingUp },
 ];
 
 function activeFromPath(pathname: string): WorkspaceKey | null {
   if (pathname.startsWith("/consult")) return "consult";
   if (pathname.startsWith("/build")) return "build";
   if (pathname.startsWith("/logistics")) return "logistics";
-  if (pathname.startsWith("/socials")) return "socials";
+  if (pathname.startsWith("/growth")) return "growth";
   return null;
 }
 
