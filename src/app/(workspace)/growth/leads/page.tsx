@@ -217,7 +217,7 @@ export default function LeadGenerationPage() {
                   </div>
 
                   <Link
-                    href="/socials/marketing"
+                    href="/growth/marketing"
                     className="mt-auto rounded-md bg-primary text-white px-3.5 py-2.5 text-[13px] font-semibold text-center hover:bg-primary-hover"
                   >
                     Prepare outreach

@@ -13,7 +13,7 @@ function activeFromPath(pathname: string): WorkspaceKey | null {
   if (pathname.startsWith("/consult")) return "consult";
   if (pathname.startsWith("/build")) return "build";
   if (pathname.startsWith("/logistics")) return "logistics";
-  if (pathname.startsWith("/socials")) return "socials";
+  if (pathname.startsWith("/growth")) return "growth";
   return null;
 }
 

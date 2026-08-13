@@ -9,9 +9,9 @@ const routes = [
   "/build/new",
   "/build/bom",
   "/logistics",
-  "/socials/marketing",
-  "/socials/leads",
-  "/socials/tenders",
+  "/growth/marketing",
+  "/growth/leads",
+  "/growth/tenders",
 ];
 
 test.describe("route smoke test", () => {
@@ -105,23 +105,23 @@ test.describe("key interactive flows", () => {
     await expect(page.getByText(/BOM generated/)).toBeVisible();
   });
 
-  test("socials: lead generation research reveals the ranked list and company panel", async ({ page }) => {
-    await page.goto("/socials/leads");
+  test("growth: lead generation research reveals the ranked list and company panel", async ({ page }) => {
+    await page.goto("/growth/leads");
     await page.getByText("Research Berlin").click();
     await expect(page.getByText("Berlin research complete.")).toBeVisible({ timeout: 5000 });
     await page.getByText("Example Post GmbH").click();
     await expect(page.getByText("Prepare outreach")).toBeVisible();
   });
 
-  test("socials: Tender Intelligence tab is reachable from Marketing and Leads", async ({ page }) => {
-    await page.goto("/socials/marketing");
+  test("growth: Tender Intelligence tab is reachable from Marketing and Leads", async ({ page }) => {
+    await page.goto("/growth/marketing");
     await page.getByRole("link", { name: "Tender Intelligence" }).click();
-    await expect(page).toHaveURL(/\/socials\/tenders$/);
+    await expect(page).toHaveURL(/\/growth\/tenders$/);
     await expect(page.getByText("Find the tenders worth pursuing.")).toBeVisible();
   });
 
-  test("socials: Tender Intelligence scans, lists results, and opens the intelligence panel", async ({ page }) => {
-    await page.goto("/socials/tenders");
+  test("growth: Tender Intelligence scans, lists results, and opens the intelligence panel", async ({ page }) => {
+    await page.goto("/growth/tenders");
     await expect(page.getByText("Find the tenders worth pursuing.")).toBeVisible();
 
     await page.getByText("Scan Irish acoustic consultancy tenders").click();
@@ -147,12 +147,12 @@ test.describe("key interactive flows", () => {
     await expect(page.getByRole("link", { name: "Build" })).toBeVisible();
   });
 
-  test("mobile: Tender Intelligence renders with the Socials sub-nav", async ({ page }) => {
+  test("mobile: Tender Intelligence renders with the Growth sub-nav", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/socials/tenders");
+    await page.goto("/growth/tenders");
     await expect(page.getByRole("link", { name: "Tender Intelligence" })).toBeVisible();
     await expect(page.getByText("Find the tenders worth pursuing.")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Socials" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Growth" })).toBeVisible();
   });
 
   test("settings: dark mode toggle applies the .dark class and persists", async ({ page }) => {

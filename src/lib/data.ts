@@ -1,10 +1,10 @@
-export type WorkspaceKey = "consult" | "build" | "logistics" | "socials";
+export type WorkspaceKey = "consult" | "build" | "logistics" | "growth";
 
 export const workspaces: { key: WorkspaceKey; label: string; badge?: string; href: string }[] = [
   { key: "consult", label: "Consult", badge: "iA", href: "/consult" },
   { key: "build", label: "Build", badge: "SS", href: "/build" },
   { key: "logistics", label: "Logistics", href: "/logistics" },
-  { key: "socials", label: "Socials", href: "/socials/marketing" },
+  { key: "growth", label: "Growth", href: "/growth/marketing" },
 ];
 
 export const recentThreads = [
