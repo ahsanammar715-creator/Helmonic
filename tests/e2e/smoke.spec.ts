@@ -105,6 +105,18 @@ test.describe("key interactive flows", () => {
     await expect(page.getByText(/BOM generated/)).toBeVisible();
   });
 
+  test("growth: exactly Marketing, Lead Generation and Tender Intelligence tabs exist", async ({ page }) => {
+    await page.goto("/growth/marketing");
+    await expect(page.getByRole("link", { name: "Marketing" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Lead Generation" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Tender Intelligence" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Planning" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Consult" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Build" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Logistics" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Growth" })).toBeVisible();
+  });
+
   test("growth: lead generation research reveals the ranked list and company panel", async ({ page }) => {
     await page.goto("/growth/leads");
     await page.getByText("Research Berlin").click();
@@ -113,16 +125,60 @@ test.describe("key interactive flows", () => {
     await expect(page.getByText("Prepare outreach")).toBeVisible();
   });
 
+  test("growth: lead generation switches between Smart Studio and iAcoustics Planning Signals", async ({ page }) => {
+    await page.goto("/growth/leads");
+    await expect(page.getByText("Find the companies worth approaching.")).toBeVisible();
+
+    await page.getByRole("button", { name: "iAcoustics" }).click();
+    await expect(page.getByText("Find projects that are starting to need acoustic expertise.")).toBeVisible();
+
+    await page.getByRole("button", { name: "Smart Studio" }).click();
+    await expect(page.getByText("Find the companies worth approaching.")).toBeVisible();
+  });
+
+  test("growth: Planning Signals scans, lists results, and separates source facts from analysis", async ({ page }) => {
+    await page.goto("/growth/leads");
+    await page.getByRole("button", { name: "iAcoustics" }).click();
+
+    await page.getByText("Scan Irish planning projects for acoustic RFIs").click();
+    await expect(page.getByText("Scanning Irish planning activity…")).toBeVisible();
+    await expect(page.getByText("Scan complete.")).toBeVisible({ timeout: 5000 });
+
+    await expect(page.getByText("Blackrock Health & Wellness Hub")).toBeVisible();
+    await page.getByText("Blackrock Health & Wellness Hub").click();
+
+    await expect(page.getByText("ACOUSTIC TRIGGER")).toBeVisible();
+    await expect(page.getByText("SOURCE EVIDENCE")).toBeVisible();
+    await expect(page.getByText("PARTIES INVOLVED", { exact: true })).toBeVisible();
+    await expect(page.getByText("Helmonic analysis ·", { exact: false })).toBeVisible();
+
+    await page.getByRole("button", { name: "Review opportunity" }).click();
+    await expect(page.getByRole("button", { name: "Under review" })).toBeDisabled();
+  });
+
   test("growth: Tender Intelligence tab is reachable from Marketing and Leads", async ({ page }) => {
     await page.goto("/growth/marketing");
     await page.getByRole("link", { name: "Tender Intelligence" }).click();
     await expect(page).toHaveURL(/\/growth\/tenders$/);
-    await expect(page.getByText("Find the tenders worth pursuing.")).toBeVisible();
+    await expect(page.getByText("Find the Irish tenders worth pursuing.")).toBeVisible();
+  });
+
+  test("growth: Tender Intelligence communicates Ireland-wide, multi-source coverage", async ({ page }) => {
+    await page.goto("/growth/tenders");
+    await expect(page.getByText("IACOUSTICS · IRELAND-WIDE")).toBeVisible();
+    await expect(page.getByText(/eTenders, TED, local authorities and public bodies/)).toBeVisible();
+
+    await page.getByText("Scan Irish acoustic consultancy tenders").click();
+    await expect(page.getByText("Scan complete.")).toBeVisible({ timeout: 5000 });
+
+    await expect(page.getByText("SOURCE", { exact: true })).toBeVisible();
+    await expect(page.getByText("OPW", { exact: true })).toBeVisible();
+    await expect(page.getByText("Local Authority").first()).toBeVisible();
   });
 
   test("growth: Tender Intelligence scans, lists results, and opens the intelligence panel", async ({ page }) => {
     await page.goto("/growth/tenders");
-    await expect(page.getByText("Find the tenders worth pursuing.")).toBeVisible();
+    await expect(page.getByText("Find the Irish tenders worth pursuing.")).toBeVisible();
 
     await page.getByText("Scan Irish acoustic consultancy tenders").click();
     await expect(page.getByText("Scanning Irish tender sources…")).toBeVisible();
@@ -151,7 +207,7 @@ test.describe("key interactive flows", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/growth/tenders");
     await expect(page.getByRole("link", { name: "Tender Intelligence" })).toBeVisible();
-    await expect(page.getByText("Find the tenders worth pursuing.")).toBeVisible();
+    await expect(page.getByText("Find the Irish tenders worth pursuing.")).toBeVisible();
     await expect(page.getByRole("link", { name: "Growth" })).toBeVisible();
   });
 
