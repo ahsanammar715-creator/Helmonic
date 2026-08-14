@@ -55,16 +55,17 @@ export default function TenderIntelligencePage() {
                   iA
                 </span>
                 <span className="text-[11px] font-semibold text-faint tracking-[0.08em]">
-                  IACOUSTICS · IRELAND
+                  IACOUSTICS · IRELAND-WIDE
                 </span>
               </div>
               <h3 className="m-0 font-bold text-[24px] tracking-tight">
-                Find the tenders worth pursuing.
+                Find the Irish tenders worth pursuing.
               </h3>
               <p className="m-0 text-[14px] text-muted">
-                Helmonic scans Irish tender notices for acoustic, noise and environmental
-                consultancy opportunities, checks eligibility and deadlines, and ranks fit so the
-                team can focus on the ones worth a proposal.
+                Helmonic scans public procurement across Ireland – eTenders, TED, local
+                authorities and public bodies like the OPW – for acoustic, noise and
+                environmental consultancy opportunities, checks eligibility and deadlines, and
+                ranks fit so the team can focus on the ones worth a proposal.
               </p>
               <div className="flex flex-col gap-2">
                 {tenderSuggestions.map((s) => (
@@ -114,10 +115,11 @@ export default function TenderIntelligencePage() {
                 </div>
               </AssistantBubble>
 
-              <div className="border border-line rounded-md bg-surface overflow-hidden">
-                <div className="grid grid-cols-[1.5fr_1fr_0.5fr_0.75fr_0.8fr_1.3fr] bg-primary-tint-2 text-[10px] font-semibold tracking-[0.05em] text-sub">
+              <div className="border border-line rounded-md bg-surface overflow-hidden overflow-x-auto">
+                <div className="grid grid-cols-[1.4fr_0.9fr_0.75fr_0.5fr_0.7fr_0.75fr_1.2fr] bg-primary-tint-2 text-[10px] font-semibold tracking-[0.05em] text-sub min-w-[880px]">
                   <div className="px-3 py-2.5">TENDER</div>
                   <div className="px-2 py-2.5">BUYER</div>
+                  <div className="px-2 py-2.5">SOURCE</div>
                   <div className="px-2 py-2.5">FIT</div>
                   <div className="px-2 py-2.5">LOCATION</div>
                   <div className="px-2 py-2.5">DEADLINE</div>
@@ -127,7 +129,7 @@ export default function TenderIntelligencePage() {
                   <button
                     key={t.id}
                     onClick={() => setSelected(i)}
-                    className={`w-full grid grid-cols-[1.5fr_1fr_0.5fr_0.75fr_0.8fr_1.3fr] border-t border-line-soft text-[12px] text-left items-center ${
+                    className={`w-full grid grid-cols-[1.4fr_0.9fr_0.75fr_0.5fr_0.7fr_0.75fr_1.2fr] min-w-[880px] border-t border-line-soft text-[12px] text-left items-center ${
                       selected === i ? "bg-primary-tint-2" : "hover:bg-canvas"
                     }`}
                   >
@@ -136,6 +138,7 @@ export default function TenderIntelligencePage() {
                       <div className="text-faint text-[11px] truncate">{t.category}</div>
                     </div>
                     <div className="px-2 py-2.5 text-sub truncate">{t.buyer}</div>
+                    <div className="px-2 py-2.5 text-sub truncate">{t.sourceSystem}</div>
                     <div className={`px-2 py-2.5 font-semibold ${fitBandStyle[t.fitBand]}`}>
                       {t.fitScore}
                     </div>
@@ -200,6 +203,7 @@ export default function TenderIntelligencePage() {
                       Closes {tender.deadline}
                     </span>
                     <span className="border border-line rounded px-2 py-1 text-sub">{tender.category}</span>
+                    <span className="border border-line rounded px-2 py-1 text-sub">{tender.sourceSystem}</span>
                     <StatusPill status={tender.status} />
                   </div>
 
