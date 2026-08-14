@@ -32,11 +32,17 @@ state**: there is no backend, database, or live API behind it yet.
 - Build (empty state, in-chat cost estimator with live spec/BOM, Export BOM, printable BOM sheet)
 - Logistics (conversational trip planning, scenario comparison, budget-linked approval)
 - Growth → Marketing (conversation + collapsible Drafts panel, version history)
-- Growth → Lead Generation (research funnel, ranked list, company intelligence panel)
-- Growth → Tender Intelligence (iAcoustics, Irish market only — scans mock tender
-  notices, ranks fit, and separates tender facts/evidence from Helmonic analysis in a
-  right-side panel; "Send to Consult" hands a selected opportunity to Consult's
-  new-project flow)
+- Growth → Lead Generation, split into two internal business-line modes:
+  - Smart Studio (European/Smart Studio lead research — research funnel, ranked list,
+    company intelligence panel)
+  - iAcoustics Planning Signals (Ireland-first — scans mock Irish planning activity via
+    BuildingInfo for acoustic RFIs and noise-related planning conditions, ranks fit, and
+    separates the source fact — e.g. "Acoustic Trigger" — from Helmonic's analysis and
+    the parties involved, including the architect)
+- Growth → Tender Intelligence (iAcoustics, Ireland-wide public procurement — scans mock
+  tender notices from eTenders, TED, local authorities and public bodies like the OPW,
+  ranks fit, and separates tender facts/evidence from Helmonic analysis in a right-side
+  panel; "Send to Consult" hands a selected opportunity to Consult's new-project flow)
 - Responsive/mobile behaviour (sidebar collapses to a bottom tab bar, side panels hide)
 - All flows above are interactive, driven by local React state and mock data — nothing
   is persisted or sent to a server

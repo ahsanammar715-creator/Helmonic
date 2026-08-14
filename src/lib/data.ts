@@ -316,6 +316,7 @@ export const tenderFunnel = [
 
 export type TenderStatus = "New" | "Review" | "Shortlisted" | "Not pursuing";
 export type TenderFitBand = "High" | "Medium" | "Low";
+export type TenderSourceSystem = "eTenders" | "eTenders / TED" | "OPW" | "Local Authority" | "Direct";
 
 export const tenders: {
   id: string;
@@ -324,6 +325,7 @@ export const tenders: {
   category: string;
   location: string;
   deadline: string;
+  sourceSystem: TenderSourceSystem;
   fitScore: number;
   fitBand: TenderFitBand;
   status: TenderStatus;
@@ -342,6 +344,7 @@ export const tenders: {
     category: "Environmental noise",
     location: "Kildare",
     deadline: "18 Sep 2026",
+    sourceSystem: "eTenders / TED",
     fitScore: 91,
     fitBand: "High",
     status: "New",
@@ -381,6 +384,7 @@ export const tenders: {
     category: "Building acoustics",
     location: "Cork",
     deadline: "5 Oct 2026",
+    sourceSystem: "Local Authority",
     fitScore: 84,
     fitBand: "High",
     status: "Review",
@@ -417,6 +421,7 @@ export const tenders: {
     category: "Environmental noise",
     location: "National (Ireland)",
     deadline: "30 Aug 2026",
+    sourceSystem: "eTenders / TED",
     fitScore: 76,
     fitBand: "Medium",
     status: "New",
@@ -454,6 +459,7 @@ export const tenders: {
     category: "Planning support",
     location: "Dublin",
     deadline: "12 Sep 2026",
+    sourceSystem: "Direct",
     fitScore: 68,
     fitBand: "Medium",
     status: "Review",
@@ -489,6 +495,7 @@ export const tenders: {
     category: "Building acoustics",
     location: "Galway",
     deadline: "25 Sep 2026",
+    sourceSystem: "Local Authority",
     fitScore: 58,
     fitBand: "Low",
     status: "New",
@@ -521,6 +528,7 @@ export const tenders: {
     category: "Environmental noise",
     location: "Donegal",
     deadline: "9 Sep 2026",
+    sourceSystem: "Direct",
     fitScore: 72,
     fitBand: "Medium",
     status: "Not pursuing",
@@ -544,5 +552,278 @@ export const tenders: {
     },
     analysis:
       "Technically feasible, but travel and site-visit costs from the nearest office make this uneconomic against the private windfarm sector's typical fee levels. Marked not pursuing on that basis.",
+  },
+  {
+    id: "T-2026-027",
+    title: "Acoustic Survey – Protected Structure Conservation Works",
+    buyer: "Office of Public Works (OPW)",
+    category: "Building acoustics",
+    location: "Kilkenny",
+    deadline: "3 Oct 2026",
+    sourceSystem: "OPW",
+    fitScore: 79,
+    fitBand: "High",
+    status: "Shortlisted",
+    scope:
+      "Pre- and post-works acoustic survey for conservation and adaptive reuse of a protected structure, including sensitivity to historic fabric during any remedial acoustic treatment.",
+    whyItFits: [
+      "Heritage-sensitive acoustic survey work is a differentiated niche",
+      "OPW is a repeat public-sector buyer across multiple sites",
+      "No competing design-team dependency – iAcoustics can tender directly",
+    ],
+    mandatoryRequirements: [
+      "Experience surveying protected structures or heritage buildings",
+      "Method statement for non-invasive measurement near historic fabric",
+    ],
+    keyDates: [
+      { label: "Site visit (mandatory)", date: "15 Sep 2026" },
+      { label: "Submission deadline", date: "3 Oct 2026" },
+    ],
+    risks: [
+      "Mandatory site visit narrows the bidding window – confirm attendance before shortlisting further.",
+    ],
+    source: {
+      name: "eTenders notice 2026/OPW/0761",
+      meta: "Published 20 Aug 2026",
+      note: "Open procedure, below EU threshold, published via the OPW procurement channel.",
+    },
+    analysis:
+      "Strong, direct fit with a repeat public buyer. Worth prioritising over larger but indirect opportunities given there is no design-team gatekeeper here.",
+  },
+];
+
+export const planningSuggestions = [
+  "Scan Irish planning projects for acoustic RFIs",
+  "Find granted projects with noise-related conditions",
+  "Show high-value Irish projects with likely acoustic requirements",
+  "Find opportunities where an architect has been identified",
+];
+
+export const planningScanSteps = [
+  "Searching BuildingInfo project records",
+  "Checking planning documents for acoustic terminology",
+  "Reviewing RFI and condition wording",
+  "Identifying applicants, agents and architects",
+  "Ranking opportunities",
+];
+
+export const planningFunnel = [
+  { label: "Projects scanned", value: 340 },
+  { label: "Acoustic signal detected", value: 42 },
+  { label: "Architect identified", value: 27 },
+  { label: "Strong fit", value: 6 },
+];
+
+export type PlanningStage =
+  | "Plans Applied"
+  | "Request for Further Information"
+  | "Plans Granted"
+  | "Granted with Conditions"
+  | "Commencement";
+export type PlanningSignalType =
+  | "Acoustic RFI"
+  | "Noise Condition"
+  | "Acoustic Report Required"
+  | "Potential Acoustic Requirement";
+export type PlanningStatus = "New" | "Review" | "Qualified" | "Not pursuing";
+export type PlanningFitBand = "High" | "Medium" | "Low";
+
+export const planningSignals: {
+  id: string;
+  project: string;
+  county: string;
+  sector: string;
+  stage: PlanningStage;
+  value: string;
+  signalType: PlanningSignalType;
+  fitScore: number;
+  fitBand: PlanningFitBand;
+  status: PlanningStatus;
+  acousticTrigger: string;
+  applicant: string;
+  planningAgent: string | null;
+  architect: string | null;
+  mainContractor: string | null;
+  otherParties: string[];
+  keyDates: { label: string; date: string }[];
+  source: { name: string; meta: string; note: string };
+  analysis: string;
+}[] = [
+  {
+    id: "P-2026-101",
+    project: "Blackrock Health & Wellness Hub",
+    county: "Cork",
+    sector: "Healthcare",
+    stage: "Request for Further Information",
+    value: "€6.2m",
+    signalType: "Acoustic RFI",
+    fitScore: 88,
+    fitBand: "High",
+    status: "New",
+    acousticTrigger:
+      "Further information request cites the need for a noise impact assessment addressing plant and ventilation noise on the residential boundary.",
+    applicant: "Blackrock Health Developments Ltd",
+    planningAgent: "Coakley O'Neill Town Planning",
+    architect: "Reddy Architecture + Urbanism",
+    mainContractor: null,
+    otherParties: ["M&E consultant: Homan O'Brien"],
+    keyDates: [
+      { label: "RFI issued", date: "14 Aug 2026" },
+      { label: "Response due", date: "14 Nov 2026" },
+    ],
+    source: {
+      name: "BuildingInfo project record PL2026/0442",
+      meta: "RFI issued 14 Aug 2026",
+      note: "Cork City Council further information request; plant/ventilation noise referenced under RFI item 6.",
+    },
+    analysis:
+      "Strong opportunity: the RFI explicitly names a noise impact assessment and the architect is already known, giving a clear point of first contact.",
+  },
+  {
+    id: "P-2026-114",
+    project: "Adamstown Mixed-Use Block D",
+    county: "Dublin",
+    sector: "Residential",
+    stage: "Granted with Conditions",
+    value: "€18.5m",
+    signalType: "Noise Condition",
+    fitScore: 82,
+    fitBand: "High",
+    status: "Review",
+    acousticTrigger:
+      "Condition 11 requires a noise mitigation report and post-completion sound insulation testing prior to occupation.",
+    applicant: "Adamstown SDZ Developments",
+    planningAgent: "John Spain Associates",
+    architect: "O'Mahony Pike Architects",
+    mainContractor: "Sisk",
+    otherParties: [],
+    keyDates: [
+      { label: "Decision granted", date: "2 Aug 2026" },
+      { label: "Condition compliance due", date: "Before occupation" },
+    ],
+    source: {
+      name: "BuildingInfo project record PL2026/0398",
+      meta: "Grant of permission 2 Aug 2026",
+      note: "South Dublin County Council grant; Condition 11 references noise mitigation and pre-completion sound testing.",
+    },
+    analysis:
+      "High-value residential scheme with an explicit testing condition – a near-certain requirement rather than a possibility, and the main contractor is already appointed.",
+  },
+  {
+    id: "P-2026-126",
+    project: "Naas Logistics & Distribution Park",
+    county: "Kildare",
+    sector: "Industrial / Logistics",
+    stage: "Request for Further Information",
+    value: "€9.8m",
+    signalType: "Acoustic RFI",
+    fitScore: 64,
+    fitBand: "Medium",
+    status: "New",
+    acousticTrigger:
+      "Further information request asks the applicant to address noise from HGV movements and yard operations on nearby residential receptors.",
+    applicant: "Naas Logistics Developments Ltd",
+    planningAgent: "Tom Phillips + Associates",
+    architect: null,
+    mainContractor: null,
+    otherParties: [],
+    keyDates: [
+      { label: "RFI issued", date: "22 Aug 2026" },
+      { label: "Response due", date: "22 Nov 2026" },
+    ],
+    source: {
+      name: "BuildingInfo project record PL2026/0511",
+      meta: "RFI issued 22 Aug 2026",
+      note: "Kildare County Council further information request; noise item under RFI section 4.",
+    },
+    analysis:
+      "Real signal but no architect identified yet – first contact is less obvious, and industrial noise scope is more variable than the other RFI cases.",
+  },
+  {
+    id: "P-2026-133",
+    project: "Athenry Community School Extension",
+    county: "Galway",
+    sector: "Education",
+    stage: "Plans Granted",
+    value: "€4.1m",
+    signalType: "Potential Acoustic Requirement",
+    fitScore: 55,
+    fitBand: "Medium",
+    status: "New",
+    acousticTrigger:
+      "No explicit acoustic condition attached, but the grant covers a school extension – a building type that routinely requires room-acoustic and sound-insulation compliance.",
+    applicant: "Galway & Roscommon ETB",
+    planningAgent: null,
+    architect: "de Blacam and Meagher Architects",
+    mainContractor: null,
+    otherParties: [],
+    keyDates: [{ label: "Decision granted", date: "11 Aug 2026" }],
+    source: {
+      name: "BuildingInfo project record PL2026/0388",
+      meta: "Grant of permission 11 Aug 2026",
+      note: "Galway County Council grant. No noise-specific condition text found in the decision order.",
+    },
+    analysis:
+      "Inferred rather than confirmed: school buildings usually need acoustic sign-off under Building Regulations even without a planning condition, but this should be treated as a lead to qualify, not an open requirement.",
+  },
+  {
+    id: "P-2026-140",
+    project: "Castletroy Build-to-Rent Phase 2",
+    county: "Limerick",
+    sector: "Residential",
+    stage: "Commencement",
+    value: "€22.0m",
+    signalType: "Noise Condition",
+    fitScore: 47,
+    fitBand: "Low",
+    status: "Not pursuing",
+    acousticTrigger:
+      "Condition 7 required a noise impact assessment prior to grant; compliance documentation was submitted and closed out ahead of commencement.",
+    applicant: "Castletroy BTR Ltd",
+    planningAgent: "MKO Planning",
+    architect: "Reddy Architecture + Urbanism",
+    mainContractor: "John Sisk & Son",
+    otherParties: [],
+    keyDates: [
+      { label: "Condition closed out", date: "30 Jun 2026" },
+      { label: "Commencement notice", date: "18 Aug 2026" },
+    ],
+    source: {
+      name: "BuildingInfo project record PL2025/0902",
+      meta: "Commencement notice 18 Aug 2026",
+      note: "Limerick City & County Council record. Condition 7 compliance already discharged before commencement.",
+    },
+    analysis:
+      "The acoustic requirement already appears to be satisfied by another consultant ahead of commencement – low likelihood of new work here. Marked not pursuing on that basis.",
+  },
+  {
+    id: "P-2026-152",
+    project: "Navan Retail & Residential Quarter",
+    county: "Meath",
+    sector: "Mixed-use",
+    stage: "Request for Further Information",
+    value: "€31.4m",
+    signalType: "Acoustic RFI",
+    fitScore: 73,
+    fitBand: "Medium",
+    status: "Qualified",
+    acousticTrigger:
+      "Further information request requires a detailed environmental noise report addressing servicing-yard noise and rooftop plant against nearby residential units.",
+    applicant: "Navan Quarter Developments",
+    planningAgent: "John Spain Associates",
+    architect: "Henry J Lyons",
+    mainContractor: null,
+    otherParties: ["Traffic consultant: AECOM"],
+    keyDates: [
+      { label: "RFI issued", date: "9 Aug 2026" },
+      { label: "Response due", date: "9 Feb 2027" },
+    ],
+    source: {
+      name: "BuildingInfo project record PL2026/0455",
+      meta: "RFI issued 9 Aug 2026",
+      note: "Meath County Council further information request; environmental noise report required under RFI item 9.",
+    },
+    analysis:
+      "Large mixed-use scheme with an explicit environmental noise report requirement and a known architect – already reviewed and qualified as worth pursuing.",
   },
 ];
