@@ -19,17 +19,20 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=80
 
-RUN apt-get update \
-    && apt-get install --yes --no-install-recommends libcap2-bin \
-    && setcap 'cap_net_bind_service=+ep' /usr/local/bin/node \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system --gid 1001 nodejs \
-    && useradd --system --uid 1001 --gid nodejs nextjs
+# PHASE 1A TUESDAY DEMO EXCEPTION ONLY.
+# Azure Container Apps does not honor the executable capability used by the
+# previous non-root image to bind the app's existing target port 80. Keep this
+# exception scoped to the protected demo endpoint and remove it before any
+# broader use. The required non-root/port-8080 exit gate is recorded in
+# docs/phase1a-tuesday-runtime-exception.md.
+LABEL com.helmonic.runtime-exception="phase1a-tuesday-demo-root-port80" \
+      com.helmonic.runtime-exception.expires="2026-08-25T23:59:59Z"
 
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 
-USER nextjs
+# Explicit so the temporary exception is visible to image scanners and review.
+USER 0
 EXPOSE 80
 CMD ["node", "server.js"]
