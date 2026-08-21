@@ -54,7 +54,11 @@ test.describe("Phase 1A runtime safeguards", () => {
     await expect(
       page.getByText("The Azure Consult runtime is not configured in this deployment."),
     ).toBeVisible();
-    await expect(page.getByText("SOURCES · 0")).toBeVisible();
+    await expect(
+      page.getByText(
+        "Sources from the five-document knowledge set will appear here after a successful query.",
+      ),
+    ).toBeVisible();
   });
 
   test("Consult API short-circuits without attempting Azure", async ({ request }) => {
