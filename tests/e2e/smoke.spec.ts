@@ -30,6 +30,50 @@ test.describe("route smoke test", () => {
   }
 });
 
+test.describe("Phase 1A runtime safeguards", () => {
+  test("health is process-only while readiness fails closed without Azure configuration", async ({ request }) => {
+    const response = await request.get("/healthz");
+    expect(response.status()).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "healthy",
+      service: "helmonic-consult",
+    });
+
+    const readiness = await request.get("/readyz");
+    expect(readiness.status()).toBe(503);
+    await expect(readiness.json()).resolves.toMatchObject({ status: "not-ready" });
+  });
+
+  test("Consult is inert and explicit when HELMONIC_RUNTIME is unset", async ({ page }) => {
+    await page.goto("/consult");
+    const composer = page.getByPlaceholder("Ask Helmonic about the five source documents…");
+    await composer.fill("What do the permitted sources say?");
+    await composer.press("Enter");
+
+    await expect(page.getByText("Runtime not configured")).toBeVisible();
+    await expect(
+      page.getByText("The Azure Consult runtime is not configured in this deployment."),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Sources from the five-document knowledge set will appear here after a successful query.",
+      ),
+    ).toBeVisible();
+  });
+
+  test("Consult API short-circuits without attempting Azure", async ({ request }) => {
+    const response = await request.post("/api/consult/query", {
+      data: { question: "What do the permitted sources say?" },
+    });
+    expect(response.status()).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      answer: null,
+      citations: [],
+      mode: "not-configured",
+    });
+  });
+});
+
 test.describe("key interactive flows", () => {
   test("landing: prompt bar opens the workspace chooser and routes to Consult", async ({ page }) => {
     await page.goto("/");

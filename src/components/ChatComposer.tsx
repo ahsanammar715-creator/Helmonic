@@ -11,6 +11,7 @@ export default function ChatComposer({
   disabled = false,
   attachLabel = "Attach",
   inputId,
+  showAttach = true,
 }: {
   placeholder: string;
   helper?: string;
@@ -18,6 +19,7 @@ export default function ChatComposer({
   disabled?: boolean;
   attachLabel?: string;
   inputId?: string;
+  showAttach?: boolean;
 }) {
   const [value, setValue] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
@@ -52,24 +54,26 @@ export default function ChatComposer({
         </div>
       )}
       <div className="flex items-center gap-3 border border-line rounded-md bg-surface px-3.5 py-3">
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => setAttachOpen((o) => !o)}
-            aria-expanded={attachOpen}
-            className="flex items-center gap-2 px-3 py-1.5 border border-line rounded-md text-[13px] text-primary hover:bg-primary-tint-2 hover:border-primary disabled:opacity-40 disabled:pointer-events-none"
-          >
-            <Paperclip size={15} strokeWidth={1.6} />
-            {attachLabel}
-          </button>
-          {attachOpen && (
-            <AttachPopover
-              onClose={() => setAttachOpen(false)}
-              onAttach={(name) => setAttachments((a) => [...a, name])}
-            />
-          )}
-        </div>
+        {showAttach && (
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => setAttachOpen((o) => !o)}
+              aria-expanded={attachOpen}
+              className="flex items-center gap-2 px-3 py-1.5 border border-line rounded-md text-[13px] text-primary hover:bg-primary-tint-2 hover:border-primary disabled:opacity-40 disabled:pointer-events-none"
+            >
+              <Paperclip size={15} strokeWidth={1.6} />
+              {attachLabel}
+            </button>
+            {attachOpen && (
+              <AttachPopover
+                onClose={() => setAttachOpen(false)}
+                onAttach={(name) => setAttachments((a) => [...a, name])}
+              />
+            )}
+          </div>
+        )}
         <input
           id={inputId}
           value={value}
