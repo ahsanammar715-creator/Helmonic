@@ -141,8 +141,9 @@ PDFs and extracted payloads are never committed to this repository.
 - No persistent conversations, messages, folders, or subfolders yet.
 - The attachment control is filename-only and does not upload file bytes.
 - No approved language-model deployment is active; live Consult is retrieval-only.
-- The active demo container has a tracked temporary root/port-80 exception that must be
-  removed before Phase 1B uploads or broader exposure.
+- The active Azure demo revision still has the tracked temporary root/port-80
+  exception. The current local source now replaces it with a non-root/port-8080 image
+  and CI guard, but the Azure ingress/revision migration remains separately gated.
 - The committed historical ingestion script covers exactly five documents while the
   controlled live corpus contains sixteen; Phase 1B must make ingestion reproducible.
 - No automated unit-test suite exists yet; current automated coverage is Playwright E2E.
@@ -151,7 +152,8 @@ PDFs and extracted payloads are never committed to this repository.
 
 ## Next engineering phase
 
-Phase 1B is designed but not implemented. It introduces:
+Phase 1B implementation has begun with the local runtime-hardening prerequisite. The
+remaining planned capabilities introduce:
 
 - persistent Consult conversations and nested sidebar folders;
 - real PDF upload to a conversation-scoped Blob container;
@@ -159,7 +161,8 @@ Phase 1B is designed but not implemented. It introduces:
 - explicit promotion from temporary attachments to controlled sources;
 - Azure Speech input behind a disabled feature flag until PAYG approval;
 - a Model Gateway and strictly separate, properly cited general-context section;
-- non-root port 8080 runtime remediation before live upload exposure.
+- a controlled Azure rollout of the locally implemented non-root port-8080 runtime
+  before live upload exposure.
 
 See the [living reference](docs/phase1b-consult-design.md) for the authoritative plan,
 security model, resource inventory, decisions, current status, and cost gates.

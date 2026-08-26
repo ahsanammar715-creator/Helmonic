@@ -27,6 +27,9 @@ jobs:
       - name: Check out the approved demo branch
         uses: actions/checkout@v4
 
+      - name: Verify non-root port-8080 runtime
+        run: node scripts/verify-runtime-hardening.mjs
+
       - name: Sign in to Azure with branch-scoped OIDC
         uses: azure/login@v2
         with:

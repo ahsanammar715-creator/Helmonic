@@ -17,22 +17,12 @@ WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
-    PORT=80
+    PORT=8080
 
-# PHASE 1A TUESDAY DEMO EXCEPTION ONLY.
-# Azure Container Apps does not honor the executable capability used by the
-# previous non-root image to bind the app's existing target port 80. Keep this
-# exception scoped to the protected demo endpoint and remove it before any
-# broader use. The required non-root/port-8080 exit gate is recorded in
-# docs/phase1a-tuesday-runtime-exception.md.
-LABEL com.helmonic.runtime-exception="phase1a-tuesday-demo-root-port80" \
-      com.helmonic.runtime-exception.expires="2026-08-25T23:59:59Z"
+COPY --chown=node:node --from=builder /app/public ./public
+COPY --chown=node:node --from=builder /app/.next/standalone ./
+COPY --chown=node:node --from=builder /app/.next/static ./.next/static
 
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-
-# Explicit so the temporary exception is visible to image scanners and review.
-USER 0
-EXPOSE 80
+USER node
+EXPOSE 8080
 CMD ["node", "server.js"]

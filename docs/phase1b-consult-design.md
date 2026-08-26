@@ -200,17 +200,18 @@ unauthorized revision never receives traffic.
 | `.nvmrc` | Tested Node.js runtime version |
 | `AGENTS.md` | Repository-specific Next.js agent rule requiring bundled framework documentation to be consulted |
 | `CLAUDE.md` | Points compatible coding agents to the same `AGENTS.md` instructions |
-| `package.json` | Application metadata, Next.js/React/Azure/PostgreSQL dependencies, and lint/type/build/test scripts |
+| `package.json` | Application metadata, Next.js/React/Azure/PostgreSQL dependencies, lint/type/build/test scripts, and the runtime-hardening verification command |
 | `package-lock.json` | Exact npm dependency lock for reproducible installation |
 | `eslint.config.mjs` | Next.js Core Web Vitals and TypeScript lint configuration |
 | `postcss.config.mjs` | Tailwind CSS v4 PostCSS integration |
 | `tsconfig.json` | Strict TypeScript, App Router type generation, and `@/*` source alias configuration |
-| `Dockerfile` | Self-hosted Next.js container image; currently carries the tracked root/port-80 exception |
+| `Dockerfile` | Self-hosted Next.js image using the non-root `node` user, owned runtime files, and unprivileged port `8080` |
 | `next.config.ts` | Next.js configuration and standalone container output |
-| `.github/workflows/ci.yml` | Branch/PR quality checks |
-| `.github/workflows/phase1a-consult-build.yml` | Branch-scoped GitHub OIDC build and immutable ACR publication |
+| `.github/workflows/ci.yml` | Branch/PR quality checks, including the non-root/port-8080 source guard |
+| `.github/workflows/phase1a-consult-build.yml` | Branch-scoped GitHub OIDC build and immutable ACR publication, blocked if runtime hardening regresses |
 | `playwright.config.ts` | End-to-end browser-test configuration |
-| `tests/e2e/smoke.spec.ts` | Route smoke tests, fail-closed runtime tests, UI flows, responsive behavior, settings, and filename-only attachment regression coverage |
+| `scripts/verify-runtime-hardening.mjs` | Fails local/CI/image builds if root, port 80, or the expired exception label returns |
+| `tests/e2e/smoke.spec.ts` | Route smoke tests, fail-closed/runtime-user tests, UI flows, responsive behavior, settings, and filename-only attachment regression coverage |
 
 ### App Router surfaces
 
@@ -234,7 +235,7 @@ unauthorized revision never receives traffic.
 | `src/app/(workspace)/growth/leads/page.tsx` | Mock Smart Studio leads and iAcoustics planning-signals modes |
 | `src/app/(workspace)/growth/tenders/page.tsx` | Mock Ireland-wide tender-intelligence workflow and Consult handoff |
 | `src/app/api/consult/query/route.ts` | Same-origin Consult query API, validation, Search orchestration, retrieval-only/model modes |
-| `src/app/healthz/route.ts` | Process/liveness response |
+| `src/app/healthz/route.ts` | Process/liveness response plus runtime UID/non-root evidence on supported operating systems |
 | `src/app/readyz/route.ts` | Managed-identity dependency readiness response |
 
 ### Consult and shared UI components
@@ -442,12 +443,23 @@ has one replica/partition, PostgreSQL has no HA, Service Bus Basic is not privat
 network privacy is unproven, and the root runtime exception remains open. These facts
 stay visible until separately designed, costed, implemented, and validated.
 
+### D-018: close the runtime exception before upload implementation
+
+The first Phase 1B code slice hardens the existing container boundary before adding a
+document-write surface. Source now targets the built-in non-root `node` user and port
+`8080`; owned runtime files, an automated Dockerfile invariant check, and runtime UID
+evidence prevent the expired Tuesday exception from silently returning. The source
+fix and the Azure closure are tracked separately: the live revision remains unchanged
+until an explicitly costed zero-traffic validation and ingress migration is approved.
+
 ## Current status
 
 ### Live and working
 
 - The real Phase 1A revision `--ca72a0c` receives 100% of live traffic.
 - The old placeholder revision remains at 0% for rollback.
+- Azure Portal independently reconfirmed both traffic weights on 26 August 2026; the
+  100% revision uses `helmonic-consult:ca72a0ce39618fd0cd552f5ec8c98dd498783a75`.
 - Platform authentication is enabled and restricted to the approved Entra user.
 - The source-IP allowlist is active for `86.43.74.56/32`.
 - The user has successfully signed in and reached the application.
@@ -464,24 +476,32 @@ stay visible until separately designed, costed, implemented, and validated.
 - Temporary ingestion/bootstrap identities and their roles were removed after use.
 - `README.md` now points to this living reference and accurately separates the live
   Phase 1A Consult runtime from the remaining mock workspaces.
+- Documentation-parity commit `00bd81f` is pushed and PR #16 is synchronized to that
+  exact SHA.
+- The first Phase 1B local slice implements the non-root/port-8080 source image,
+  automated hardening guard, and `/healthz` runtime-user evidence.
+- Local runtime-invariant verification, generated route types, full TypeScript, lint,
+  and application compilation pass. This Windows sandbox blocks Next.js child-process
+  workers with `spawn EPERM`, so CI remains the authority for the final build/E2E pass.
 
 ### Pending/blocking
 
-- The documentation-parity changes dated 2026-08-26 are committed locally at the
-  current branch HEAD but remain unpushed until their CI/build side effects are
-  explicitly approved. PR #16 still points to `ca72a0c` until that push occurs.
+- The Phase 1B runtime-hardening slice is local only until its validation completes and
+  a separate push/build approval is granted.
 - The Azure subscription remains on the Free Trial classification pending PAYG.
 - No usable GPT-5.5, Mistral, Phi, GPT-4.1, or GPT-4o deployment is active.
 - Target A generated answers are not live; Target B remains the fallback.
 - GPT-5.5 Data Zone Standard quota must be re-requested/verified after PAYG.
 - Any Mistral secondary deployment also requires fresh quota and cost verification.
-- Phase 1B application work has not begun beyond this living design/reference.
+- Phase 1B upload, persistence, folders, voice, and general-context application work
+  has not begun; runtime hardening is the active prerequisite slice.
 - Azure Speech has not been provisioned.
 - No live-web/general-context connector has been approved.
 
 ### Tracked technical debt and risks
 
-- The active application revision still runs under the root/port-80 exception.
+- The active application revision still runs under the root/port-80 exception even
+  though the local source replacement now runs non-root on port 8080.
 - Consult UI copy still refers to five documents instead of the current sixteen or a
   dynamic count.
 - Retrieval relevance needs an evaluation set and tuning; at least one broad query
@@ -519,7 +539,9 @@ incremental estimates and approval gates are recorded later in this document.
 | 2026-08-24 | Entra/Container Apps operational configuration | Created the approved app registration, restricted sign-in to the approved user, applied the source-IP allowlist, and left CORS disabled |
 | 2026-08-25 | Controlled ingestion and traffic operations | Routed the validated real revision to 100%, retained rollback, extended the controlled corpus from five to sixteen PDFs, verified retrieval/citations, and removed temporary ingestion access/artifacts |
 | 2026-08-25 | Model/quota verification | Confirmed Target B works; no approved model had usable EU Data Zone quota. GPT-5.5 and Mistral quota requests were denied because the subscription remained Free Trial |
-| 2026-08-26 | Documentation parity audit and local commit | Created this living reference, corrected stale CORS and README claims, mapped every tracked file, and recorded the five-vs-sixteen ingestion reproducibility gap before Phase 1B implementation; online push remains separately gated |
+| 2026-08-26 | `00bd81f` - Documentation parity audit and push | Created this living reference, corrected stale CORS and README claims, mapped every tracked file, recorded the five-vs-sixteen ingestion reproducibility gap, pushed the commit, and synchronized PR #16 |
+| 2026-08-26 | Azure traffic/stale-tab diagnosis | Portal reconfirmed `--ca72a0c` at 100% and `--0000001` at 0%; browser history proved the Hello World tab was an unreloaded document first opened on 25 August, not a current traffic split |
+| 2026-08-26 | Phase 1B runtime-hardening slice | Replaced root/port 80 in local source with the non-root `node` user on port 8080, added CI/image invariant checks, and exposed runtime UID evidence through `/healthz`; Azure deployment remains separately gated |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data

@@ -34,10 +34,14 @@ test.describe("Phase 1A runtime safeguards", () => {
   test("health is process-only while readiness fails closed without Azure configuration", async ({ request }) => {
     const response = await request.get("/healthz");
     expect(response.status()).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const health = await response.json();
+    expect(health).toMatchObject({
       status: "healthy",
       service: "helmonic-consult",
     });
+    expect(health.runtime).toHaveProperty("userId");
+    expect(health.runtime).toHaveProperty("nonRoot");
+    expect([null, true]).toContain(health.runtime.nonRoot);
 
     const readiness = await request.get("/readyz");
     expect(readiness.status()).toBe(503);

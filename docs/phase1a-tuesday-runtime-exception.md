@@ -83,3 +83,19 @@ be waived by relabelling this DEV environment or by promoting the demo image.
   the non-root/port-8080 exit gate before further exposure.
 - Record the replacement commit and revision in the pull request before this
   exception is considered closed.
+
+## Closure progress - 26 August 2026
+
+The first Phase 1B local slice removes the exception from source: the Docker image now
+uses the built-in non-root `node` user, listens on and exposes port `8080`, assigns the
+runtime files to that user, and carries no `com.helmonic.runtime-exception` label. A
+repository verification script fails CI and the image workflow if those invariants
+regress. `/healthz` now reports the runtime user ID and whether it is non-root where the
+operating system exposes that information.
+
+This source change does **not** close the live exception by itself. Closure still
+requires a separately approved Container Apps rollout: change ingress to `8080`,
+deploy the hardened image at zero traffic, prove the runtime UID is non-zero and all
+health/readiness/security/dependency checks pass, then shift traffic and deactivate
+the root-running revision. Until those steps are complete, `--ca72a0c` remains the
+live protected-demo revision and this exception remains open operationally.
