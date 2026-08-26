@@ -533,8 +533,17 @@ deployment, and traffic shift remain separate cost/approval gates.
 - Local runtime-invariant verification, generated route types, full TypeScript, lint,
   and application compilation pass. This Windows sandbox blocks Next.js child-process
   workers with `spawn EPERM`, so CI remains the authority for the final build/E2E pass.
+- The Phase 1B migration is now applied in DEV: all nine owner-scoped tables exist and
+  all nine expose the intended runtime CRUD grants. The isolated
+  `consult-session-uploads` Blob container and `consult-session-v1` Search index also
+  exist on the already-approved services.
+- Zero-traffic revision `--p1be20378e` proved UID 1000, `/healthz` 200, `/readyz` 200,
+  authenticated folder/subfolder persistence, and a real 121-byte synthetic PDF path
+  through PostgreSQL, Blob, and Service Bus to the expected `queued` state. The worker
+  boundary remains intentionally unimplemented. The synthetic Blob/message/database
+  rows were deleted and the revision was deactivated at 0 replicas/0% traffic.
 
-### Implemented locally but not deployed
+### Implemented in source; Azure foundation validation completed
 
 - Phase 1B feature flags default off, preserving the current Azure revision and the
   Vercel fail-closed boundary.
@@ -550,8 +559,9 @@ deployment, and traffic shift remain separate cost/approval gates.
   defined. Controlled results use `D` markers and attachments use `A` markers.
 - A provider-neutral Model Gateway contract and a separate general-context UI use only
   `G` citations and never populate the controlled Sources panel.
-- No migration, Blob container, Search index, worker, model, Speech resource, Azure
-  configuration, deployment, or traffic change was made by this local slice.
+- The migration, isolated Blob container, and session Search index are now applied in
+  DEV. No worker, model, Speech resource, live feature activation, SKU, minimum replica,
+  or traffic change was introduced.
 
 ### Pending/blocking
 
@@ -563,9 +573,10 @@ deployment, and traffic shift remain separate cost/approval gates.
 - Target A generated answers are not live; Target B remains the fallback.
 - GPT-5.5 Data Zone Standard quota must be re-requested/verified after PAYG.
 - Any Mistral secondary deployment also requires fresh quota and cost verification.
-- Phase 1B persistence/upload/general-context contracts are local only. Migration,
-  session container/index, ingestion worker, sidebar tree activation, and live feature
-  flags remain pending separate approval. Voice deployment remains PAYG-blocked.
+- Phase 1B persistence/upload/general-context contracts are in source, and the migration
+  plus isolated session container/index are applied. The ingestion worker, sidebar tree
+  activation, live feature flags, and any traffic shift remain pending separate approval.
+  Voice deployment remains PAYG-blocked.
 - Azure Speech has not been provisioned.
 - No live-web/general-context connector has been approved.
 
@@ -578,8 +589,12 @@ deployment, and traffic shift remain separate cost/approval gates.
   administration is introduced.
 - A five-case retrieval evaluation set now guards known-project relevance and
   no-evidence behavior. The runtime uses `searchMode: all` across title, section, and
-  content so a missing project term cannot match only generic question words. Live
-  evaluation of the changed policy remains a deployment validation gate.
+  content so a missing project term cannot match only generic question words. The
+  26 August live evaluation found a blocking serialization defect before rollout: the
+  Search REST API expects `searchFields` as one comma-separated primitive string, while
+  the current quick-fix commit sends an array. All five cases therefore returned HTTP
+  400 and the zero-traffic revision must not receive traffic until this is corrected and
+  the five-case suite passes live.
 - Conversation messages and Recent sidebar items are not yet wired to the local
   persistence contracts.
 - The web upload path is implemented, but no queue receiver/page-extraction worker is
@@ -599,11 +614,12 @@ deployment, and traffic shift remain separate cost/approval gates.
 
 ### Cost status
 
-The zero-traffic runtime validation was executed under an approved under-USD-0.01
-ceiling and introduced no resource, SKU, or minimum-scale change. After PAYG, the
-existing DEV baseline was estimated at approximately USD 130-145 per month before
-model usage. Phase 1B incremental estimates and approval gates are recorded later in
-this document.
+The combined Phase 1B validation remained within the approved USD 0.32 hard ceiling.
+It used only short-lived minimum-size Container Apps executions, existing service
+transactions, and GitHub-hosted image builds; it introduced no new standing SKU,
+minimum scale, or live traffic. After PAYG, the existing DEV baseline was estimated at
+approximately USD 130-145 per month before model usage. Phase 1B incremental estimates
+and approval gates are recorded later in this document.
 
 ## Implementation and operations chronology
 
@@ -625,6 +641,7 @@ this document.
 | 2026-08-26 | Phase 1B quick-fix slice | Centralized the real sixteen-document UI count, made the controlled uploader reproducible and fail-closed on sixteen documents, added a five-case retrieval evaluation suite, and changed controlled lexical retrieval from recall-first `any` matching to title-aware precision-first `all` matching. Local suite validation, generated route types, TypeScript, and lint passed; live evaluation remains gated on deployment |
 | 2026-08-26 | Phase 1B local application-contract slice | Added the unapplied owner-scoped persistence migration/repository, real PDF streaming/Blob/Service Bus upload path, isolated session-index schema and filtered retrieval, persistent folder/conversation APIs, and strictly separate general-context Model Gateway/UI contract. All features default disabled; no Azure state or cost changed |
 | 2026-08-26 | PAYG read-only status check | Subscription policy still returned `FreeTrial_2014-09-01` with spending limit `On`; no Speech/model/quota/deployment action was started |
+| 2026-08-26 | Phase 1B combined Azure validation and cleanup | Applied and verified the nine-table migration plus isolated Blob/Search resources; validated non-root health/readiness, authenticated nested folders, and the real PDF-to-Blob/database/Service-Bus path to `queued`; found the blocking `searchFields` array-versus-string HTTP-400 defect in all five live retrieval cases; deleted the synthetic Blob/message/database data, deactivated the zero-traffic revision, restored the single permanent Entra callback, and removed both temporary identities/admins/roles/jobs and the validation ACR tag. Live traffic remained 100% on `--p1b69b6b7a` throughout |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
