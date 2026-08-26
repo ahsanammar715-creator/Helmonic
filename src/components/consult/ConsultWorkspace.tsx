@@ -14,6 +14,10 @@ import type {
   ConsultErrorResponse,
   ConsultQueryResponse,
 } from "@/lib/consult/types";
+import {
+  CONTROLLED_SOURCE_DOCUMENT_COUNT,
+  CONTROLLED_SOURCE_SET_LABEL,
+} from "@/lib/consult/corpus";
 
 type Exchange = {
   id: string;
@@ -112,7 +116,7 @@ export default function ConsultWorkspace() {
         <TopBar
           workspace="consult"
           title="Consult"
-          subtitle="Five-document Phase 1A knowledge set · iAcoustics"
+          subtitle={`${CONTROLLED_SOURCE_SET_LABEL} · iAcoustics`}
           mode="Standards mode on"
         />
 
@@ -235,7 +239,7 @@ export default function ConsultWorkspace() {
 
         <ChatComposer
           inputId="consult-question"
-          placeholder="Ask Helmonic about the five source documents…"
+          placeholder={`Ask Helmonic about the ${CONTROLLED_SOURCE_DOCUMENT_COUNT} source documents…`}
           helper="Phase 1A demo: fixed iAcoustics profile, controlled documents, server-authoritative citations."
           onSend={ask}
           disabled={pending}

@@ -50,7 +50,7 @@ test.describe("Phase 1A runtime safeguards", () => {
 
   test("Consult is inert and explicit when HELMONIC_RUNTIME is unset", async ({ page }) => {
     await page.goto("/consult");
-    const composer = page.getByPlaceholder("Ask Helmonic about the five source documents…");
+    const composer = page.getByPlaceholder("Ask Helmonic about the 16 source documents…");
     await composer.fill("What do the permitted sources say?");
     await composer.press("Enter");
 
@@ -60,7 +60,7 @@ test.describe("Phase 1A runtime safeguards", () => {
     ).toBeVisible();
     await expect(
       page.getByText(
-        "Sources from the five-document knowledge set will appear here after a successful query.",
+        "Sources from the 16-document knowledge set will appear here after a successful query.",
       ),
     ).toBeVisible();
   });

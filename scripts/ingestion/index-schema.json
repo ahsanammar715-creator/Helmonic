@@ -1,6 +1,6 @@
 {
   "name": "consult-demo-v1",
-  "description": "Helmonic Consult Phase 1A five-document lexical retrieval index.",
+  "description": "Helmonic Consult controlled 16-document lexical retrieval index.",
   "fields": [
     {
       "name": "chunk_id",

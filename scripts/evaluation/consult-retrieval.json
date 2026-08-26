@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "profile": "iAcoustics",
+  "cases": [
+    {
+      "id": "sound-insulation-overview",
+      "question": "What does the evidence say about sound insulation?",
+      "expectedTitleIncludes": ["Harold's Cross Road"],
+      "minimumCitations": 1
+    },
+    {
+      "id": "harolds-cross-impact-results",
+      "question": "What impact sound insulation results were recorded at Harold's Cross Road?",
+      "expectedTitleIncludes": ["Harold's Cross Road"],
+      "minimumCitations": 1
+    },
+    {
+      "id": "premier-inn-cork-assessment",
+      "question": "What was assessed at the Premier Inn Victorian Quarter in Cork?",
+      "expectedTitleIncludes": ["Premier Inn Victorian Quarter"],
+      "minimumCitations": 1
+    },
+    {
+      "id": "unknown-wetherspoon-project",
+      "question": "What does Wetherspoon do?",
+      "expectedNoEvidence": true
+    },
+    {
+      "id": "out-of-domain-general-knowledge",
+      "question": "What is the population of France?",
+      "expectedNoEvidence": true
+    }
+  ]
+}

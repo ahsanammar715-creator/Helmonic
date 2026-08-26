@@ -1,4 +1,5 @@
 import { sourcesCited } from "@/lib/data";
+import { CONTROLLED_SOURCE_DOCUMENT_COUNT } from "@/lib/consult/corpus";
 import type { ConsultCitation } from "@/lib/consult/types";
 
 /** The source-card list shared by SourcesPanel and any panel embedding a Sources tab. */
@@ -26,7 +27,8 @@ export default function SourcesList({ sources }: { sources?: ConsultCitation[] }
   if (items.length === 0) {
     return (
       <div className="border border-dashed border-line rounded-md bg-canvas p-4 text-[12px] leading-[1.55] text-muted">
-        Sources from the five-document knowledge set will appear here after a successful query.
+        Sources from the {CONTROLLED_SOURCE_DOCUMENT_COUNT}-document knowledge set will appear
+        here after a successful query.
       </div>
     );
   }

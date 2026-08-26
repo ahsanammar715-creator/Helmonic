@@ -141,11 +141,11 @@ PDFs and extracted payloads are never committed to this repository.
 - No persistent conversations, messages, folders, or subfolders yet.
 - The attachment control is filename-only and does not upload file bytes.
 - No approved language-model deployment is active; live Consult is retrieval-only.
-- The active Azure demo revision still has the tracked temporary root/port-80
-  exception. The current local source now replaces it with a non-root/port-8080 image
-  and CI guard, but the Azure ingress/revision migration remains separately gated.
-- The committed historical ingestion script covers exactly five documents while the
-  controlled live corpus contains sixteen; Phase 1B must make ingestion reproducible.
+- The active Azure revision now runs non-root on port 8080. The historical root/port-80
+  revision remains active at 0% solely for rollback and must be deactivated when that
+  rollback window closes.
+- The controlled ingestion script now validates and reproduces the approved
+  sixteen-document corpus from an operator-supplied payload.
 - No automated unit-test suite exists yet; current automated coverage is Playwright E2E.
 - Lead Generation, Logistics, Marketing, Build, and legacy Consult-project data remains
   illustrative/mock rather than live research or transactional data.

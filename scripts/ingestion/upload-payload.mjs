@@ -11,6 +11,10 @@ const storageAccount = required("AZURE_STORAGE_ACCOUNT");
 const blobContainer = process.env.AZURE_STORAGE_CONTAINER || "consult-sources";
 const payloadRoot = process.env.HELMONIC_INGESTION_PAYLOAD || "/payload";
 const payloadPath = join(payloadRoot, "payload.json");
+const expectedDocumentCount = positiveInteger(
+  "HELMONIC_INGESTION_EXPECTED_DOCUMENT_COUNT",
+  16,
+);
 const schemaPath = process.env.HELMONIC_INDEX_SCHEMA || join(
   process.cwd(),
   "scripts",
@@ -23,6 +27,16 @@ const credential = new DefaultAzureCredential();
 function required(name) {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required`);
+  return value;
+}
+
+function positiveInteger(name, fallback) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(value) || value < 1 || String(value) !== raw) {
+    throw new Error(`${name} must be a positive integer`);
+  }
   return value;
 }
 
@@ -191,8 +205,13 @@ async function verifySearch(accessToken, permissionScope, question) {
 
 async function main() {
   const payload = JSON.parse(await readFile(payloadPath, "utf8"));
-  if (!Array.isArray(payload.documents) || payload.documents.length !== 5) {
-    throw new Error("Phase 1A ingestion requires exactly five approved source documents");
+  if (
+    !Array.isArray(payload.documents) ||
+    payload.documents.length !== expectedDocumentCount
+  ) {
+    throw new Error(
+      `Controlled ingestion requires exactly ${expectedDocumentCount} approved source documents`,
+    );
   }
 
   const sourceIds = new Set();
@@ -203,6 +222,9 @@ async function main() {
     }
     if (!document.title || !document.fileName || !document.permissionScope) {
       throw new Error(`Source ${document.sourceId} is missing required metadata`);
+    }
+    if (!Array.isArray(document.chunks) || document.chunks.length === 0) {
+      throw new Error(`Source ${document.sourceId} must contain at least one source chunk`);
     }
     sourceIds.add(document.sourceId);
 
@@ -263,6 +285,7 @@ async function main() {
     JSON.stringify({
       status: "complete",
       documentCount: payload.documents.length,
+      expectedDocumentCount,
       chunkCount: searchDocuments.length,
       index: searchIndex,
       container: blobContainer,

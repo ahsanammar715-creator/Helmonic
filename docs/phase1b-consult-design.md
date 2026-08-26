@@ -201,7 +201,7 @@ unauthorized revision never receives traffic.
 | `.nvmrc` | Tested Node.js runtime version |
 | `AGENTS.md` | Repository-specific Next.js agent rule requiring bundled framework documentation to be consulted |
 | `CLAUDE.md` | Points compatible coding agents to the same `AGENTS.md` instructions |
-| `package.json` | Application metadata, Next.js/React/Azure/PostgreSQL dependencies, lint/type/build/test scripts, and the runtime-hardening verification command |
+| `package.json` | Application metadata, Next.js/React/Azure/PostgreSQL dependencies, lint/type/build/test scripts, runtime-hardening verification, and retrieval-evaluation command |
 | `package-lock.json` | Exact npm dependency lock for reproducible installation |
 | `eslint.config.mjs` | Next.js Core Web Vitals and TypeScript lint configuration |
 | `postcss.config.mjs` | Tailwind CSS v4 PostCSS integration |
@@ -212,7 +212,9 @@ unauthorized revision never receives traffic.
 | `.github/workflows/phase1a-consult-build.yml` | Branch-scoped GitHub OIDC build and immutable ACR publication, blocked if runtime hardening regresses |
 | `playwright.config.ts` | End-to-end browser-test configuration |
 | `scripts/verify-runtime-hardening.mjs` | Fails local/CI/image builds if root, port 80, or the expired exception label returns |
-| `tests/e2e/smoke.spec.ts` | Route smoke tests, fail-closed/runtime-user tests, UI flows, responsive behavior, settings, and filename-only attachment regression coverage |
+| `tests/e2e/smoke.spec.ts` | Route smoke tests, fail-closed/runtime-user tests, UI flows, responsive behavior, settings, current corpus copy, and filename-only attachment regression coverage |
+| `scripts/evaluation/consult-retrieval.json` | Versioned retrieval-relevance cases, including known-project matches and mandatory no-evidence cases |
+| `scripts/evaluation/run-consult-retrieval.mjs` | Offline suite/policy validation and opt-in managed-identity live Search evaluation |
 
 ### App Router surfaces
 
@@ -274,6 +276,8 @@ unauthorized revision never receives traffic.
 | Path | Responsibility |
 | --- | --- |
 | `src/lib/consult/types.ts` | Consult response and citation contracts |
+| `src/lib/consult/corpus.ts` | Single application source of truth for the current controlled-document count and label |
+| `src/lib/consult/search-policy.ts` | Pure precision-first controlled Search request policy shared by runtime and evaluation tooling |
 | `src/lib/server/config.ts` | Runtime environment parsing, defaults, and completeness checks |
 | `src/lib/server/azure-credential.ts` | Managed-identity/default Azure credential token acquisition |
 | `src/lib/server/search.ts` | Permission-scoped Search query and server citation shaping |
@@ -292,19 +296,18 @@ unauthorized revision never receives traffic.
 | --- | --- |
 | `scripts/ingestion/index-schema.json` | Current `consult-demo-v1` Search schema |
 | `scripts/ingestion/payload.example.json` | Non-sensitive example of the source/chunk/page/hash ingestion payload contract |
-| `scripts/ingestion/README.md` | Operator instructions and least-privilege separation for the original five-document one-shot path |
-| `scripts/ingestion/upload-payload.mjs` | Controlled one-shot Blob/Search writer and verification path |
+| `scripts/ingestion/README.md` | Operator instructions, current corpus-count gate, and least-privilege separation for controlled ingestion |
+| `scripts/ingestion/upload-payload.mjs` | Controlled 16-document Blob/Search writer, validation, and verification path |
 
 Source PDFs, extracted payloads, Azure credentials, and temporary ingestion artifacts are
 not committed to Git.
 
-The committed uploader still enforces the original exactly-five-document Phase 1A
-contract. The live corpus was later extended operationally to sixteen PDFs, but that
-extension was not preserved as a reusable manifest/extraction implementation in this
-branch. Consequently, the current branch cannot reproducibly rebuild all sixteen live
-documents from source files by itself. Phase 1B must close this gap with the
-manifest-driven, asynchronous ingestion implementation specified below; no further
-one-off ingestion code may live only in a temporary image or local payload.
+The committed uploader now fails closed on the current sixteen-document corpus count,
+validates unique document/chunk identifiers and non-empty chunk sets, and can rebuild
+the approved Blob/Search corpus from a page-preserving payload. Confidential source
+PDFs and the operational payload remain deliberately uncommitted. A different approved
+corpus size requires an explicit environment override; the override is a validation
+mechanism, not authorization to ingest.
 
 ### Documentation
 
@@ -518,15 +521,18 @@ until an explicitly costed zero-traffic validation and ingress migration is appr
 
 - The root/port-80 revision is no longer on the live request path, but remains active at
   0% as an intentional rollback option. Full exception closure requires deactivation.
-- Consult UI copy still refers to five documents instead of the current sixteen or a
-  dynamic count.
-- Retrieval relevance needs an evaluation set and tuning; at least one broad query
-  returned unrelated Premier Inn passages for a Wetherspoon question.
+- The application copy now uses one centralized sixteen-document corpus constant. It
+  will need to move to server-provided corpus metadata when arbitrary controlled-source
+  administration is introduced.
+- A five-case retrieval evaluation set now guards known-project relevance and
+  no-evidence behavior. The runtime uses `searchMode: all` across title, section, and
+  content so a missing project term cannot match only generic question words. Live
+  evaluation of the changed policy remains a deployment validation gate.
 - Conversation messages and Recent items are not persisted.
 - The attachment UI currently stores only filenames in local React state.
-- The committed ingestion uploader still enforces exactly five documents while the live
-  controlled corpus contains sixteen; the later operational extension is not a
-  reproducible source-to-index workflow in this branch.
+- The controlled uploader now enforces exactly sixteen documents by default. The
+  confidential PDF/payload manifest remains an operator-controlled artifact rather than
+  repository content.
 - No ongoing ingestion worker/receiver is deployed.
 - Service Bus Basic uses a public service endpoint with Entra/RBAC; Premium/private
   networking is not approved for this phase.
@@ -562,6 +568,7 @@ this document.
 | 2026-08-26 | Phase 1B runtime-hardening slice | Replaced root/port 80 in local source with the non-root `node` user on port 8080, added CI/image invariant checks, and exposed runtime UID evidence through `/healthz`; Azure deployment remains separately gated |
 | 2026-08-26 | Zero-traffic hardened runtime validation | Deployed `--p1b69b6b7a` from immutable image `helmonic-consult:69b6b7af9283657c9f509385fcb2050ab01c65c4` at 0%/min 0, proved UID 1000 plus `/healthz` and `/readyz` 200 from inside the container, removed its temporary label, confirmed it returned to 0 replicas, and left ingress 80 with `--ca72a0c` at 100% |
 | 2026-08-26 | Coordinated non-root production cutover | Changed application ingress from port 80 to 8080, persisted `--p1b69b6b7a` at 100% with `--ca72a0c` and `--0000001` at 0%, preserved the exact IP allowlist, and validated the authenticated live Consult UI plus a four-passage document/page citation query. No resource, SKU, or minimum-replica change was made; the approved validation stayed below the $0.01 ceiling |
+| 2026-08-26 | Phase 1B quick-fix slice | Centralized the real sixteen-document UI count, made the controlled uploader reproducible and fail-closed on sixteen documents, added a five-case retrieval evaluation suite, and changed controlled lexical retrieval from recall-first `any` matching to title-aware precision-first `all` matching. Local suite validation, generated route types, TypeScript, and lint passed; live evaluation remains gated on deployment |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data

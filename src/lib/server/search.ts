@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { ConsultCitation } from "@/lib/consult/types";
+import { buildControlledSearchRequest } from "@/lib/consult/search-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
 import type { RuntimeConfig } from "@/lib/server/config";
 
@@ -35,10 +36,6 @@ function requireSearchConfig(config: RuntimeConfig) {
   };
 }
 
-function searchFilterValue(value: string) {
-  return value.replace(/'/g, "''");
-}
-
 export async function searchConsultEvidence(
   question: string,
   requestId: string,
@@ -57,14 +54,9 @@ export async function searchConsultEvidence(
         "Content-Type": "application/json",
         "x-ms-client-request-id": requestId,
       },
-      body: JSON.stringify({
-        search: question,
-        queryType: "simple",
-        searchMode: "any",
-        filter: `permission_scope eq '${searchFilterValue(config.profile)}'`,
-        top: config.search.top,
-        select: "chunk_id,source_id,source_uri,title,section,page_number,content",
-      }),
+      body: JSON.stringify(
+        buildControlledSearchRequest(question, config.profile, config.search.top),
+      ),
       cache: "no-store",
       signal: AbortSignal.timeout(8_000),
     },
