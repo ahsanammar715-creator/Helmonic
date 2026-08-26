@@ -49,3 +49,16 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Build and push the temporary Phase 1B validation image
+        if: contains(github.event.head_commit.message, '[validation-image]')
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.validation
+          push: true
+          tags: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:validation-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            io.helmonic.lifecycle=temporary-validation
