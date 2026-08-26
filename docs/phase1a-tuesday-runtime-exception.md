@@ -93,9 +93,24 @@ repository verification script fails CI and the image workflow if those invarian
 regress. `/healthz` now reports the runtime user ID and whether it is non-root where the
 operating system exposes that information.
 
-This source change does **not** close the live exception by itself. Closure still
-requires a separately approved Container Apps rollout: change ingress to `8080`,
-deploy the hardened image at zero traffic, prove the runtime UID is non-zero and all
-health/readiness/security/dependency checks pass, then shift traffic and deactivate
-the root-running revision. Until those steps are complete, `--ca72a0c` remains the
-live protected-demo revision and this exception remains open operationally.
+The hardened image has now passed its zero-traffic Azure gate. Revision
+`ca-helmonic-consult-dev-002--p1b69b6b7a` runs immutable image
+`helmonic-consult:69b6b7af9283657c9f509385fcb2050ab01c65c4` with minimum replicas
+0 and 0% traffic. Console validation on 26 August 2026 proved UID `1000`,
+`/healthz` 200 with `nonRoot: true`, and `/readyz` 200 using the inherited
+managed-identity/private-service configuration. Its temporary validation label was
+removed after the checks, and Azure confirmed the revision returned to 0 replicas.
+
+The serving-path exception was removed on 26 August 2026. Azure Portal confirms
+application-scope ingress now targets port 8080 and `--p1b69b6b7a` receives 100% of
+traffic, while `--ca72a0c` and `--0000001` remain active at 0%. The source-IP rule
+`86.43.74.56/32` remained unchanged. The authenticated live Consult UI loaded from the
+main application URL and a live sound-insulation query returned four server-verified
+document/page citations in the Sources panel.
+
+The old root revision is intentionally retained at 0% for rollback, so the final
+administrative deactivation step is still open even though root code no longer serves
+live requests. Closing that rollback window requires a separate decision to deactivate
+every root-running Helmonic revision. Until then, rollback to `--ca72a0c` must restore
+both ingress port 80 and its traffic allocation; traffic-only rollback would not make
+the port-80 image reachable.

@@ -62,8 +62,9 @@ remain in this worktree and branch unless the owner explicitly changes this rule
 | Container Apps environment | `cae-helmonic-dev-002` |
 | Container App | `ca-helmonic-consult-dev-002` |
 | Authenticated application URL | `https://ca-helmonic-consult-dev-002.politemushroom-54e7948a.northeurope.azurecontainerapps.io` |
-| Current real revision | `ca-helmonic-consult-dev-002--ca72a0c` |
-| Rollback revision | `ca-helmonic-consult-dev-002--0000001` |
+| Current real revision | `ca-helmonic-consult-dev-002--p1b69b6b7a` (`helmonic-consult:69b6b7af9283657c9f509385fcb2050ab01c65c4`), 100% traffic, non-root UID 1000, port 8080 |
+| Prior real rollback revision | `ca-helmonic-consult-dev-002--ca72a0c`, active at 0% traffic; rollback also requires restoring ingress port 80 |
+| Placeholder rollback revision | `ca-helmonic-consult-dev-002--0000001`, active at 0% traffic |
 | Container registry | `acrhelmonicdev001` |
 | Application image repository | `helmonic-consult` |
 | ACR pull identity | `uami-helmonic-acr-001` |
@@ -350,12 +351,15 @@ provided markers. The Sources panel displays real document/page evidence. Phase 
 separate `D`, `A`, and `G` marker namespaces so controlled documents, conversation
 attachments, and general references cannot be blended.
 
-### D-006: root/port-80 is a tracked temporary exception
+### D-006: root/port-80 was a tracked temporary exception
 
-The live Phase 1A revision temporarily runs as root so Next.js can bind the app-wide
-port-80 target without invalidating the rollback path. This is not approved beyond the
-Tuesday demonstration. Non-root execution on port 8080 is a blocking gate before live
-Phase 1B uploads or broader exposure.
+The earlier Phase 1A revision temporarily ran as root so Next.js could bind the
+app-wide port-80 target without invalidating the rollback path. On 26 August 2026 the
+approved coordinated cutover moved ingress to port 8080 and 100% traffic to the
+non-root `--p1b69b6b7a` revision. The root revision remains active at 0% only as a
+short-term rollback option; it is not on the live request path. Full administrative
+closure still requires deactivating every root-running revision when the rollback
+window is deliberately closed.
 
 ### D-007: model choices for the current real-document path
 
@@ -456,10 +460,13 @@ until an explicitly costed zero-traffic validation and ingress migration is appr
 
 ### Live and working
 
-- The real Phase 1A revision `--ca72a0c` receives 100% of live traffic.
-- The old placeholder revision remains at 0% for rollback.
-- Azure Portal independently reconfirmed both traffic weights on 26 August 2026; the
-  100% revision uses `helmonic-consult:ca72a0ce39618fd0cd552f5ec8c98dd498783a75`.
+- The hardened Phase 1B revision `--p1b69b6b7a` receives 100% of live traffic through
+  application ingress port 8080. It uses immutable image
+  `helmonic-consult:69b6b7af9283657c9f509385fcb2050ab01c65c4`.
+- Azure Portal independently reconfirmed the persisted traffic weights on 26 August
+  2026: `--p1b69b6b7a` 100%, `--ca72a0c` 0%, and `--0000001` 0%.
+- The prior real revision and placeholder remain active at 0% for rollback. A rollback
+  to `--ca72a0c` must restore ingress port 80 as well as its traffic weight.
 - Platform authentication is enabled and restricted to the approved Entra user.
 - The source-IP allowlist is active for `86.43.74.56/32`.
 - The user has successfully signed in and reached the application.
@@ -480,14 +487,23 @@ until an explicitly costed zero-traffic validation and ingress migration is appr
   exact SHA.
 - The first Phase 1B local slice implements the non-root/port-8080 source image,
   automated hardening guard, and `/healthz` runtime-user evidence.
+- Before cutover, hardened revision `--p1b69b6b7a` was deployed at 0% traffic with
+  minimum replicas 0 and returned to 0 running replicas after validation. Console validation
+  on 26 August 2026 proved UID `1000`, `/healthz` 200
+  with `nonRoot: true` and the exact `69b6b7a...` version, and `/readyz` 200 against
+  the inherited managed-identity/private-service configuration.
+- The temporary `p1b-validate` label used for console validation was removed. After the
+  coordinated cutover, the authenticated live UI rendered successfully and a live
+  sound-insulation query returned four server-verified passages in the Sources panel,
+  including the real document title and page for every passage.
 - Local runtime-invariant verification, generated route types, full TypeScript, lint,
   and application compilation pass. This Windows sandbox blocks Next.js child-process
   workers with `spawn EPERM`, so CI remains the authority for the final build/E2E pass.
 
 ### Pending/blocking
 
-- The Phase 1B runtime-hardening slice is local only until its validation completes and
-  a separate push/build approval is granted.
+- The runtime-hardening slice is pushed, built, validated, and live. Deactivating the
+  old root revision remains pending until the explicitly retained rollback window closes.
 - The Azure subscription remains on the Free Trial classification pending PAYG.
 - No usable GPT-5.5, Mistral, Phi, GPT-4.1, or GPT-4o deployment is active.
 - Target A generated answers are not live; Target B remains the fallback.
@@ -500,8 +516,8 @@ until an explicitly costed zero-traffic validation and ingress migration is appr
 
 ### Tracked technical debt and risks
 
-- The active application revision still runs under the root/port-80 exception even
-  though the local source replacement now runs non-root on port 8080.
+- The root/port-80 revision is no longer on the live request path, but remains active at
+  0% as an intentional rollback option. Full exception closure requires deactivation.
 - Consult UI copy still refers to five documents instead of the current sixteen or a
   dynamic count.
 - Retrieval relevance needs an evaluation set and tuning; at least one broad query
@@ -523,9 +539,11 @@ until an explicitly costed zero-traffic validation and ingress migration is appr
 
 ### Cost status
 
-No Phase 1B Azure cost has been incurred. After PAYG, the existing DEV baseline was
-estimated at approximately USD 130-145 per month before model usage. Phase 1B
-incremental estimates and approval gates are recorded later in this document.
+The zero-traffic runtime validation was executed under an approved under-USD-0.01
+ceiling and introduced no resource, SKU, or minimum-scale change. After PAYG, the
+existing DEV baseline was estimated at approximately USD 130-145 per month before
+model usage. Phase 1B incremental estimates and approval gates are recorded later in
+this document.
 
 ## Implementation and operations chronology
 
@@ -542,6 +560,8 @@ incremental estimates and approval gates are recorded later in this document.
 | 2026-08-26 | `00bd81f` - Documentation parity audit and push | Created this living reference, corrected stale CORS and README claims, mapped every tracked file, recorded the five-vs-sixteen ingestion reproducibility gap, pushed the commit, and synchronized PR #16 |
 | 2026-08-26 | Azure traffic/stale-tab diagnosis | Portal reconfirmed `--ca72a0c` at 100% and `--0000001` at 0%; browser history proved the Hello World tab was an unreloaded document first opened on 25 August, not a current traffic split |
 | 2026-08-26 | Phase 1B runtime-hardening slice | Replaced root/port 80 in local source with the non-root `node` user on port 8080, added CI/image invariant checks, and exposed runtime UID evidence through `/healthz`; Azure deployment remains separately gated |
+| 2026-08-26 | Zero-traffic hardened runtime validation | Deployed `--p1b69b6b7a` from immutable image `helmonic-consult:69b6b7af9283657c9f509385fcb2050ab01c65c4` at 0%/min 0, proved UID 1000 plus `/healthz` and `/readyz` 200 from inside the container, removed its temporary label, confirmed it returned to 0 replicas, and left ingress 80 with `--ca72a0c` at 100% |
+| 2026-08-26 | Coordinated non-root production cutover | Changed application ingress from port 80 to 8080, persisted `--p1b69b6b7a` at 100% with `--ca72a0c` and `--0000001` at 0%, preserved the exact IP allowlist, and validated the authenticated live Consult UI plus a four-passage document/page citation query. No resource, SKU, or minimum-replica change was made; the approved validation stayed below the $0.01 ceiling |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
