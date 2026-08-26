@@ -18,9 +18,10 @@ Blob/Search/PostgreSQL/Key Vault paths, retrieval from the controlled
 approved model deployment is configured, it fails safely to retrieval-only mode.
 
 Build, Logistics, Growth, and the older Consult project/report demonstrations continue
-to use illustrative local/mock state. Persistent conversations, real browser uploads,
-folders, voice input, and separately cited general context are designed for Phase 1B
-but are not implemented yet.
+to use illustrative local/mock state. Phase 1B database/API contracts, real PDF upload
+streaming, queue dispatch, session-index retrieval, and the separately rendered general
+context contract now exist locally behind disabled feature flags. Their Azure schema,
+container/index, worker, and live activation have not been applied or approved.
 
 ## Stack
 
@@ -138,9 +139,14 @@ PDFs and extracted payloads are never committed to this repository.
 
 ## Current limitations
 
-- No persistent conversations, messages, folders, or subfolders yet.
-- The attachment control is filename-only and does not upload file bytes.
+- Conversation/folder persistence and real PDF upload are locally implemented behind
+  disabled feature flags; their database migration and Azure dependencies are not live.
+- The web-side upload path stores metadata, streams PDF bytes to the isolated session
+  container, and queues ingestion, but the page-extraction/indexing worker is not yet
+  implemented or deployed, so this is not an end-to-end live upload feature yet.
 - No approved language-model deployment is active; live Consult is retrieval-only.
+- General context has a separate API/UI/citation contract but deliberately remains
+  unavailable until a curated reference index and approved model exist.
 - The active Azure revision now runs non-root on port 8080. The historical root/port-80
   revision remains active at 0% solely for rollback and must be deactivated when that
   rollback window closes.
@@ -152,11 +158,11 @@ PDFs and extracted payloads are never committed to this repository.
 
 ## Next engineering phase
 
-Phase 1B implementation has begun with the local runtime-hardening prerequisite. The
-remaining planned capabilities introduce:
+Phase 1B implementation now includes the runtime-hardening prerequisite and its first
+fail-closed local application contracts. The remaining delivery work includes:
 
-- persistent Consult conversations and nested sidebar folders;
-- real PDF upload to a conversation-scoped Blob container;
+- activating persistent Consult conversations and nested sidebar folders after migration;
+- completing the PDF extraction/indexing worker and attachment lifecycle UI;
 - asynchronous, page-preserving ingestion into a separate session Search index;
 - explicit promotion from temporary attachments to controlled sources;
 - Azure Speech input behind a disabled feature flag until PAYG approval;

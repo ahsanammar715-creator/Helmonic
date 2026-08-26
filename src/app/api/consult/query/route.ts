@@ -8,11 +8,31 @@ import {
   getQueryConfigurationErrors,
   getRuntimeConfig,
 } from "@/lib/server/config";
+import { getAuthenticatedActor } from "@/lib/server/identity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const maximumQuestionLength = 1_200;
+
+function generalContext(
+  requested: boolean,
+  config: ReturnType<typeof getRuntimeConfig>,
+): ConsultQueryResponse["generalContext"] {
+  if (!requested) return { status: "disabled", text: null, citations: [] };
+  if (
+    !config.phase1b.generalContextEnabled ||
+    !config.phase1b.generalSearchIndex ||
+    !config.model.endpoint ||
+    !config.model.deployment
+  ) {
+    return { status: "unavailable", text: null, citations: [] };
+  }
+
+  // Activation deliberately remains fail-closed until a curated general index and
+  // approved model are deployed and the gateway implementation is validated.
+  return { status: "unavailable", text: null, citations: [] };
+}
 
 function errorResponse(message: string, requestId: string, status: number) {
   return NextResponse.json<ConsultErrorResponse>(
@@ -31,6 +51,8 @@ export async function POST(request: Request) {
       citations: [],
       mode: "not-configured",
       requestId,
+      documentAnswer: { status: "not-configured", text: null, citations: [] },
+      generalContext: { status: "disabled", text: null, citations: [] },
     };
     return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
   }
@@ -52,6 +74,23 @@ export async function POST(request: Request) {
     typeof body === "object" && body !== null && "question" in body
       ? (body as { question?: unknown }).question
       : undefined;
+  const includeGeneralContext =
+    typeof body === "object" && body !== null && "includeGeneralContext" in body
+      ? (body as { includeGeneralContext?: unknown }).includeGeneralContext === true
+      : false;
+  const conversationId =
+    typeof body === "object" && body !== null && "conversationId" in body
+      ? (body as { conversationId?: unknown }).conversationId
+      : undefined;
+  if (
+    conversationId !== undefined &&
+    (typeof conversationId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        conversationId,
+      ))
+  ) {
+    return errorResponse("The conversation identifier is invalid.", requestId, 400);
+  }
 
   if (typeof question !== "string" || !question.trim()) {
     return errorResponse("Enter a question for Helmonic Consult.", requestId, 400);
@@ -81,8 +120,24 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { searchConsultEvidence } = await import("@/lib/server/search");
-    const citations = await searchConsultEvidence(trimmedQuestion, requestId, config);
+    const { searchConsultEvidence, searchSessionEvidence } = await import("@/lib/server/search");
+    const actor = conversationId ? getAuthenticatedActor(request) : null;
+    if (conversationId && !actor) {
+      return errorResponse("Sign in to query conversation attachments.", requestId, 401);
+    }
+    const [controlledCitations, attachmentCitations] = await Promise.all([
+      searchConsultEvidence(trimmedQuestion, requestId, config),
+      conversationId && actor && config.phase1b.uploadsEnabled
+        ? searchSessionEvidence(
+            trimmedQuestion,
+            actor.objectId,
+            conversationId,
+            requestId,
+            config,
+          )
+        : Promise.resolve([]),
+    ]);
+    const citations = [...controlledCitations, ...attachmentCitations];
 
     if (citations.length === 0) {
       const response: ConsultQueryResponse = {
@@ -90,6 +145,8 @@ export async function POST(request: Request) {
         citations: [],
         mode: "no-evidence",
         requestId,
+        documentAnswer: { status: "no-evidence", text: null, citations: [] },
+        generalContext: generalContext(includeGeneralContext, config),
       };
       return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
     }
@@ -100,6 +157,8 @@ export async function POST(request: Request) {
         citations,
         mode: "retrieval-only",
         requestId,
+        documentAnswer: { status: "retrieval-only", text: null, citations },
+        generalContext: generalContext(includeGeneralContext, config),
       };
       return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
     }
@@ -111,6 +170,8 @@ export async function POST(request: Request) {
       citations,
       mode: "generated",
       requestId,
+      documentAnswer: { status: "generated", text: answer, citations },
+      generalContext: generalContext(includeGeneralContext, config),
     };
 
     return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });

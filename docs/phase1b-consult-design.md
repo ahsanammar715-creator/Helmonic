@@ -212,7 +212,7 @@ unauthorized revision never receives traffic.
 | `.github/workflows/phase1a-consult-build.yml` | Branch-scoped GitHub OIDC build and immutable ACR publication, blocked if runtime hardening regresses |
 | `playwright.config.ts` | End-to-end browser-test configuration |
 | `scripts/verify-runtime-hardening.mjs` | Fails local/CI/image builds if root, port 80, or the expired exception label returns |
-| `tests/e2e/smoke.spec.ts` | Route smoke tests, fail-closed/runtime-user tests, UI flows, responsive behavior, settings, current corpus copy, and filename-only attachment regression coverage |
+| `tests/e2e/smoke.spec.ts` | Route smoke tests, fail-closed/runtime-user tests, Phase 1B disabled-boundary checks, UI flows, responsive behavior, settings, current corpus copy, and legacy mock attachment coverage |
 | `scripts/evaluation/consult-retrieval.json` | Versioned retrieval-relevance cases, including known-project matches and mandatory no-evidence cases |
 | `scripts/evaluation/run-consult-retrieval.mjs` | Offline suite/policy validation and opt-in managed-identity live Search evaluation |
 
@@ -237,7 +237,11 @@ unauthorized revision never receives traffic.
 | `src/app/(workspace)/growth/marketing/page.tsx` | Mock conversational marketing and drafts workflow |
 | `src/app/(workspace)/growth/leads/page.tsx` | Mock Smart Studio leads and iAcoustics planning-signals modes |
 | `src/app/(workspace)/growth/tenders/page.tsx` | Mock Ireland-wide tender-intelligence workflow and Consult handoff |
-| `src/app/api/consult/query/route.ts` | Same-origin Consult query API, validation, Search orchestration, retrieval-only/model modes |
+| `src/app/api/consult/query/route.ts` | Same-origin Consult query API, controlled/session Search orchestration, retrieval-only/model modes, and isolated general-context response contract |
+| `src/app/api/consult/conversations/route.ts` | Owner-scoped list/create API for persistent Consult conversations; disabled until Phase 1B persistence activation |
+| `src/app/api/consult/conversations/[conversationId]/documents/route.ts` | Authenticated, owner-scoped PDF upload endpoint that streams to session Blob and queues ingestion |
+| `src/app/api/consult/folders/route.ts` | Owner-scoped list/create API for nested Consult folders |
+| `src/app/api/consult/folders/[folderId]/route.ts` | Owner-scoped folder rename API |
 | `src/app/healthz/route.ts` | Process/liveness response plus runtime UID/non-root evidence on supported operating systems |
 | `src/app/readyz/route.ts` | Managed-identity dependency readiness response |
 
@@ -245,9 +249,10 @@ unauthorized revision never receives traffic.
 
 | Path | Responsibility |
 | --- | --- |
-| `src/components/consult/ConsultWorkspace.tsx` | Live Consult state, API calls, answer-mode rendering, and active citations |
-| `src/components/ChatComposer.tsx` | Shared text composer; attachment state is currently filename-only/local |
-| `src/components/AttachPopover.tsx` | Current file picker/drag-drop placeholder; does not upload bytes |
+| `src/components/consult/ConsultWorkspace.tsx` | Live Consult state, query/conversation/upload calls, answer-mode rendering, and active document/general citations |
+| `src/components/consult/GeneralContextSection.tsx` | Dedicated general-context surface using only `G` citations and never the document Sources panel |
+| `src/components/ChatComposer.tsx` | Shared text composer with uploading/queued/ready/failed attachment state |
+| `src/components/AttachPopover.tsx` | File picker/drag-drop control that passes the selected `File` to an approved upload handler |
 | `src/components/ChatBubble.tsx` | User and assistant message presentation |
 | `src/components/SourcesPanel.tsx` | Right-side citation panel for the active answer |
 | `src/components/SourcesList.tsx` | Shared source-list presentation used by mock workflows |
@@ -275,14 +280,21 @@ unauthorized revision never receives traffic.
 
 | Path | Responsibility |
 | --- | --- |
-| `src/lib/consult/types.ts` | Consult response and citation contracts |
+| `src/lib/consult/types.ts` | Consult document-answer, document/attachment citation, and isolated general-context response contracts |
 | `src/lib/consult/corpus.ts` | Single application source of truth for the current controlled-document count and label |
 | `src/lib/consult/search-policy.ts` | Pure precision-first controlled Search request policy shared by runtime and evaluation tooling |
+| `src/lib/consult/organization.ts` | Folder/conversation persistence DTOs |
+| `src/lib/consult/uploads.ts` | Session-document lifecycle and composer attachment DTOs |
 | `src/lib/server/config.ts` | Runtime environment parsing, defaults, and completeness checks |
 | `src/lib/server/azure-credential.ts` | Managed-identity/default Azure credential token acquisition |
-| `src/lib/server/search.ts` | Permission-scoped Search query and server citation shaping |
-| `src/lib/server/model.ts` | Initial Azure model adapter and citation guard; future Model Gateway seed |
-| `src/lib/server/postgres.ts` | Current managed-identity PostgreSQL readiness login; persistence pending |
+| `src/lib/server/search.ts` | Permission-scoped controlled and owner/conversation-scoped session Search queries and citation shaping |
+| `src/lib/server/model.ts` | Initial Azure document-answer adapter with `D`/`A` citation-marker guard |
+| `src/lib/server/model-gateway.ts` | Provider-neutral document/general request contracts and `G` citation validation seed |
+| `src/lib/server/postgres.ts` | Managed-identity PostgreSQL connection wrapper used by readiness and repositories |
+| `src/lib/server/consult-repository.ts` | Transactional, owner-scoped folder, conversation, upload, and ingestion-job persistence |
+| `src/lib/server/identity.ts` | Platform-authenticated actor extraction from Container Apps auth headers |
+| `src/lib/server/session-blob.ts` | Single-pass PDF signature/hash validation and managed-identity Blob streaming |
+| `src/lib/server/service-bus.ts` | Managed-identity REST dispatch for versioned session-ingestion messages |
 | `src/lib/server/readiness.ts` | Search, PostgreSQL, Blob, Key Vault, and optional model checks |
 | `src/lib/data.ts` | Original illustrative/mock data; not authoritative backend data |
 | `src/lib/useSessionBoolean.ts` | Session-only panel preference helper |
@@ -295,9 +307,11 @@ unauthorized revision never receives traffic.
 | Path | Responsibility |
 | --- | --- |
 | `scripts/ingestion/index-schema.json` | Current `consult-demo-v1` Search schema |
+| `scripts/ingestion/session-index-schema.json` | Proposed isolated, owner/conversation-filterable `consult-session-v1` Search schema |
 | `scripts/ingestion/payload.example.json` | Non-sensitive example of the source/chunk/page/hash ingestion payload contract |
 | `scripts/ingestion/README.md` | Operator instructions, current corpus-count gate, and least-privilege separation for controlled ingestion |
 | `scripts/ingestion/upload-payload.mjs` | Controlled 16-document Blob/Search writer, validation, and verification path |
+| `database/migrations/001_phase1b_consult.sql` | Backward-compatible Phase 1B schema with database-enforced same-owner folder, conversation, and attachment relationships; not applied |
 
 Source PDFs, extracted payloads, Azure credentials, and temporary ingestion artifacts are
 not committed to Git.
@@ -452,12 +466,24 @@ stay visible until separately designed, costed, implemented, and validated.
 
 ### D-018: close the runtime exception before upload implementation
 
-The first Phase 1B code slice hardens the existing container boundary before adding a
-document-write surface. Source now targets the built-in non-root `node` user and port
-`8080`; owned runtime files, an automated Dockerfile invariant check, and runtime UID
-evidence prevent the expired Tuesday exception from silently returning. The source
-fix and the Azure closure are tracked separately: the live revision remains unchanged
-until an explicitly costed zero-traffic validation and ingress migration is approved.
+The first Phase 1B code slice hardened the existing container boundary before adding a
+document-write surface. Source and the live revision now use the built-in non-root
+`node` user and port `8080`; owned runtime files, an automated Dockerfile invariant
+check, and runtime UID evidence prevent the expired Tuesday exception from silently
+returning. The older root revision is retained at 0% only as the explicitly approved
+short-term rollback option.
+
+### D-019: Phase 1B application contracts land disabled and permission-first
+
+The first application slice is source-only and introduces no Azure mutation. Uploads,
+folders, and general context each require an explicit feature flag. The schema uses the
+authenticated Entra object ID as the ownership boundary and database-level composite
+foreign keys prevent cross-owner folder/conversation/document relationships. Session
+attachments use a separate Blob container and Search index, and retrieval filters on
+both owner and conversation before results are shaped as `A` citations. Controlled
+documents retain `D` citations; general references use `G` citations and never enter
+the Sources panel. The migration, session container/index, worker, feature activation,
+deployment, and traffic shift remain separate cost/approval gates.
 
 ## Current status
 
@@ -503,17 +529,38 @@ until an explicitly costed zero-traffic validation and ingress migration is appr
   and application compilation pass. This Windows sandbox blocks Next.js child-process
   workers with `spawn EPERM`, so CI remains the authority for the final build/E2E pass.
 
+### Implemented locally but not deployed
+
+- Phase 1B feature flags default off, preserving the current Azure revision and the
+  Vercel fail-closed boundary.
+- The backward-compatible PostgreSQL migration and transactional repository define
+  owner-scoped folders, conversations, session documents, versions, ingestion jobs,
+  messages, citations, and audit events. Database-level composite foreign keys prevent
+  cross-owner folder, conversation, and document links.
+- The Consult attachment UI now passes real PDF bytes to a same-origin API. The API
+  validates size/type/PDF signature, writes owner/conversation metadata, streams to the
+  isolated session Blob container with managed identity, hashes the content, and sends
+  a versioned ingestion message to Service Bus.
+- A separate session Search schema and owner/conversation-filtered retrieval path are
+  defined. Controlled results use `D` markers and attachments use `A` markers.
+- A provider-neutral Model Gateway contract and a separate general-context UI use only
+  `G` citations and never populate the controlled Sources panel.
+- No migration, Blob container, Search index, worker, model, Speech resource, Azure
+  configuration, deployment, or traffic change was made by this local slice.
+
 ### Pending/blocking
 
 - The runtime-hardening slice is pushed, built, validated, and live. Deactivating the
   old root revision remains pending until the explicitly retained rollback window closes.
-- The Azure subscription remains on the Free Trial classification pending PAYG.
+- Read-only subscription verification on 26 August 2026 still reports quota ID
+  `FreeTrial_2014-09-01` with spending limit `On`; PAYG has not cleared.
 - No usable GPT-5.5, Mistral, Phi, GPT-4.1, or GPT-4o deployment is active.
 - Target A generated answers are not live; Target B remains the fallback.
 - GPT-5.5 Data Zone Standard quota must be re-requested/verified after PAYG.
 - Any Mistral secondary deployment also requires fresh quota and cost verification.
-- Phase 1B upload, persistence, folders, voice, and general-context application work
-  has not begun; runtime hardening is the active prerequisite slice.
+- Phase 1B persistence/upload/general-context contracts are local only. Migration,
+  session container/index, ingestion worker, sidebar tree activation, and live feature
+  flags remain pending separate approval. Voice deployment remains PAYG-blocked.
 - Azure Speech has not been provisioned.
 - No live-web/general-context connector has been approved.
 
@@ -528,8 +575,10 @@ until an explicitly costed zero-traffic validation and ingress migration is appr
   no-evidence behavior. The runtime uses `searchMode: all` across title, section, and
   content so a missing project term cannot match only generic question words. Live
   evaluation of the changed policy remains a deployment validation gate.
-- Conversation messages and Recent items are not persisted.
-- The attachment UI currently stores only filenames in local React state.
+- Conversation messages and Recent sidebar items are not yet wired to the local
+  persistence contracts.
+- The web upload path is implemented, but no queue receiver/page-extraction worker is
+  implemented or deployed; queued documents cannot become `ready` yet.
 - The controlled uploader now enforces exactly sixteen documents by default. The
   confidential PDF/payload manifest remains an operator-controlled artifact rather than
   repository content.
@@ -569,6 +618,8 @@ this document.
 | 2026-08-26 | Zero-traffic hardened runtime validation | Deployed `--p1b69b6b7a` from immutable image `helmonic-consult:69b6b7af9283657c9f509385fcb2050ab01c65c4` at 0%/min 0, proved UID 1000 plus `/healthz` and `/readyz` 200 from inside the container, removed its temporary label, confirmed it returned to 0 replicas, and left ingress 80 with `--ca72a0c` at 100% |
 | 2026-08-26 | Coordinated non-root production cutover | Changed application ingress from port 80 to 8080, persisted `--p1b69b6b7a` at 100% with `--ca72a0c` and `--0000001` at 0%, preserved the exact IP allowlist, and validated the authenticated live Consult UI plus a four-passage document/page citation query. No resource, SKU, or minimum-replica change was made; the approved validation stayed below the $0.01 ceiling |
 | 2026-08-26 | Phase 1B quick-fix slice | Centralized the real sixteen-document UI count, made the controlled uploader reproducible and fail-closed on sixteen documents, added a five-case retrieval evaluation suite, and changed controlled lexical retrieval from recall-first `any` matching to title-aware precision-first `all` matching. Local suite validation, generated route types, TypeScript, and lint passed; live evaluation remains gated on deployment |
+| 2026-08-26 | Phase 1B local application-contract slice | Added the unapplied owner-scoped persistence migration/repository, real PDF streaming/Blob/Service Bus upload path, isolated session-index schema and filtered retrieval, persistent folder/conversation APIs, and strictly separate general-context Model Gateway/UI contract. All features default disabled; no Azure state or cost changed |
+| 2026-08-26 | PAYG read-only status check | Subscription policy still returned `FreeTrial_2014-09-01` with spending limit `On`; no Speech/model/quota/deployment action was started |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
@@ -1358,7 +1409,7 @@ testable and deployable behind feature flags.
 ## 21. Required decisions before Azure implementation
 
 1. Session-upload retention period: proposed 30 days.
-2. Initial maximum PDF size: proposed 25 MB, with a later reviewed increase to 40 MB.
+2. Initial maximum PDF size: 40 MB in the local contract; review before live activation.
 3. Whether Phase 1B requires malware scanning before production use.
 4. Who can promote attachments into the controlled knowledge base.
 5. Which authoritative public domains/sources are permitted in the curated general

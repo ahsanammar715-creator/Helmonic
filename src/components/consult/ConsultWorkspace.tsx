@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { AssistantBubble, UserBubble } from "@/components/ChatBubble";
 import ChatComposer from "@/components/ChatComposer";
+import GeneralContextSection from "@/components/consult/GeneralContextSection";
 import SourcesPanel from "@/components/SourcesPanel";
 import TopBar from "@/components/TopBar";
 import WaveDivider from "@/components/WaveDivider";
@@ -18,6 +19,7 @@ import {
   CONTROLLED_SOURCE_DOCUMENT_COUNT,
   CONTROLLED_SOURCE_SET_LABEL,
 } from "@/lib/consult/corpus";
+import type { ComposerAttachment, SessionDocumentUploadResponse } from "@/lib/consult/uploads";
 
 type Exchange = {
   id: string;
@@ -26,6 +28,7 @@ type Exchange = {
   error?: string;
   mode?: ConsultQueryResponse["mode"];
   citations: ConsultCitation[];
+  generalContext?: ConsultQueryResponse["generalContext"];
 };
 
 const suggestedQuestions = [
@@ -58,6 +61,8 @@ function modeCopy(mode: ConsultQueryResponse["mode"] | undefined) {
 export default function ConsultWorkspace() {
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [pending, setPending] = useState(false);
+  const [conversationId, setConversationId] = useState<string>();
+  const [includeGeneralContext, setIncludeGeneralContext] = useState(false);
   const latestSources = exchanges.at(-1)?.citations ?? [];
 
   async function ask(question: string) {
@@ -71,7 +76,7 @@ export default function ConsultWorkspace() {
       const response = await fetch("/api/consult/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, conversationId, includeGeneralContext }),
       });
       const payload = (await response.json()) as ConsultQueryResponse | ConsultErrorResponse;
 
@@ -87,6 +92,7 @@ export default function ConsultWorkspace() {
                 answer: payload.answer,
                 mode: payload.mode,
                 citations: payload.citations,
+                generalContext: payload.generalContext,
               }
             : exchange,
         ),
@@ -108,6 +114,50 @@ export default function ConsultWorkspace() {
     } finally {
       setPending(false);
     }
+  }
+
+  async function ensureConversation() {
+    if (conversationId) return conversationId;
+    const response = await fetch("/api/consult/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "New Consult conversation" }),
+    });
+    const payload = (await response.json()) as {
+      conversation?: { id?: string };
+      error?: string;
+    };
+    if (!response.ok || !payload.conversation?.id) {
+      throw new Error(payload.error || "Conversation persistence is not enabled yet.");
+    }
+    setConversationId(payload.conversation.id);
+    return payload.conversation.id;
+  }
+
+  async function uploadAttachment(file: File): Promise<ComposerAttachment> {
+    const activeConversationId = await ensureConversation();
+    const response = await fetch(
+      `/api/consult/conversations/${encodeURIComponent(activeConversationId)}/documents`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/pdf",
+          "x-helmonic-file-name": encodeURIComponent(file.name),
+        },
+        body: file,
+      },
+    );
+    const payload = (await response.json()) as
+      | SessionDocumentUploadResponse
+      | { error?: string };
+    if (!response.ok || !("document" in payload)) {
+      throw new Error("error" in payload && payload.error ? payload.error : "Upload failed.");
+    }
+    return {
+      id: payload.document.id,
+      name: payload.document.displayName,
+      state: payload.document.state === "ready" ? "ready" : "queued",
+    };
   }
 
   return (
@@ -210,6 +260,9 @@ export default function ConsultWorkspace() {
                             for the evidence.
                           </div>
                         )}
+                        {exchange.generalContext && (
+                          <GeneralContextSection context={exchange.generalContext} />
+                        )}
                       </>
                     ) : (
                       <>
@@ -228,6 +281,9 @@ export default function ConsultWorkspace() {
                             for the evidence.
                           </div>
                         )}
+                        {exchange.generalContext && (
+                          <GeneralContextSection context={exchange.generalContext} />
+                        )}
                       </>
                     )}
                   </AssistantBubble>
@@ -237,13 +293,26 @@ export default function ConsultWorkspace() {
           )}
         </div>
 
+        <label className="px-6 md:px-10 pt-3 flex items-center gap-2 text-[12px] text-muted">
+          <input
+            type="checkbox"
+            checked={includeGeneralContext}
+            onChange={(event) => setIncludeGeneralContext(event.target.checked)}
+            className="accent-primary"
+          />
+          Include separately cited general context when an approved model is available
+        </label>
+
         <ChatComposer
           inputId="consult-question"
           placeholder={`Ask Helmonic about the ${CONTROLLED_SOURCE_DOCUMENT_COUNT} source documents…`}
           helper="Phase 1A demo: fixed iAcoustics profile, controlled documents, server-authoritative citations."
           onSend={ask}
           disabled={pending}
-          showAttach={false}
+          showAttach
+          onAttachFile={uploadAttachment}
+          attachmentAccept=".pdf,application/pdf"
+          attachmentFormats="PDF only · up to 40 MB · conversation attachment"
         />
       </div>
 

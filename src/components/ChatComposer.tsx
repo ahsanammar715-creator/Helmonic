@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Paperclip, ArrowRight, X } from "lucide-react";
 import AttachPopover from "./AttachPopover";
+import type { ComposerAttachment } from "@/lib/consult/uploads";
 
 export default function ChatComposer({
   placeholder,
@@ -12,6 +13,9 @@ export default function ChatComposer({
   attachLabel = "Attach",
   inputId,
   showAttach = true,
+  onAttachFile,
+  attachmentAccept,
+  attachmentFormats,
 }: {
   placeholder: string;
   helper?: string;
@@ -20,10 +24,42 @@ export default function ChatComposer({
   attachLabel?: string;
   inputId?: string;
   showAttach?: boolean;
+  onAttachFile?: (file: File) => Promise<ComposerAttachment>;
+  attachmentAccept?: string;
+  attachmentFormats?: string;
 }) {
   const [value, setValue] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
-  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+
+  async function attach(file: File) {
+    const localId = crypto.randomUUID();
+    setAttachments((current) => [
+      ...current,
+      { id: localId, name: file.name, state: "uploading" },
+    ]);
+
+    try {
+      const completed = onAttachFile
+        ? await onAttachFile(file)
+        : { id: localId, name: file.name, state: "ready" as const };
+      setAttachments((current) =>
+        current.map((item) => (item.id === localId ? completed : item)),
+      );
+    } catch (error) {
+      setAttachments((current) =>
+        current.map((item) =>
+          item.id === localId
+            ? {
+                ...item,
+                state: "failed",
+                error: error instanceof Error ? error.message : "Upload failed",
+              }
+            : item,
+        ),
+      );
+    }
+  }
 
   function submit() {
     if (!value.trim() || disabled) return;
@@ -35,20 +71,33 @@ export default function ChatComposer({
     <div className="px-6 md:px-10 pb-5 pt-3.5 flex flex-col gap-2">
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {attachments.map((name, i) => (
+          {attachments.map((attachment) => (
             <span
-              key={`${name}-${i}`}
+              key={attachment.id}
               className="flex items-center gap-2 border border-line rounded-md bg-surface px-2.5 py-1.5 text-[12px]"
             >
               <Paperclip size={12} strokeWidth={1.8} className="text-faint" />
-              {name}
-              <button
-                onClick={() => setAttachments((a) => a.filter((_, idx) => idx !== i))}
-                aria-label={`Remove ${name}`}
-                className="text-faint hover:text-ink"
+              <span className="max-w-[220px] truncate">{attachment.name}</span>
+              <span
+                className={attachment.state === "failed" ? "text-warning" : "text-faint"}
+                title={attachment.error}
               >
-                <X size={12} strokeWidth={1.8} />
-              </button>
+                {attachment.state}
+              </span>
+              {attachment.state === "failed" && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAttachments((current) =>
+                      current.filter((item) => item.id !== attachment.id),
+                    )
+                  }
+                  aria-label={`Dismiss failed upload ${attachment.name}`}
+                  className="text-faint hover:text-ink"
+                >
+                  <X size={12} strokeWidth={1.8} />
+                </button>
+              )}
             </span>
           ))}
         </div>
@@ -69,7 +118,9 @@ export default function ChatComposer({
             {attachOpen && (
               <AttachPopover
                 onClose={() => setAttachOpen(false)}
-                onAttach={(name) => setAttachments((a) => [...a, name])}
+                onAttach={(file) => void attach(file)}
+                accept={attachmentAccept}
+                formats={attachmentFormats}
               />
             )}
           </div>

@@ -74,7 +74,38 @@ test.describe("Phase 1A runtime safeguards", () => {
       answer: null,
       citations: [],
       mode: "not-configured",
+      documentAnswer: {
+        status: "not-configured",
+        citations: [],
+      },
+      generalContext: {
+        status: "disabled",
+        citations: [],
+      },
     });
+  });
+
+  test("Phase 1B persistence and upload APIs fail closed when disabled", async ({ request }) => {
+    const [folders, conversations, upload] = await Promise.all([
+      request.post("/api/consult/folders", { data: { name: "Project" } }),
+      request.post("/api/consult/conversations", {
+        data: { title: "Project review" },
+      }),
+      request.post(
+        "/api/consult/conversations/6f920bd0-3ba1-4f07-9510-1b7198367b62/documents",
+        {
+          headers: {
+            "Content-Type": "application/pdf",
+            "x-helmonic-file-name": "test.pdf",
+          },
+          data: Buffer.from("%PDF-test"),
+        },
+      ),
+    ]);
+
+    expect(folders.status()).toBe(503);
+    expect(conversations.status()).toBe(503);
+    expect(upload.status()).toBe(503);
   });
 });
 

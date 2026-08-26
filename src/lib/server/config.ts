@@ -24,6 +24,10 @@ function positiveInteger(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function enabled(name: string) {
+  return optional(name) === "true";
+}
+
 export function getRuntimeConfig() {
   const readiness = (optional("HELMONIC_READINESS_CHECKS") ?? "search,postgres,blob,keyvault")
     .split(",")
@@ -63,6 +67,23 @@ export function getRuntimeConfig() {
       namespace: optional("AZURE_SERVICE_BUS_NAMESPACE"),
       queue: optional("AZURE_SERVICE_BUS_QUEUE"),
     },
+    phase1b: {
+      uploadsEnabled: enabled("HELMONIC_PHASE1B_UPLOADS_ENABLED"),
+      foldersEnabled: enabled("HELMONIC_PHASE1B_FOLDERS_ENABLED"),
+      generalContextEnabled: enabled("HELMONIC_GENERAL_CONTEXT_ENABLED"),
+      sessionBlobContainer:
+        optional("AZURE_STORAGE_SESSION_CONTAINER") ?? "consult-session-uploads",
+      sessionSearchIndex: optional("AZURE_SEARCH_SESSION_INDEX"),
+      generalSearchIndex: optional("AZURE_SEARCH_GENERAL_INDEX"),
+      maximumUploadBytes: positiveInteger(
+        optional("HELMONIC_MAX_UPLOAD_BYTES"),
+        40 * 1024 * 1024,
+      ),
+      uploadRetentionDays: positiveInteger(
+        optional("HELMONIC_UPLOAD_RETENTION_DAYS"),
+        30,
+      ),
+    },
     model: {
       endpoint: withoutTrailingSlash(optional("AZURE_OPENAI_ENDPOINT")),
       deployment: optional("AZURE_OPENAI_DEPLOYMENT"),
@@ -91,5 +112,19 @@ export function getQueryConfigurationErrors(config: RuntimeConfig) {
     if (!config.model.deployment) missing.push("AZURE_OPENAI_DEPLOYMENT");
   }
 
+  return missing;
+}
+
+export function getUploadConfigurationErrors(config: RuntimeConfig) {
+  const missing: string[] = [];
+  if (!config.enabled) missing.push("HELMONIC_RUNTIME");
+  if (!config.phase1b.uploadsEnabled) missing.push("HELMONIC_PHASE1B_UPLOADS_ENABLED");
+  if (!config.storage.accountName) missing.push("AZURE_STORAGE_ACCOUNT");
+  if (!config.phase1b.sessionSearchIndex) missing.push("AZURE_SEARCH_SESSION_INDEX");
+  if (!config.serviceBus.namespace) missing.push("AZURE_SERVICE_BUS_NAMESPACE");
+  if (!config.serviceBus.queue) missing.push("AZURE_SERVICE_BUS_QUEUE");
+  if (!config.postgres.host) missing.push("AZURE_POSTGRES_HOST");
+  if (!config.postgres.database) missing.push("AZURE_POSTGRES_DATABASE");
+  if (!config.postgres.user) missing.push("AZURE_POSTGRES_USER");
   return missing;
 }

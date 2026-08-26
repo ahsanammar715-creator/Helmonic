@@ -15,6 +15,7 @@ type ChatCompletionResponse = {
 function buildEvidence(citations: ConsultCitation[]) {
   return citations
     .map((citation, index) => {
+      const marker = citation.marker ?? `D${index + 1}`;
       const location = [
         citation.section,
         citation.pageNumber ? `page ${citation.pageNumber}` : undefined,
@@ -22,18 +23,22 @@ function buildEvidence(citations: ConsultCitation[]) {
         .filter(Boolean)
         .join(", ");
 
-      return `[${index + 1}] ${citation.title}${location ? ` (${location})` : ""}\n${
+      return `[${marker}] ${citation.title}${location ? ` (${location})` : ""}\n${
         citation.excerpt
       }`;
     })
     .join("\n\n");
 }
 
-function removeUnsupportedCitationMarkers(answer: string, citationCount: number) {
-  return answer.replace(/\[(\d+)\]/g, (marker, value: string) => {
-    const number = Number.parseInt(value, 10);
-    return number >= 1 && number <= citationCount ? marker : "";
-  });
+function removeUnsupportedCitationMarkers(answer: string, citations: ConsultCitation[]) {
+  const allowed = new Set(
+    citations.map((citation, index) => citation.marker ?? `D${index + 1}`),
+  );
+  return answer.replace(
+    /\[(?:([DA]\d+)|G\d+|\d+)\]/g,
+    (marker, documentMarker: string | undefined) =>
+      documentMarker && allowed.has(documentMarker) ? marker : "",
+  );
 }
 
 export async function createGroundedAnswer(
@@ -63,7 +68,7 @@ export async function createGroundedAnswer(
           {
             role: "system",
             content:
-              `You are Helmonic Consult for the fixed ${config.profile} Phase 1A demo. Answer only from the supplied evidence. If the evidence is insufficient, say so clearly. Cite factual claims with the supplied numeric markers such as [1]. Never invent a source, clause, page, measurement, or citation number. Keep the answer concise and practical.`,
+              `You are Helmonic Consult for the fixed ${config.profile} evidence set. Answer only from the supplied evidence. If the evidence is insufficient, say so clearly. Cite factual claims with the supplied document markers such as [D1] or attachment markers such as [A1]. Never invent a source, clause, page, measurement, or citation marker. Keep the answer concise and practical.`,
           },
           {
             role: "user",
@@ -88,6 +93,9 @@ export async function createGroundedAnswer(
     throw new Error("Azure model returned an empty answer");
   }
 
-  const cleaned = removeUnsupportedCitationMarkers(answer, citations.length);
-  return /\[\d+\]/.test(cleaned) ? cleaned : `${cleaned}\n\nRetrieved evidence: [1]`;
+  const cleaned = removeUnsupportedCitationMarkers(answer, citations);
+  const firstMarker = citations[0]?.marker ?? "D1";
+  return /\[[DA]\d+\]/.test(cleaned)
+    ? cleaned
+    : `${cleaned}\n\nRetrieved evidence: [${firstMarker}]`;
 }
