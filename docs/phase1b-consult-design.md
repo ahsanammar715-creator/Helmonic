@@ -311,6 +311,7 @@ unauthorized revision never receives traffic.
 | `scripts/ingestion/payload.example.json` | Non-sensitive example of the source/chunk/page/hash ingestion payload contract |
 | `scripts/ingestion/README.md` | Operator instructions, current corpus-count gate, and least-privilege separation for controlled ingestion |
 | `scripts/ingestion/upload-payload.mjs` | Controlled 16-document Blob/Search writer, validation, and verification path |
+| `scripts/validation/phase1b-bootstrap.cjs` | Temporary private-network validation job entrypoint for the idempotent Phase 1B migration plus isolated Blob container/Search index creation |
 | `database/migrations/001_phase1b_consult.sql` | Backward-compatible Phase 1B schema with database-enforced same-owner folder, conversation, and attachment relationships; not applied |
 
 Source PDFs, extracted payloads, Azure credentials, and temporary ingestion artifacts are

@@ -137,4 +137,8 @@ create index if not exists ix_conversations_owner_folder on consult.conversation
 create index if not exists ix_documents_owner_state on consult.documents(owner_object_id, state) where deleted_at is null;
 create index if not exists ix_jobs_state on consult.ingestion_jobs(state, created_at);
 
+grant usage on schema consult to "ca-helmonic-consult-dev-002";
+grant select, insert, update, delete on all tables in schema consult
+  to "ca-helmonic-consult-dev-002";
+
 commit;
