@@ -37,9 +37,11 @@ The root image must not receive traffic until all of these checks pass:
 4. Platform authentication is enabled and rejects unauthenticated requests.
 5. Container Apps ingress has the previously approved source-IP allowlist and
    denies traffic from all other public IP addresses.
-6. CORS allows only the exact approved demo frontend origin; wildcard origins
-   are prohibited.
-7. Only the Phase 1A demo routes and controlled five-document dataset are used.
+6. CORS remains unset/disabled. The approved demo path is the Container App-hosted UI
+   on the same origin; Vercel and other cross-origin callers are not allowed.
+7. Only the Phase 1A demo routes and approved controlled dataset are used. The dataset
+   began with five documents and was later extended through approved ingestion to
+   sixteen; arbitrary browser uploads remain prohibited under this exception.
 8. Azure access remains managed-identity based. No keys, passwords, connection
    strings, or long-lived Azure credentials may be added to the image.
 9. The app remains on its existing CPU, memory, and scale settings unless a
@@ -61,8 +63,8 @@ the following must be completed:
 4. Deploy the non-root image as a new immutable revision at `0%` traffic.
 5. Validate `/healthz`, `/readyz`, the Consult request path, and all required
    managed-identity/private-endpoint dependencies.
-6. Reconfirm authentication, IP allowlisting, HTTPS-only ingress, and exact
-   CORS origin before routing traffic.
+6. Reconfirm authentication, IP allowlisting, HTTPS-only ingress, and disabled CORS
+   before routing traffic.
 7. Shift traffic only after the checks pass, then deactivate every root-running
    Helmonic revision.
 8. Verify no active revision or deployable image intended for wider use carries
