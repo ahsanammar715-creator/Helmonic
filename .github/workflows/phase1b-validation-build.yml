@@ -1,0 +1,43 @@
+name: Build Phase 1B validation image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  ACR_NAME: acrhelmonicdev001
+  ACR_LOGIN_SERVER: acrhelmonicdev001-etd4eqevdcf6e7bs.azurecr.io
+  IMAGE_REPOSITORY: helmonic-consult
+
+jobs:
+  build-and-push:
+    name: Build temporary private validation image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the approved demo branch
+        uses: actions/checkout@v4
+
+      - name: Sign in to Azure with branch-scoped OIDC
+        uses: azure/login@v2
+        with:
+          client-id: d265e55d-f8b6-421a-9a82-064183cab7e6
+          tenant-id: 360eacb5-68c3-400c-a366-0382ec3a7b4a
+          subscription-id: 14f94f77-4e71-4b80-b6c9-e09b192fcf42
+
+      - name: Sign in to Azure Container Registry
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build and push the temporary validation image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.validation
+          push: true
+          tags: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:validation-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            io.helmonic.lifecycle=temporary-validation
