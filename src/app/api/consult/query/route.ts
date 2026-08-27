@@ -163,8 +163,13 @@ export async function POST(request: Request) {
       return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
     }
 
-    const { createGroundedAnswer } = await import("@/lib/server/model");
-    const answer = await createGroundedAnswer(trimmedQuestion, citations, requestId, config);
+    const { createConsultModelGateway } = await import("@/lib/server/model");
+    const gateway = createConsultModelGateway(config);
+    const answer = await gateway.createDocumentAnswer({
+      requestId,
+      question: trimmedQuestion,
+      evidence: citations,
+    });
     const response: ConsultQueryResponse = {
       answer,
       citations,

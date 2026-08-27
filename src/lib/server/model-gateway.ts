@@ -22,6 +22,13 @@ export interface ConsultModelGateway {
   createGeneralContext(request: GeneralContextModelRequest): Promise<string>;
 }
 
+export class ModelGatewayValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ModelGatewayValidationError";
+  }
+}
+
 export function validateGeneralCitationMarkers(text: string, citations: GeneralCitation[]) {
   const allowed = new Set(citations.map((citation) => citation.marker));
   const markers = text.match(/\[G\d+\]/g) ?? [];

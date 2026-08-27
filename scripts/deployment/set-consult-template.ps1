@@ -16,6 +16,21 @@ param(
   [ValidateSet("true", "false")]
   [string] $GeneralContextEnabled,
 
+  [string] $ModelEndpoint,
+  [string] $ModelDeployment,
+
+  [ValidatePattern("^[0-9]{4}-[0-9]{2}-[0-9]{2}(-preview)?$")]
+  [string] $ModelApiVersion = "2024-10-21",
+
+  [ValidateSet("none", "low", "medium", "high", "xhigh")]
+  [string] $ModelReasoningEffort = "high",
+
+  [ValidateRange(1, 128000)]
+  [int] $ModelMaximumCompletionTokens = 2000,
+
+  [ValidateRange(1000, 300000)]
+  [int] $ModelTimeoutMilliseconds = 120000,
+
   [ValidatePattern("^[a-z0-9][a-z0-9-]{0,62}$")]
   [string] $RevisionSuffix,
 
@@ -26,6 +41,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$modelConfigured = [bool]$ModelEndpoint -and [bool]$ModelDeployment
+if ([bool]$ModelEndpoint -ne [bool]$ModelDeployment) {
+  throw "ModelEndpoint and ModelDeployment must be supplied together"
+}
+if ($ModelEndpoint -and $ModelEndpoint -notmatch '^https://[^/]+$') {
+  throw "ModelEndpoint must be an HTTPS origin without a path or trailing slash"
+}
 $image = "$RegistryLoginServer/helmonic-consult:$ImageTag"
 if (-not $RevisionSuffix) {
   $RevisionSuffix = "p1b$($ImageTag.Substring(0, 7))"
@@ -34,8 +56,28 @@ $featureFlags = @(
   "HELMONIC_APP_VERSION=$ImageTag",
   "HELMONIC_PHASE1B_UPLOADS_ENABLED=$UploadsEnabled",
   "HELMONIC_PHASE1B_FOLDERS_ENABLED=$FoldersEnabled",
-  "HELMONIC_GENERAL_CONTEXT_ENABLED=$GeneralContextEnabled"
+  "HELMONIC_GENERAL_CONTEXT_ENABLED=$GeneralContextEnabled",
+  "HELMONIC_ALLOW_RETRIEVAL_ONLY=$(if ($modelConfigured) { 'false' } else { 'true' })",
+  "HELMONIC_READINESS_CHECKS=$(if ($modelConfigured) { 'search,postgres,blob,keyvault,model' } else { 'search,postgres,blob,keyvault' })"
 )
+$modelEnvironmentNames = @(
+  "AZURE_OPENAI_ENDPOINT",
+  "AZURE_OPENAI_DEPLOYMENT",
+  "AZURE_OPENAI_API_VERSION",
+  "AZURE_OPENAI_REASONING_EFFORT",
+  "AZURE_OPENAI_MAX_COMPLETION_TOKENS",
+  "AZURE_OPENAI_TIMEOUT_MS"
+)
+if ($modelConfigured) {
+  $featureFlags += @(
+    "AZURE_OPENAI_ENDPOINT=$ModelEndpoint",
+    "AZURE_OPENAI_DEPLOYMENT=$ModelDeployment",
+    "AZURE_OPENAI_API_VERSION=$ModelApiVersion",
+    "AZURE_OPENAI_REASONING_EFFORT=$ModelReasoningEffort",
+    "AZURE_OPENAI_MAX_COMPLETION_TOKENS=$ModelMaximumCompletionTokens",
+    "AZURE_OPENAI_TIMEOUT_MS=$ModelTimeoutMilliseconds"
+  )
+}
 
 $revisionMode = & $AzureCli containerapp show `
   --resource-group $ResourceGroup `
@@ -67,13 +109,19 @@ if ($PSCmdlet.ShouldProcess(
     "$ResourceGroup/$ContainerApp",
     "Create zero-traffic revision $RevisionSuffix from explicit image and feature flags"
   )) {
-  & $AzureCli containerapp update `
-    --resource-group $ResourceGroup `
-    --name $ContainerApp `
-    --image $image `
-    --revision-suffix $RevisionSuffix `
-    --set-env-vars $featureFlags `
-    --output none
+  $updateArguments = @(
+    "containerapp", "update",
+    "--resource-group", $ResourceGroup,
+    "--name", $ContainerApp,
+    "--image", $image,
+    "--revision-suffix", $RevisionSuffix,
+    "--set-env-vars"
+  ) + $featureFlags
+  if (-not $modelConfigured) {
+    $updateArguments += @("--remove-env-vars") + $modelEnvironmentNames
+  }
+  $updateArguments += @("--output", "none")
+  & $AzureCli @updateArguments
   if ($LASTEXITCODE -ne 0) {
     throw "Container App template update failed"
   }
@@ -120,6 +168,10 @@ if ($PSCmdlet.ShouldProcess(
     uploadsEnabled = $actualEnvironment.HELMONIC_PHASE1B_UPLOADS_ENABLED
     foldersEnabled = $actualEnvironment.HELMONIC_PHASE1B_FOLDERS_ENABLED
     generalContextEnabled = $actualEnvironment.HELMONIC_GENERAL_CONTEXT_ENABLED
+    modelDeployment = $actualEnvironment.AZURE_OPENAI_DEPLOYMENT
+    modelReasoningEffort = $actualEnvironment.AZURE_OPENAI_REASONING_EFFORT
+    modelMaximumCompletionTokens = $actualEnvironment.AZURE_OPENAI_MAX_COMPLETION_TOKENS
+    readinessChecks = $actualEnvironment.HELMONIC_READINESS_CHECKS
     trafficWeight = if ($newRevisionTraffic.Count) { $newRevisionTraffic[0].weight } else { 0 }
   }
 }

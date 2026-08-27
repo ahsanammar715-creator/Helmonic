@@ -1,8 +1,13 @@
 import "server-only";
 
-import type { ConsultCitation } from "@/lib/consult/types";
+import { validateDocumentAnswerCitations } from "@/lib/consult/model-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
 import type { RuntimeConfig } from "@/lib/server/config";
+import {
+  ModelGatewayValidationError,
+  type ConsultModelGateway,
+  type DocumentModelRequest,
+} from "@/lib/server/model-gateway";
 
 type ChatCompletionResponse = {
   choices?: Array<{
@@ -10,9 +15,16 @@ type ChatCompletionResponse = {
       content?: string;
     };
   }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
 };
 
-function buildEvidence(citations: ConsultCitation[]) {
+function buildEvidence(citations: DocumentModelRequest["evidence"]) {
   return citations
     .map((citation, index) => {
       const marker = citation.marker ?? `D${index + 1}`;
@@ -30,21 +42,8 @@ function buildEvidence(citations: ConsultCitation[]) {
     .join("\n\n");
 }
 
-function removeUnsupportedCitationMarkers(answer: string, citations: ConsultCitation[]) {
-  const allowed = new Set(
-    citations.map((citation, index) => citation.marker ?? `D${index + 1}`),
-  );
-  return answer.replace(
-    /\[(?:([DA]\d+)|G\d+|\d+)\]/g,
-    (marker, documentMarker: string | undefined) =>
-      documentMarker && allowed.has(documentMarker) ? marker : "",
-  );
-}
-
-export async function createGroundedAnswer(
-  question: string,
-  citations: ConsultCitation[],
-  requestId: string,
+async function createDocumentAnswer(
+  request: DocumentModelRequest,
   config: RuntimeConfig,
 ) {
   if (!config.model.endpoint || !config.model.deployment) {
@@ -61,24 +60,26 @@ export async function createGroundedAnswer(
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
-        "x-ms-client-request-id": requestId,
+        "x-ms-client-request-id": request.requestId,
       },
       body: JSON.stringify({
         messages: [
           {
             role: "system",
             content:
-              `You are Helmonic Consult for the fixed ${config.profile} evidence set. Answer only from the supplied evidence. If the evidence is insufficient, say so clearly. Cite factual claims with the supplied document markers such as [D1] or attachment markers such as [A1]. Never invent a source, clause, page, measurement, or citation marker. Keep the answer concise and practical.`,
+              `You are Helmonic Consult for the fixed ${config.profile} evidence set. Answer only from the supplied evidence. Cite every factual paragraph with one or more supplied document markers such as [D1] or attachment markers such as [A1]. Never invent a source, clause, page, measurement, citation marker, or general-knowledge claim. If the evidence conflicts, identify the conflict and cite both sides. If it is insufficient, say so clearly and do not fill the gap from general knowledge. Keep the answer concise and practical.`,
           },
           {
             role: "user",
-            content: `Question:\n${question}\n\nEvidence:\n${buildEvidence(citations)}`,
+            content: `Question:\n${request.question}\n\nEvidence:\n${buildEvidence(request.evidence)}`,
           },
         ],
-        max_completion_tokens: 700,
+        reasoning_effort: config.model.reasoningEffort,
+        verbosity: "low",
+        max_completion_tokens: config.model.maximumCompletionTokens,
       }),
       cache: "no-store",
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(config.model.timeoutMilliseconds),
     },
   );
 
@@ -93,9 +94,30 @@ export async function createGroundedAnswer(
     throw new Error("Azure model returned an empty answer");
   }
 
-  const cleaned = removeUnsupportedCitationMarkers(answer, citations);
-  const firstMarker = citations[0]?.marker ?? "D1";
-  return /\[[DA]\d+\]/.test(cleaned)
-    ? cleaned
-    : `${cleaned}\n\nRetrieved evidence: [${firstMarker}]`;
+  const validation = validateDocumentAnswerCitations(answer, request.evidence);
+  if (!validation.valid) {
+    throw new ModelGatewayValidationError(validation.errors.join(" "));
+  }
+
+  console.info("Helmonic model usage", {
+    requestId: request.requestId,
+    deployment: config.model.deployment,
+    promptTokens: payload.usage?.prompt_tokens,
+    completionTokens: payload.usage?.completion_tokens,
+    reasoningTokens: payload.usage?.completion_tokens_details?.reasoning_tokens,
+    citationMarkers: validation.markers,
+  });
+
+  return answer;
+}
+
+export function createConsultModelGateway(config: RuntimeConfig): ConsultModelGateway {
+  return {
+    createDocumentAnswer: (request) => createDocumentAnswer(request, config),
+    createGeneralContext: async () => {
+      throw new ModelGatewayValidationError(
+        "General context remains disabled until its separate source pathway is approved.",
+      );
+    },
+  };
 }

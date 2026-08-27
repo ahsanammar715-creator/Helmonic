@@ -201,7 +201,7 @@ unauthorized revision never receives traffic.
 | `.nvmrc` | Tested Node.js runtime version |
 | `AGENTS.md` | Repository-specific Next.js agent rule requiring bundled framework documentation to be consulted |
 | `CLAUDE.md` | Points compatible coding agents to the same `AGENTS.md` instructions |
-| `package.json` | Application metadata, Next.js/React/Azure/PostgreSQL dependencies, lint/type/build/test scripts, runtime-hardening verification, and retrieval-evaluation command |
+| `package.json` | Application metadata, Next.js/React/Azure/PostgreSQL dependencies, lint/type/build/test scripts, runtime-hardening verification, and retrieval/generated-answer evaluation commands |
 | `package-lock.json` | Exact npm dependency lock for reproducible installation |
 | `eslint.config.mjs` | Next.js Core Web Vitals and TypeScript lint configuration |
 | `postcss.config.mjs` | Tailwind CSS v4 PostCSS integration |
@@ -215,6 +215,7 @@ unauthorized revision never receives traffic.
 | `tests/e2e/smoke.spec.ts` | Route smoke tests, fail-closed/runtime-user tests, Phase 1B disabled-boundary checks, UI flows, responsive behavior, settings, current corpus copy, and legacy mock attachment coverage |
 | `scripts/evaluation/consult-retrieval.json` | Versioned retrieval-relevance cases, including known-project matches and mandatory no-evidence cases |
 | `scripts/evaluation/run-consult-retrieval.mjs` | Offline suite/policy validation and opt-in managed-identity live Search evaluation |
+| `scripts/evaluation/run-consult-generated.mjs` | Offline citation-policy validation and opt-in five-case live Target A evaluation through the same-origin Consult API |
 
 ### App Router surfaces
 
@@ -283,13 +284,14 @@ unauthorized revision never receives traffic.
 | `src/lib/consult/types.ts` | Consult document-answer, document/attachment citation, and isolated general-context response contracts |
 | `src/lib/consult/corpus.ts` | Single application source of truth for the current controlled-document count and label |
 | `src/lib/consult/search-policy.ts` | Pure precision-first controlled Search request policy shared by runtime and evaluation tooling |
+| `src/lib/consult/model-policy.ts` | Pure fail-closed `D`/`A` document-answer marker validator shared by the runtime contract |
 | `src/lib/consult/organization.ts` | Folder/conversation persistence DTOs |
 | `src/lib/consult/uploads.ts` | Session-document lifecycle and composer attachment DTOs |
 | `src/lib/server/config.ts` | Runtime environment parsing, defaults, and completeness checks |
 | `src/lib/server/azure-credential.ts` | Managed-identity/default Azure credential token acquisition |
 | `src/lib/server/search.ts` | Permission-scoped controlled and owner/conversation-scoped session Search queries and citation shaping |
-| `src/lib/server/model.ts` | Initial Azure document-answer adapter with `D`/`A` citation-marker guard |
-| `src/lib/server/model-gateway.ts` | Provider-neutral document/general request contracts and `G` citation validation seed |
+| `src/lib/server/model.ts` | Managed-identity Azure GPT implementation of the Model Gateway with high reasoning, bounded output, strict document-marker validation, and usage telemetry |
+| `src/lib/server/model-gateway.ts` | Provider-neutral document/general request contracts, validation error boundary, and `G` citation validation seed |
 | `src/lib/server/postgres.ts` | Managed-identity PostgreSQL connection wrapper used by readiness and repositories |
 | `src/lib/server/consult-repository.ts` | Transactional, owner-scoped folder, conversation, upload, and ingestion-job persistence |
 | `src/lib/server/identity.ts` | Platform-authenticated actor extraction from Container Apps auth headers |
@@ -314,7 +316,7 @@ unauthorized revision never receives traffic.
 | `scripts/validation/phase1b-bootstrap.cjs` | Temporary private-network validation job entrypoint for the idempotent Phase 1B migration plus isolated Blob container/Search index creation |
 | `scripts/validation/phase1b-validation-maintenance.cjs` | Private-environment audit, retrieval evaluation, and tightly scoped synthetic-fixture cleanup used during Phase 1B validation |
 | `scripts/validation/phase1b-postgres-owner-recovery.cjs` | One-purpose cleanup utility that transfers bootstrap-created PostgreSQL object ownership to the permanent Entra administrator before deleting a temporary bootstrap principal |
-| `scripts/deployment/set-consult-template.ps1` | Fail-closed zero-traffic deployment helper requiring an immutable image SHA and explicit uploads, folders, and general-context feature flags; it refuses single-revision mode and verifies the new revision receives no traffic |
+| `scripts/deployment/set-consult-template.ps1` | Fail-closed zero-traffic deployment helper requiring an immutable image SHA and explicit feature flags; it sets the complete Target A model/readiness contract when provided and removes all model variables for Target B, refuses single-revision mode, and verifies the new revision receives no traffic |
 | `Dockerfile.validation` | Reproducible, non-root maintenance image used only under a temporary ACR tag for private-environment bootstrap and validation |
 | `.github/workflows/phase1a-consult-build.yml` | Branch-scoped OIDC application build; an explicit `[validation-image]` commit marker additionally publishes the temporary maintenance tag without deploying it |
 | `database/migrations/001_phase1b_consult.sql` | Backward-compatible Phase 1B schema with database-enforced same-owner folder, conversation, and attachment relationships; applied and validated in DEV |
@@ -373,6 +375,11 @@ The server creates citation objects from Search results. The model can reference
 provided markers. The Sources panel displays real document/page evidence. Phase 1B adds
 separate `D`, `A`, and `G` marker namespaces so controlled documents, conversation
 attachments, and general references cannot be blended.
+
+Target A is fail-closed: the Model Gateway rejects an empty answer, an answer without a
+document marker, an unsupported `D`/`A` marker, or any `G`/numeric marker in the document
+answer. It does not silently remove an invalid marker or append a citation the model did
+not actually use. The no-evidence branch returns before the Model Gateway is invoked.
 
 ### D-006: root/port-80 was a tracked temporary exception
 
@@ -598,6 +605,12 @@ update that silently inherits Azure's previous latest-revision template.
   defined. Controlled results use `D` markers and attachments use `A` markers.
 - A provider-neutral Model Gateway contract and a separate general-context UI use only
   `G` citations and never populate the controlled Sources panel.
+- The document-answer route now invokes the provider-neutral Model Gateway rather than a
+  provider function directly. Its Azure GPT implementation uses managed identity, high
+  reasoning, a 2,000-token reasoning/output ceiling, strict marker validation, and
+  content-free token/citation telemetry. The five-case generated-answer evaluator is in
+  source and passes its offline policy contract; Azure deployment remains separately
+  gated until the immutable image and private model path are validated.
 - The migration, isolated Blob container, and session Search index are now applied in
   DEV. No worker, model, Speech resource, live feature activation, SKU, minimum replica,
   or traffic change was introduced.
@@ -704,6 +717,7 @@ and approval gates are recorded later in this document.
 | 2026-08-27 | Stored next-revision template correction | Replaced stale `e20378e` inheritance with explicit image `69b6b7a` and disabled Phase 1B flags. `--p1btmpl69b6` reached Healthy/Provisioned at 0%, was deactivated to zero replicas, and live traffic stayed 100% on `--p1b69b6b7a` |
 | 2026-08-27 | Model lifecycle and DPA verification | Confirmed GPT-5.5 `2026-04-24` is GA in both Microsoft lifecycle documentation and live Azure metadata. Confirmed the DPA Preview restriction applies to any Personal Data, not a special `regulated personal data` subset. Removed Mistral Large 3 from the candidate set entirely because it is Preview and the corpus includes identifying names/signatures and one person-linked residential address; reconsideration is prohibited unless Microsoft marks it GA. GPT-5.5 is the sole primary candidate |
 | 2026-08-27 | `9117dfa` / `db4b296` final private retrieval validation | CI, immutable ACR build, and Vercel Preview passed for the query-normalization implementation. The private five-case Azure Search run passed after aligning the Wetherspoon expectation with the real sixteen-document corpus: Harold's Cross, Premier Inn, and Wetherspoon questions returned their correct projects; the France question returned no evidence. Deleted the temporary job, UAMI, Search role, both validation tags, and both short-lived repository-scoped ACR Contributor grants. Live traffic remained 100% on `--p1b69b6b7a`; no model was deployed |
+| 2026-08-27 | Target A Model Gateway implementation | Wired document generation through the provider-neutral gateway; added managed-identity GPT-5.5 request settings (`high`, 2,000-token hard ceiling), fail-closed document-marker validation, token/citation telemetry without document content, and a live-capable five-case generated-answer evaluator. Offline generated/retrieval suites, generated route types, TypeScript, and lint passed. No Azure resource, revision, model, or traffic changed in this code step |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data

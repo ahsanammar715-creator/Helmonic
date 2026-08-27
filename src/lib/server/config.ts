@@ -28,6 +28,16 @@ function enabled(name: string) {
   return optional(name) === "true";
 }
 
+function reasoningEffort(value: string | undefined) {
+  return value === "none" ||
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh"
+    ? value
+    : "high";
+}
+
 export function getRuntimeConfig() {
   const readiness = (optional("HELMONIC_READINESS_CHECKS") ?? "search,postgres,blob,keyvault")
     .split(",")
@@ -88,6 +98,12 @@ export function getRuntimeConfig() {
       endpoint: withoutTrailingSlash(optional("AZURE_OPENAI_ENDPOINT")),
       deployment: optional("AZURE_OPENAI_DEPLOYMENT"),
       apiVersion: optional("AZURE_OPENAI_API_VERSION") ?? "2024-10-21",
+      reasoningEffort: reasoningEffort(optional("AZURE_OPENAI_REASONING_EFFORT")),
+      maximumCompletionTokens: positiveInteger(
+        optional("AZURE_OPENAI_MAX_COMPLETION_TOKENS"),
+        2_000,
+      ),
+      timeoutMilliseconds: positiveInteger(optional("AZURE_OPENAI_TIMEOUT_MS"), 120_000),
     },
     readiness,
   };
