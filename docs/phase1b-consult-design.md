@@ -541,6 +541,11 @@ update that silently inherits Azure's previous latest-revision template.
 - Sixteen controlled iAcoustics PDFs have been ingested.
 - Blob originals and page-preserving Search chunks exist.
 - `consult-demo-v1` retrieval works and returns document/page citations.
+- The five-case private retrieval suite passes against live Azure Search: four
+  known-evidence questions return only the expected Harold's Cross, Premier Inn, and
+  Wetherspoon's Camden Street evidence, while the France question correctly returns no
+  permitted evidence. The Wetherspoon case specifically confirms the former unrelated
+  Premier Inn relevance leak is closed.
 - The Sources panel displays retrieved passages.
 - The no-evidence response is implemented.
 - Retrieval-only Target B is operational when no model is configured.
@@ -550,8 +555,9 @@ update that silently inherits Azure's previous latest-revision template.
 - Temporary ingestion/bootstrap identities and their roles were removed after use.
 - `README.md` now points to this living reference and accurately separates the live
   Phase 1A Consult runtime from the remaining mock workspaces.
-- Documentation-parity commit `00bd81f` is pushed and PR #16 is synchronized to that
-  exact SHA.
+- Documentation parity and the Phase 1B retrieval fixes are pushed on PR #16 through
+  `db4b296`; GitHub CI, the immutable ACR build, and Vercel Preview checks are green for
+  the retrieval implementation commit `9117dfa`.
 - The first Phase 1B local slice implements the non-root/port-8080 source image,
   automated hardening guard, and `/healthz` runtime-user evidence.
 - Before cutover, hardened revision `--p1b69b6b7a` was deployed at 0% traffic with
@@ -632,19 +638,20 @@ update that silently inherits Azure's previous latest-revision template.
   first 27 August private rerun proved that serialization was fixed but returned zero
   results for all three expected-evidence questions because raw interrogative/filler
   terms were still required by `searchMode: all`; both no-evidence cases passed. Source
-  now normalizes questions to their content-bearing terms while preserving the
-  permission filter and `all`-term precision. The offline five-case normalization
-  contract, lint, generated route types, and TypeScript pass. Promotion remains blocked
-  until a newly published maintenance image passes all five private live cases.
+  runtime now normalizes questions to their content-bearing terms while preserving the
+  permission filter and `all`-term precision. Validation image `9117dfa` passed the
+  corrected five-case private suite on 27 August: four expected-evidence cases returned
+  their correct projects and the no-evidence case behaved as expected. The live
+  relevance gap is closed; no Phase 1B traffic promotion was part of that validation.
 - Azure's stored next-revision template now explicitly references immutable image
   `69b6b7af9283657c9f509385fcb2050ab01c65c4` with uploads, folders, and general context
   disabled. Validation revision `--p1btmpl69b6` was Healthy at 0% and then deactivated;
   live traffic remained 100% on `--p1b69b6b7a`.
 - Temporary retrieval job `caj-helmonic-ret-eval`, identity
-  `uami-helmonic-ret-eval-001`, and its Search role were deleted after the failed live
-  pass. ACR tag `helmonic-consult:validation-4316906bce34550afad627482d57136466030e44`
-  remains pending a separately approved, repository-scoped temporary Contributor grant;
-  it is not deployed and receives no traffic.
+  `uami-helmonic-ret-eval-001`, and its Search role were deleted after validation. The
+  temporary `validation-4316906...` and `validation-9117dfa...` ACR tags were deleted
+  through short-lived repository-scoped Contributor grants, and both grants were revoked.
+  The SHA-named immutable build images remain as normal branch build artifacts.
 - Conversation messages and Recent sidebar items are not yet wired to the local
   persistence contracts.
 - The web upload path is implemented, but no queue receiver/page-extraction worker is
@@ -696,6 +703,7 @@ and approval gates are recorded later in this document.
 | 2026-08-27 | `4316906` CI and first private retrieval rerun | GitHub CI, immutable ACR image build, and Vercel Preview check passed. The private five-case job confirmed the Search request is accepted and both no-evidence cases pass, but raw filler terms caused zero results for all three expected-evidence cases. The branch was not promoted; temporary job/identity/Search role were deleted, while the validation ACR tag remains pending separately approved delete permission |
 | 2026-08-27 | Stored next-revision template correction | Replaced stale `e20378e` inheritance with explicit image `69b6b7a` and disabled Phase 1B flags. `--p1btmpl69b6` reached Healthy/Provisioned at 0%, was deactivated to zero replicas, and live traffic stayed 100% on `--p1b69b6b7a` |
 | 2026-08-27 | Model lifecycle and DPA verification | Confirmed GPT-5.5 `2026-04-24` is GA in both Microsoft lifecycle documentation and live Azure metadata. Confirmed the DPA Preview restriction applies to any Personal Data, not a special `regulated personal data` subset. Removed Mistral Large 3 from the candidate set entirely because it is Preview and the corpus includes identifying names/signatures and one person-linked residential address; reconsideration is prohibited unless Microsoft marks it GA. GPT-5.5 is the sole primary candidate |
+| 2026-08-27 | `9117dfa` / `db4b296` final private retrieval validation | CI, immutable ACR build, and Vercel Preview passed for the query-normalization implementation. The private five-case Azure Search run passed after aligning the Wetherspoon expectation with the real sixteen-document corpus: Harold's Cross, Premier Inn, and Wetherspoon questions returned their correct projects; the France question returned no evidence. Deleted the temporary job, UAMI, Search role, both validation tags, and both short-lived repository-scoped ACR Contributor grants. Live traffic remained 100% on `--p1b69b6b7a`; no model was deployed |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
