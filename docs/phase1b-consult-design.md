@@ -532,13 +532,15 @@ update that silently inherits Azure's previous latest-revision template.
 
 ### Live and working
 
-- The hardened Phase 1B revision `--p1b69b6b7a` receives 100% of live traffic through
-  application ingress port 8080. It uses immutable image
-  `helmonic-consult:69b6b7af9283657c9f509385fcb2050ab01c65c4`.
+- Target A revision `--p1bgpt55fin` receives 100% of live traffic through application
+  ingress port 8080. It uses immutable image
+  `helmonic-consult:78f31b938591daefae58c42de0f2d8fcb478c334`, runs as UID 1000,
+  and keeps minimum replicas at zero.
 - Azure Portal independently reconfirmed the persisted traffic weights on 26 August
   2026: `--p1b69b6b7a` 100%, `--ca72a0c` 0%, and `--0000001` 0%.
-- The prior real revision and placeholder remain active at 0% for rollback. A rollback
-  to `--ca72a0c` must restore ingress port 80 as well as its traffic weight.
+- The prior hardened revision `--p1b69b6b7a` remains active at 0% as the immediate
+  Target B rollback. The older root/port-80 revision and placeholder remain available;
+  a rollback to `--ca72a0c` must restore ingress port 80 as well as its traffic weight.
 - Platform authentication is enabled and restricted to exactly Ammar Ahsan
   (`c34341a3-7783-44d7-8980-b6ea8111bc06`) and Jim Dunne
   (`84889a68-5ca1-40d6-860b-7654b6f100ce`).
@@ -555,16 +557,25 @@ update that silently inherits Azure's previous latest-revision template.
   Premier Inn relevance leak is closed.
 - The Sources panel displays retrieved passages.
 - The no-evidence response is implemented.
-- Retrieval-only Target B is operational when no model is configured.
+- Generated-answer Target A is live through the provider-neutral Model Gateway using
+  GA GPT-5.5 `2026-04-24`, Data Zone Standard, high reasoning, and a 2,000-token hard
+  completion ceiling. Retrieval-only Target B remains available through the retained
+  rollback revision.
+- The live generated-answer path passed the five-case private suite: four known-evidence
+  questions produced grounded answers with only valid document/page markers and the
+  France question returned the fail-closed no-evidence result with no answer or citations.
+- A separate known-evidence smoke query returned four Harold's Cross citations and the
+  no-evidence smoke query did not invoke the model. `/healthz` and `/readyz` return 200
+  on the live revision; `/healthz` reports UID 1000 and `nonRoot: true`.
 - Managed-identity connectivity/readiness is implemented for the Azure runtime path.
 - PostgreSQL managed-identity login and least-privilege foundation are proven.
 - GitHub OIDC builds immutable `helmonic-consult:<commit-sha>` images in ACR.
 - Temporary ingestion/bootstrap identities and their roles were removed after use.
 - `README.md` now points to this living reference and accurately separates the live
   Phase 1A Consult runtime from the remaining mock workspaces.
-- Documentation parity and the Phase 1B retrieval fixes are pushed on PR #16 through
-  `db4b296`; GitHub CI, the immutable ACR build, and Vercel Preview checks are green for
-  the retrieval implementation commit `9117dfa`.
+- Documentation parity, the retrieval fixes, and the Target A Model Gateway are pushed
+  on PR #16 through `78f31b9`; GitHub CI, the immutable ACR build, and Vercel Preview
+  checks are green for the deployed image.
 - The first Phase 1B local slice implements the non-root/port-8080 source image,
   automated hardening guard, and `/healthz` runtime-user evidence.
 - Before cutover, hardened revision `--p1b69b6b7a` was deployed at 0% traffic with
@@ -608,12 +619,12 @@ update that silently inherits Azure's previous latest-revision template.
 - The document-answer route now invokes the provider-neutral Model Gateway rather than a
   provider function directly. Its Azure GPT implementation uses managed identity, high
   reasoning, a 2,000-token reasoning/output ceiling, strict marker validation, and
-  content-free token/citation telemetry. The five-case generated-answer evaluator is in
-  source and passes its offline policy contract; Azure deployment remains separately
-  gated until the immutable image and private model path are validated.
+  content-free token/citation telemetry. The five-case generated-answer evaluator passes
+  both its offline policy contract and the private live Target A path.
 - The migration, isolated Blob container, and session Search index are now applied in
-  DEV. No worker, model, Speech resource, live feature activation, SKU, minimum replica,
-  or traffic change was introduced.
+  DEV. The session-upload worker, Azure Speech resource, sidebar activation, upload
+  activation, and general-context activation remain unimplemented or disabled; the
+  separately approved Target A model path is the only newly activated Phase 1B feature.
 
 ### Pending/blocking
 
@@ -623,14 +634,15 @@ update that silently inherits Azure's previous latest-revision template.
   `PayAsYouGo_2014-09-01`, subscription/billing status Active/Paid, and spending limit
   Off.
 - GPT-5.5 `2026-04-24` is deployed as GA Data Zone Standard in North Europe under
-  deployment name `gpt-5-5-helmonic-dev`, with a 10 kTPM rate limit. It has no live
-  application traffic yet.
+  deployment name `gpt-5-5-helmonic-dev`, with a 10 kTPM rate limit, and is serving the
+  live Target A application path.
 - Private endpoint `pe-ai-helmonic-dev-001` is approved at `10.36.1.8`; private zone
   `privatelink.cognitiveservices.azure.com` is linked to the DEV VNet. Public access on
   the Foundry account remains disabled, and the Container App system identity has
   `Cognitive Services OpenAI User` scoped only to that account.
-- Target A generated answers are not live; Target B remains the live fallback until the
-  immutable image, zero-traffic revision, and both generated-answer passes succeed.
+- Target A generated answers are live after immutable-image, zero-traffic, health,
+  readiness, grounding/citation, no-evidence, and five-case generated-answer validation.
+  Target B remains retained at 0% for rollback.
 - GPT-5.5 Data Zone Standard retains 323 kTPM unallocated quota after assigning 10 kTPM
   to Helmonic. Mistral's
   observed 20 kTPM capacity is historical inventory information only; it is not an
@@ -726,6 +738,7 @@ and approval gates are recorded later in this document.
 | 2026-08-27 | `9117dfa` / `db4b296` final private retrieval validation | CI, immutable ACR build, and Vercel Preview passed for the query-normalization implementation. The private five-case Azure Search run passed after aligning the Wetherspoon expectation with the real sixteen-document corpus: Harold's Cross, Premier Inn, and Wetherspoon questions returned their correct projects; the France question returned no evidence. Deleted the temporary job, UAMI, Search role, both validation tags, and both short-lived repository-scoped ACR Contributor grants. Live traffic remained 100% on `--p1b69b6b7a`; no model was deployed |
 | 2026-08-27 | Target A Model Gateway implementation | Wired document generation through the provider-neutral gateway; added managed-identity GPT-5.5 request settings (`high`, 2,000-token hard ceiling), fail-closed document-marker validation, token/citation telemetry without document content, and a live-capable five-case generated-answer evaluator. Offline generated/retrieval suites, generated route types, TypeScript, and lint passed. No Azure resource, revision, model, or traffic changed in this code step |
 | 2026-08-27 | Approved GPT-5.5 private foundation | Deployed GA `gpt-5.5` version `2026-04-24` as `DataZoneStandard` in North Europe with a 10 kTPM rate limit; created approved private endpoint `pe-ai-helmonic-dev-001`, private DNS zone/VNet link, and the account-scoped `Cognitive Services OpenAI User` role for the Container App system identity. Foundry public access stayed disabled and live Container App traffic stayed 100% on `--p1b69b6b7a`. No model request or application revision was made in this foundation step |
+| 2026-08-27 | Target A private validation and live cutover | Deployed immutable image `78f31b9...` at zero traffic, proved non-root UID 1000 plus `/healthz` and `/readyz`, and validated one grounded known-evidence response plus a no-evidence response. The private five-case generated-answer suite then passed: all four evidence cases used valid document/page citations, including the Wetherspoon relevance guard, and the France case returned no answer or citations. Created final min-zero revision `--p1bgpt55fin`, shifted it to 100%, retained `--p1b69b6b7a` at 0% for rollback, and deactivated both temporary GPT validation revisions. Five paid model calls were made; the enforced per-call ceiling bounds validation model usage below $0.3575 and therefore below the approved $0.80 ceiling |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
