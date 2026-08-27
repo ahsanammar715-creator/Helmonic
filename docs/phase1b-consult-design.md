@@ -407,7 +407,10 @@ window is deliberately closed.
   should not use it for any Personal Data. The controlled corpus contains professional
   names/signatures and one residential-address case, and no express Microsoft
   designation allowing Personal Data processing was found for Mistral Large 3.
-  Mistral therefore remains held for the real corpus even though Data Zone quota exists.
+  **Decision: Mistral Large 3 is removed as a Helmonic candidate model, not placed on
+  hold.** It must not be deployed, routed to, or tested with the real corpus while its
+  lifecycle remains Preview. It may be reconsidered only if Microsoft changes its
+  lifecycle status to Generally Available; quota availability alone is insufficient.
 - GPT-5.5 version `2026-04-24` Data Zone Standard is the intended primary path. On
   27 August 2026, live Azure APIs reported 333 kTPM of Data Zone Standard quota and
   deployable capacity in North Europe. Both Microsoft's lifecycle schedule and the
@@ -419,12 +422,13 @@ window is deliberately closed.
 
 ### D-008: model requests were denied because of subscription classification
 
-The GPT-5.5 and Mistral requests were not rejected because the application design or
-model choice was inherently invalid. Microsoft identified the Free Trial subscription
+The GPT-5.5 and Mistral requests were not rejected because of the application design.
+Microsoft identified the Free Trial subscription
 classification and directed upgrade to PAYG before the quota path could proceed. The
 subscription now reports `PayAsYouGo_2014-09-01`, Active/Paid billing, and spending
 limit Off. Default quota appeared after the upgrade, so duplicate increase requests
-were not submitted.
+were not submitted. This historical quota result does not restore Mistral candidacy;
+the later Preview/DPA decision above controls.
 
 ### D-009: general context is additive and isolated
 
@@ -599,11 +603,12 @@ update that silently inherits Azure's previous latest-revision template.
 - Read-only subscription verification on 27 August 2026 reports quota ID
   `PayAsYouGo_2014-09-01`, subscription/billing status Active/Paid, and spending limit
   Off.
-- No usable GPT-5.5, Mistral, Phi, GPT-4.1, or GPT-4o deployment is active.
+- No model deployment is active. GPT-5.5 `2026-04-24` is the sole primary candidate.
 - Target A generated answers are not live; Target B remains the fallback.
-- GPT-5.5 Data Zone Standard now has 333 kTPM quota/capacity in North Europe. Mistral
-  Large 3 Data Zone Standard has 20 kTPM quota/capacity in France Central. Neither model
-  is deployed; both retain separate cost, networking, and validation approval gates.
+- GPT-5.5 Data Zone Standard has 333 kTPM quota/capacity in North Europe and retains
+  separate cost, networking, deployment, and validation approval gates. Mistral's
+  observed 20 kTPM capacity is historical inventory information only; it is not an
+  approved or active pathway and must not be revisited unless its lifecycle becomes GA.
 - Phase 1B persistence/upload/general-context contracts are in source, and the migration
   plus isolated session container/index are applied. The ingestion worker, sidebar tree
   activation, live feature flags, and any traffic shift remain pending separate approval.
@@ -690,7 +695,7 @@ and approval gates are recorded later in this document.
 | 2026-08-27 | PAYG, access, and audit-gap closure | Verified the subscription as Active/Paid PAYG; confirmed 333 kTPM GPT-5.5 and 20 kTPM Mistral Large 3 EU Data Zone quota/capacity without submitting redundant increases; restricted Entra access to exactly Ammar Ahsan and Jim Dunne while preserving the IP/CORS/traffic controls; fixed Search request serialization and CommonJS lint scope locally; added an explicit zero-traffic deployment-template guard. Live retrieval and CI remain pending a newly published validation image |
 | 2026-08-27 | `4316906` CI and first private retrieval rerun | GitHub CI, immutable ACR image build, and Vercel Preview check passed. The private five-case job confirmed the Search request is accepted and both no-evidence cases pass, but raw filler terms caused zero results for all three expected-evidence cases. The branch was not promoted; temporary job/identity/Search role were deleted, while the validation ACR tag remains pending separately approved delete permission |
 | 2026-08-27 | Stored next-revision template correction | Replaced stale `e20378e` inheritance with explicit image `69b6b7a` and disabled Phase 1B flags. `--p1btmpl69b6` reached Healthy/Provisioned at 0%, was deactivated to zero replicas, and live traffic stayed 100% on `--p1b69b6b7a` |
-| 2026-08-27 | Model lifecycle and DPA verification | Confirmed GPT-5.5 `2026-04-24` is GA in both Microsoft lifecycle documentation and live Azure metadata. Confirmed the DPA Preview restriction applies to any Personal Data, not a special `regulated personal data` subset; Mistral Large 3 remains held because it is Preview and the corpus includes identifying names/signatures and one person-linked residential address |
+| 2026-08-27 | Model lifecycle and DPA verification | Confirmed GPT-5.5 `2026-04-24` is GA in both Microsoft lifecycle documentation and live Azure metadata. Confirmed the DPA Preview restriction applies to any Personal Data, not a special `regulated personal data` subset. Removed Mistral Large 3 from the candidate set entirely because it is Preview and the corpus includes identifying names/signatures and one person-linked residential address; reconsideration is prohibited unless Microsoft marks it GA. GPT-5.5 is the sole primary candidate |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data

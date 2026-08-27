@@ -23,7 +23,8 @@
     {
       "id": "unknown-wetherspoon-project",
       "question": "What does Wetherspoon do?",
-      "expectedNoEvidence": true
+      "expectedTitleIncludes": ["Wetherspoon's Camden Street"],
+      "minimumCitations": 1
     },
     {
       "id": "out-of-domain-general-knowledge",
