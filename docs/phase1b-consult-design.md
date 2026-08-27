@@ -386,8 +386,10 @@ window is deliberately closed.
 
 ### D-007: model choices for the current real-document path
 
-- `GPT-5.6` and `GPT-5.6 Sol` are not Azure Foundry deployment IDs. They cannot be used
-  merely because those names describe an assistant/coding experience elsewhere.
+- Microsoft now publishes the Azure Foundry deployment IDs `gpt-5.6-sol`,
+  `gpt-5.6-terra`, and `gpt-5.6-luna` at version `2026-07-09`. They were not selected
+  for this slice because quota, cost, and a separate deployment approval have not been
+  completed; their later catalog availability does not retroactively authorize them.
 - GPT-4.1 and GPT-4o were current dead ends for this subscription: the available paths
   were legacy/deprecating/provisioned and the subscription had zero usable provisioned
   quota.
@@ -396,13 +398,24 @@ window is deliberately closed.
   business/legal EU transfer question remained open.
 - On 27 August 2026, live Azure APIs reported Mistral Large 3 version `1` with 20 kTPM
   of EU Data Zone Standard quota/capacity in France Central. The current Microsoft
-  catalog marks the model Preview, so it remains a separately approved secondary path,
-  not an automatic production choice.
+  [lifecycle table](https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/model-retirement-schedule)
+  marks the model Preview. Microsoft's
+  [May 2026 DPA](https://www.microsoft.com/licensing/docs/view/microsoft-products-and-services-data-protection-addendum-dpa)
+  does not use a
+  narrower `regulated personal data` threshold for its Preview restriction: unless a
+  Preview is expressly identified as allowing Personal Data processing, customers
+  should not use it for any Personal Data. The controlled corpus contains professional
+  names/signatures and one residential-address case, and no express Microsoft
+  designation allowing Personal Data processing was found for Mistral Large 3.
+  Mistral therefore remains held for the real corpus even though Data Zone quota exists.
 - GPT-5.5 version `2026-04-24` Data Zone Standard is the intended primary path. On
   27 August 2026, live Azure APIs reported 333 kTPM of Data Zone Standard quota and
-  deployable capacity in North Europe. No deployment is implied by quota availability;
-  deployment architecture, networking, token pricing, and validation retain separate
-  approval gates.
+  deployable capacity in North Europe. Both Microsoft's lifecycle schedule and the
+  [Foundry model catalog](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure)
+  plus the live Azure model record classify this exact version as Generally Available, with
+  inference retirement listed for 26 October 2027. GPT-5.5 is therefore the default
+  primary candidate for real documents. No deployment is implied by quota availability;
+  architecture, networking, token pricing, and validation retain separate approval gates.
 
 ### D-008: model requests were denied because of subscription classification
 
@@ -611,14 +624,22 @@ update that silently inherits Azure's previous latest-revision template.
   content so a missing project term cannot match only generic question words. The
   26 August live evaluation found a blocking serialization defect before rollout: the
   Search REST API expects `searchFields` as one comma-separated primitive string. The
-  27 August source fix now sends `title,section,content` for controlled, session, and
-  maintenance queries and the offline five-case contract passes. Promotion remains
-  blocked until a new maintenance image runs all five cases successfully against the
-  private live index.
-- Azure's latest stored revision template still references inactive validation build
-  `e20378e`. The explicit deployment helper prevents future image/feature-flag
-  inheritance; correcting the stored Azure template itself remains a separately costed
-  zero-traffic operation.
+  first 27 August private rerun proved that serialization was fixed but returned zero
+  results for all three expected-evidence questions because raw interrogative/filler
+  terms were still required by `searchMode: all`; both no-evidence cases passed. Source
+  now normalizes questions to their content-bearing terms while preserving the
+  permission filter and `all`-term precision. The offline five-case normalization
+  contract, lint, generated route types, and TypeScript pass. Promotion remains blocked
+  until a newly published maintenance image passes all five private live cases.
+- Azure's stored next-revision template now explicitly references immutable image
+  `69b6b7af9283657c9f509385fcb2050ab01c65c4` with uploads, folders, and general context
+  disabled. Validation revision `--p1btmpl69b6` was Healthy at 0% and then deactivated;
+  live traffic remained 100% on `--p1b69b6b7a`.
+- Temporary retrieval job `caj-helmonic-ret-eval`, identity
+  `uami-helmonic-ret-eval-001`, and its Search role were deleted after the failed live
+  pass. ACR tag `helmonic-consult:validation-4316906bce34550afad627482d57136466030e44`
+  remains pending a separately approved, repository-scoped temporary Contributor grant;
+  it is not deployed and receives no traffic.
 - Conversation messages and Recent sidebar items are not yet wired to the local
   persistence contracts.
 - The web upload path is implemented, but no queue receiver/page-extraction worker is
@@ -667,6 +688,9 @@ and approval gates are recorded later in this document.
 | 2026-08-26 | PAYG read-only status check | Subscription policy still returned `FreeTrial_2014-09-01` with spending limit `On`; no Speech/model/quota/deployment action was started |
 | 2026-08-26 | Phase 1B combined Azure validation and cleanup | Applied and verified the nine-table migration plus isolated Blob/Search resources; validated non-root health/readiness, authenticated nested folders, and the real PDF-to-Blob/database/Service-Bus path to `queued`; found the blocking `searchFields` array-versus-string HTTP-400 defect in all five live retrieval cases; deleted the synthetic Blob/message/database data, deactivated the zero-traffic revision, restored the single permanent Entra callback, and removed both temporary identities/admins/roles/jobs and the validation ACR tag. Live traffic remained 100% on `--p1b69b6b7a` throughout |
 | 2026-08-27 | PAYG, access, and audit-gap closure | Verified the subscription as Active/Paid PAYG; confirmed 333 kTPM GPT-5.5 and 20 kTPM Mistral Large 3 EU Data Zone quota/capacity without submitting redundant increases; restricted Entra access to exactly Ammar Ahsan and Jim Dunne while preserving the IP/CORS/traffic controls; fixed Search request serialization and CommonJS lint scope locally; added an explicit zero-traffic deployment-template guard. Live retrieval and CI remain pending a newly published validation image |
+| 2026-08-27 | `4316906` CI and first private retrieval rerun | GitHub CI, immutable ACR image build, and Vercel Preview check passed. The private five-case job confirmed the Search request is accepted and both no-evidence cases pass, but raw filler terms caused zero results for all three expected-evidence cases. The branch was not promoted; temporary job/identity/Search role were deleted, while the validation ACR tag remains pending separately approved delete permission |
+| 2026-08-27 | Stored next-revision template correction | Replaced stale `e20378e` inheritance with explicit image `69b6b7a` and disabled Phase 1B flags. `--p1btmpl69b6` reached Healthy/Provisioned at 0%, was deactivated to zero replicas, and live traffic stayed 100% on `--p1b69b6b7a` |
+| 2026-08-27 | Model lifecycle and DPA verification | Confirmed GPT-5.5 `2026-04-24` is GA in both Microsoft lifecycle documentation and live Azure metadata. Confirmed the DPA Preview restriction applies to any Personal Data, not a special `regulated personal data` subset; Mistral Large 3 remains held because it is Preview and the corpus includes identifying names/signatures and one person-linked residential address |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data

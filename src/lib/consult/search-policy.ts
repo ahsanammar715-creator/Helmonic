@@ -8,6 +8,47 @@ export type ControlledSearchRequest = {
   select: string;
 };
 
+const CONTROLLED_QUERY_FILLER_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "assessed",
+  "at",
+  "about",
+  "did",
+  "do",
+  "does",
+  "evidence",
+  "for",
+  "in",
+  "is",
+  "me",
+  "of",
+  "on",
+  "please",
+  "recorded",
+  "say",
+  "says",
+  "tell",
+  "the",
+  "to",
+  "was",
+  "were",
+  "what",
+]);
+
+export function normalizeControlledSearchQuery(question: string) {
+  const normalized = question
+    .replace(/[^\p{L}\p{N}'-]+/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word && !CONTROLLED_QUERY_FILLER_WORDS.has(word.toLowerCase()))
+    .join(" ");
+
+  return normalized || question.trim();
+}
+
 function searchFilterValue(value: string) {
   return value.replace(/'/g, "''");
 }
@@ -18,7 +59,7 @@ export function buildControlledSearchRequest(
   top: number,
 ): ControlledSearchRequest {
   return {
-    search: question.trim(),
+    search: normalizeControlledSearchQuery(question),
     queryType: "simple",
     // Precision is the safer default for a permissioned evidence store. In particular,
     // a missing project/company term must not fall back to passages that matched only

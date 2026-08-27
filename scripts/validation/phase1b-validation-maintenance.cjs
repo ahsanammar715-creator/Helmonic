@@ -86,9 +86,25 @@ async function audit() {
   }
 }
 
+const controlledQueryFillerWords = new Set(
+  "a an and are assessed at about did do does evidence for in is me of on please recorded say says tell the to was were what".split(
+    " ",
+  ),
+);
+
+function normalizeControlledSearchQuery(question) {
+  const normalized = question
+    .replace(/[^\p{L}\p{N}'-]+/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word && !controlledQueryFillerWords.has(word.toLowerCase()))
+    .join(" ");
+  return normalized || question.trim();
+}
+
 function controlledSearchRequest(question) {
   return {
-    search: question.trim(),
+    search: normalizeControlledSearchQuery(question),
     queryType: "simple",
     searchMode: "all",
     searchFields: "title,section,content",

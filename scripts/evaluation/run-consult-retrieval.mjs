@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 
 import { DefaultAzureCredential } from "@azure/identity";
 
-import { buildControlledSearchRequest } from "../../src/lib/consult/search-policy.ts";
+import {
+  buildControlledSearchRequest,
+  normalizeControlledSearchQuery,
+} from "../../src/lib/consult/search-policy.ts";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const suite = JSON.parse(
@@ -43,6 +46,23 @@ function validateSuite() {
     policy.searchFields !== "title,section,content"
   ) {
     throw new Error("Controlled retrieval policy must remain precision-first and title-aware");
+  }
+
+  const normalizedQueries = new Map([
+    ["sound-insulation-overview", "sound insulation"],
+    [
+      "harolds-cross-impact-results",
+      "impact sound insulation results Harold's Cross Road",
+    ],
+    ["premier-inn-cork-assessment", "Premier Inn Victorian Quarter Cork"],
+    ["unknown-wetherspoon-project", "Wetherspoon"],
+    ["out-of-domain-general-knowledge", "population France"],
+  ]);
+  for (const evaluationCase of suite.cases) {
+    const expected = normalizedQueries.get(evaluationCase.id);
+    if (expected && normalizeControlledSearchQuery(evaluationCase.question) !== expected) {
+      throw new Error(`Unexpected normalized query for ${evaluationCase.id}`);
+    }
   }
 }
 
