@@ -622,10 +622,17 @@ update that silently inherits Azure's previous latest-revision template.
 - Read-only subscription verification on 27 August 2026 reports quota ID
   `PayAsYouGo_2014-09-01`, subscription/billing status Active/Paid, and spending limit
   Off.
-- No model deployment is active. GPT-5.5 `2026-04-24` is the sole primary candidate.
-- Target A generated answers are not live; Target B remains the fallback.
-- GPT-5.5 Data Zone Standard has 333 kTPM quota/capacity in North Europe and retains
-  separate cost, networking, deployment, and validation approval gates. Mistral's
+- GPT-5.5 `2026-04-24` is deployed as GA Data Zone Standard in North Europe under
+  deployment name `gpt-5-5-helmonic-dev`, with a 10 kTPM rate limit. It has no live
+  application traffic yet.
+- Private endpoint `pe-ai-helmonic-dev-001` is approved at `10.36.1.8`; private zone
+  `privatelink.cognitiveservices.azure.com` is linked to the DEV VNet. Public access on
+  the Foundry account remains disabled, and the Container App system identity has
+  `Cognitive Services OpenAI User` scoped only to that account.
+- Target A generated answers are not live; Target B remains the live fallback until the
+  immutable image, zero-traffic revision, and both generated-answer passes succeed.
+- GPT-5.5 Data Zone Standard retains 323 kTPM unallocated quota after assigning 10 kTPM
+  to Helmonic. Mistral's
   observed 20 kTPM capacity is historical inventory information only; it is not an
   approved or active pathway and must not be revisited unless its lifecycle becomes GA.
 - Phase 1B persistence/upload/general-context contracts are in source, and the migration
@@ -718,6 +725,7 @@ and approval gates are recorded later in this document.
 | 2026-08-27 | Model lifecycle and DPA verification | Confirmed GPT-5.5 `2026-04-24` is GA in both Microsoft lifecycle documentation and live Azure metadata. Confirmed the DPA Preview restriction applies to any Personal Data, not a special `regulated personal data` subset. Removed Mistral Large 3 from the candidate set entirely because it is Preview and the corpus includes identifying names/signatures and one person-linked residential address; reconsideration is prohibited unless Microsoft marks it GA. GPT-5.5 is the sole primary candidate |
 | 2026-08-27 | `9117dfa` / `db4b296` final private retrieval validation | CI, immutable ACR build, and Vercel Preview passed for the query-normalization implementation. The private five-case Azure Search run passed after aligning the Wetherspoon expectation with the real sixteen-document corpus: Harold's Cross, Premier Inn, and Wetherspoon questions returned their correct projects; the France question returned no evidence. Deleted the temporary job, UAMI, Search role, both validation tags, and both short-lived repository-scoped ACR Contributor grants. Live traffic remained 100% on `--p1b69b6b7a`; no model was deployed |
 | 2026-08-27 | Target A Model Gateway implementation | Wired document generation through the provider-neutral gateway; added managed-identity GPT-5.5 request settings (`high`, 2,000-token hard ceiling), fail-closed document-marker validation, token/citation telemetry without document content, and a live-capable five-case generated-answer evaluator. Offline generated/retrieval suites, generated route types, TypeScript, and lint passed. No Azure resource, revision, model, or traffic changed in this code step |
+| 2026-08-27 | Approved GPT-5.5 private foundation | Deployed GA `gpt-5.5` version `2026-04-24` as `DataZoneStandard` in North Europe with a 10 kTPM rate limit; created approved private endpoint `pe-ai-helmonic-dev-001`, private DNS zone/VNet link, and the account-scoped `Cognitive Services OpenAI User` role for the Container App system identity. Foundry public access stayed disabled and live Container App traffic stayed 100% on `--p1b69b6b7a`. No model request or application revision was made in this foundation step |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
