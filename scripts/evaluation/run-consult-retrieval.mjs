@@ -38,7 +38,10 @@ function validateSuite() {
   }
 
   const policy = buildControlledSearchRequest("project evidence", suite.profile, 4);
-  if (policy.searchMode !== "all" || !policy.searchFields.includes("title")) {
+  if (
+    policy.searchMode !== "all" ||
+    policy.searchFields !== "title,section,content"
+  ) {
     throw new Error("Controlled retrieval policy must remain precision-first and title-aware");
   }
 }

@@ -2,7 +2,7 @@ export type ControlledSearchRequest = {
   search: string;
   queryType: "simple";
   searchMode: "all";
-  searchFields: string[];
+  searchFields: string;
   filter: string;
   top: number;
   select: string;
@@ -24,7 +24,7 @@ export function buildControlledSearchRequest(
     // a missing project/company term must not fall back to passages that matched only
     // generic words from a broad natural-language question.
     searchMode: "all",
-    searchFields: ["title", "section", "content"],
+    searchFields: "title,section,content",
     filter: `permission_scope eq '${searchFilterValue(permissionScope)}'`,
     top,
     select: "chunk_id,source_id,source_uri,title,section,page_number,content",

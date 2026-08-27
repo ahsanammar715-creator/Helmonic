@@ -91,7 +91,7 @@ function controlledSearchRequest(question) {
     search: question.trim(),
     queryType: "simple",
     searchMode: "all",
-    searchFields: ["title", "section", "content"],
+    searchFields: "title,section,content",
     filter: "permission_scope eq 'iAcoustics'",
     top: 4,
     select: "chunk_id,source_id,source_uri,title,section,page_number,content",

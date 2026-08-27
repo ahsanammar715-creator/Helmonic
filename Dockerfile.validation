@@ -9,6 +9,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY scripts/validation/phase1b-bootstrap.cjs ./phase1b-bootstrap.cjs
+COPY scripts/validation/phase1b-validation-maintenance.cjs ./phase1b-validation-maintenance.cjs
+COPY scripts/validation/phase1b-postgres-owner-recovery.cjs ./phase1b-postgres-owner-recovery.cjs
 
 USER node
 CMD ["node", "/app/phase1b-bootstrap.cjs"]

@@ -56,7 +56,7 @@ remain in this worktree and branch unless the owner explicitly changes this rule
 
 | Item | Name/location |
 | --- | --- |
-| Subscription | Active Helmonic Free Trial subscription; PAYG upgrade pending |
+| Subscription | `14f94f77-4e71-4b80-b6c9-e09b192fcf42`; Active/Paid PAYG (`PayAsYouGo_2014-09-01`) |
 | Resource group | `RG-HELMONIC-DEV` |
 | Region | North Europe |
 | Container Apps environment | `cae-helmonic-dev-002` |
@@ -314,9 +314,10 @@ unauthorized revision never receives traffic.
 | `scripts/validation/phase1b-bootstrap.cjs` | Temporary private-network validation job entrypoint for the idempotent Phase 1B migration plus isolated Blob container/Search index creation |
 | `scripts/validation/phase1b-validation-maintenance.cjs` | Private-environment audit, retrieval evaluation, and tightly scoped synthetic-fixture cleanup used during Phase 1B validation |
 | `scripts/validation/phase1b-postgres-owner-recovery.cjs` | One-purpose cleanup utility that transfers bootstrap-created PostgreSQL object ownership to the permanent Entra administrator before deleting a temporary bootstrap principal |
+| `scripts/deployment/set-consult-template.ps1` | Fail-closed zero-traffic deployment helper requiring an immutable image SHA and explicit uploads, folders, and general-context feature flags; it refuses single-revision mode and verifies the new revision receives no traffic |
 | `Dockerfile.validation` | Reproducible, non-root maintenance image used only under a temporary ACR tag for private-environment bootstrap and validation |
 | `.github/workflows/phase1a-consult-build.yml` | Branch-scoped OIDC application build; an explicit `[validation-image]` commit marker additionally publishes the temporary maintenance tag without deploying it |
-| `database/migrations/001_phase1b_consult.sql` | Backward-compatible Phase 1B schema with database-enforced same-owner folder, conversation, and attachment relationships; not applied |
+| `database/migrations/001_phase1b_consult.sql` | Backward-compatible Phase 1B schema with database-enforced same-owner folder, conversation, and attachment relationships; applied and validated in DEV |
 
 Source PDFs, extracted payloads, Azure credentials, and temporary ingestion artifacts are
 not committed to Git.
@@ -393,19 +394,24 @@ window is deliberately closed.
 - Phi-4 had observed Global Standard capacity, but not an approved Data Zone Standard
   path for the real confidential-document workload. It was not selected while the
   business/legal EU transfer question remained open.
-- Mistral Large 3 remained a credible EU Data Zone secondary path, but the quota request
-  was denied while the subscription was classified as Free Trial. It was therefore not
-  available for the real-document demo; it is not permanently prohibited after PAYG,
-  quota, deployment terms, and cost approval.
-- GPT-5.5 Data Zone Standard is the intended primary path after the subscription is
-  upgraded to PAYG and Microsoft grants usable quota. No deployment is assumed until
-  those facts are verified and a separate cost approval is given.
+- On 27 August 2026, live Azure APIs reported Mistral Large 3 version `1` with 20 kTPM
+  of EU Data Zone Standard quota/capacity in France Central. The current Microsoft
+  catalog marks the model Preview, so it remains a separately approved secondary path,
+  not an automatic production choice.
+- GPT-5.5 version `2026-04-24` Data Zone Standard is the intended primary path. On
+  27 August 2026, live Azure APIs reported 333 kTPM of Data Zone Standard quota and
+  deployable capacity in North Europe. No deployment is implied by quota availability;
+  deployment architecture, networking, token pricing, and validation retain separate
+  approval gates.
 
 ### D-008: model requests were denied because of subscription classification
 
 The GPT-5.5 and Mistral requests were not rejected because the application design or
 model choice was inherently invalid. Microsoft identified the Free Trial subscription
-classification and directed upgrade to PAYG before the quota path could proceed.
+classification and directed upgrade to PAYG before the quota path could proceed. The
+subscription now reports `PayAsYouGo_2014-09-01`, Active/Paid billing, and spending
+limit Off. Default quota appeared after the upgrade, so duplicate increase requests
+were not submitted.
 
 ### D-009: general context is additive and isolated
 
@@ -450,7 +456,7 @@ approved.
 
 ### D-015: application access uses two independent gates
 
-Microsoft Entra sign-in is restricted to the approved user, and Container Apps ingress
+Microsoft Entra sign-in is restricted to the two approved users, and Container Apps ingress
 also applies the approved source-IP allowlist. These controls are app-wide and remain in
 force across revisions. Neither control is replaced by an application-only login screen.
 
@@ -490,6 +496,14 @@ documents retain `D` citations; general references use `G` citations and never e
 the Sources panel. The migration, session container/index, worker, feature activation,
 deployment, and traffic shift remain separate cost/approval gates.
 
+### D-020: every Container Apps revision uses an explicit immutable template
+
+Revision creation must specify the immutable image SHA and the uploads, folders, and
+general-context feature flags together. `scripts/deployment/set-consult-template.ps1`
+enforces those inputs, refuses single-revision mode, and verifies that a newly created
+revision receives zero traffic. Operators must not use an image-only or flag-only
+update that silently inherits Azure's previous latest-revision template.
+
 ## Current status
 
 ### Live and working
@@ -501,7 +515,9 @@ deployment, and traffic shift remain separate cost/approval gates.
   2026: `--p1b69b6b7a` 100%, `--ca72a0c` 0%, and `--0000001` 0%.
 - The prior real revision and placeholder remain active at 0% for rollback. A rollback
   to `--ca72a0c` must restore ingress port 80 as well as its traffic weight.
-- Platform authentication is enabled and restricted to the approved Entra user.
+- Platform authentication is enabled and restricted to exactly Ammar Ahsan
+  (`c34341a3-7783-44d7-8980-b6ea8111bc06`) and Jim Dunne
+  (`84889a68-5ca1-40d6-860b-7654b6f100ce`).
 - The source-IP allowlist is active for `86.43.74.56/32`.
 - The user has successfully signed in and reached the application.
 - CORS is disabled and Vercel is outside the real data path.
@@ -567,16 +583,19 @@ deployment, and traffic shift remain separate cost/approval gates.
 
 - The runtime-hardening slice is pushed, built, validated, and live. Deactivating the
   old root revision remains pending until the explicitly retained rollback window closes.
-- Read-only subscription verification on 26 August 2026 still reports quota ID
-  `FreeTrial_2014-09-01` with spending limit `On`; PAYG has not cleared.
+- Read-only subscription verification on 27 August 2026 reports quota ID
+  `PayAsYouGo_2014-09-01`, subscription/billing status Active/Paid, and spending limit
+  Off.
 - No usable GPT-5.5, Mistral, Phi, GPT-4.1, or GPT-4o deployment is active.
 - Target A generated answers are not live; Target B remains the fallback.
-- GPT-5.5 Data Zone Standard quota must be re-requested/verified after PAYG.
-- Any Mistral secondary deployment also requires fresh quota and cost verification.
+- GPT-5.5 Data Zone Standard now has 333 kTPM quota/capacity in North Europe. Mistral
+  Large 3 Data Zone Standard has 20 kTPM quota/capacity in France Central. Neither model
+  is deployed; both retain separate cost, networking, and validation approval gates.
 - Phase 1B persistence/upload/general-context contracts are in source, and the migration
   plus isolated session container/index are applied. The ingestion worker, sidebar tree
   activation, live feature flags, and any traffic shift remain pending separate approval.
-  Voice deployment remains PAYG-blocked.
+  Voice deployment is no longer account-tier-blocked, but Azure Speech resource creation
+  remains pending a separate cost estimate and approval.
 - Azure Speech has not been provisioned.
 - No live-web/general-context connector has been approved.
 
@@ -591,10 +610,15 @@ deployment, and traffic shift remain separate cost/approval gates.
   no-evidence behavior. The runtime uses `searchMode: all` across title, section, and
   content so a missing project term cannot match only generic question words. The
   26 August live evaluation found a blocking serialization defect before rollout: the
-  Search REST API expects `searchFields` as one comma-separated primitive string, while
-  the current quick-fix commit sends an array. All five cases therefore returned HTTP
-  400 and the zero-traffic revision must not receive traffic until this is corrected and
-  the five-case suite passes live.
+  Search REST API expects `searchFields` as one comma-separated primitive string. The
+  27 August source fix now sends `title,section,content` for controlled, session, and
+  maintenance queries and the offline five-case contract passes. Promotion remains
+  blocked until a new maintenance image runs all five cases successfully against the
+  private live index.
+- Azure's latest stored revision template still references inactive validation build
+  `e20378e`. The explicit deployment helper prevents future image/feature-flag
+  inheritance; correcting the stored Azure template itself remains a separately costed
+  zero-traffic operation.
 - Conversation messages and Recent sidebar items are not yet wired to the local
   persistence contracts.
 - The web upload path is implemented, but no queue receiver/page-extraction worker is
@@ -642,6 +666,7 @@ and approval gates are recorded later in this document.
 | 2026-08-26 | Phase 1B local application-contract slice | Added the unapplied owner-scoped persistence migration/repository, real PDF streaming/Blob/Service Bus upload path, isolated session-index schema and filtered retrieval, persistent folder/conversation APIs, and strictly separate general-context Model Gateway/UI contract. All features default disabled; no Azure state or cost changed |
 | 2026-08-26 | PAYG read-only status check | Subscription policy still returned `FreeTrial_2014-09-01` with spending limit `On`; no Speech/model/quota/deployment action was started |
 | 2026-08-26 | Phase 1B combined Azure validation and cleanup | Applied and verified the nine-table migration plus isolated Blob/Search resources; validated non-root health/readiness, authenticated nested folders, and the real PDF-to-Blob/database/Service-Bus path to `queued`; found the blocking `searchFields` array-versus-string HTTP-400 defect in all five live retrieval cases; deleted the synthetic Blob/message/database data, deactivated the zero-traffic revision, restored the single permanent Entra callback, and removed both temporary identities/admins/roles/jobs and the validation ACR tag. Live traffic remained 100% on `--p1b69b6b7a` throughout |
+| 2026-08-27 | PAYG, access, and audit-gap closure | Verified the subscription as Active/Paid PAYG; confirmed 333 kTPM GPT-5.5 and 20 kTPM Mistral Large 3 EU Data Zone quota/capacity without submitting redundant increases; restricted Entra access to exactly Ammar Ahsan and Jim Dunne while preserving the IP/CORS/traffic controls; fixed Search request serialization and CommonJS lint scope locally; added an explicit zero-traffic deployment-template guard. Live retrieval and CI remain pending a newly published validation image |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
@@ -739,7 +764,7 @@ Azure Container App: Helmonic UI + API
         +--> EU model deployment (pending quota/approval)
         |      document-grounded answer and general-context answer
         |
-        +--> Azure Speech (pending PAYG/approval)
+        +--> Azure Speech (pending resource/cost approval)
                short speech-to-text transcription
 ```
 
@@ -1148,8 +1173,8 @@ Audio is not written to Blob or PostgreSQL by default. Logs contain duration and
 request identifiers, not audio or transcript content.
 
 The browser cannot directly access a private Azure endpoint. The Container App acts as
-the server-side bridge. Azure Speech provisioning remains blocked until PAYG is active
-and a specific deployment estimate is approved.
+the server-side bridge. PAYG is active; Azure Speech provisioning remains blocked until
+the resource, networking pattern, and specific deployment estimate are approved.
 
 ## 12. User experience
 
@@ -1212,7 +1237,8 @@ as a continuation of the document answer.
 ### 13.1 End user
 
 - Microsoft Entra authentication remains required.
-- The current approved user restriction remains in place.
+- The restriction remains exactly the two approved Entra object IDs for Ammar Ahsan and
+  Jim Dunne.
 - The source-IP allowlist remains in place.
 - The server uses the trusted Entra object identifier as the ownership key.
 - Anonymous requests and requests outside the network allowlist remain blocked.
@@ -1379,7 +1405,7 @@ estimated at approximately USD 130-145 per month after conversion to PAYG.
 | Additional Search indexes | None on existing Search service | Included with ingestion ceiling | Index creation and ingestion |
 | Initial 10-20 text-PDF ingestion validation | None fixed | USD 0.25 | Job execution, storage, Search transactions |
 | Container Apps ingestion job | No minimum while idle on consumption | Included above initially | New resource/configuration and executions |
-| Azure Speech S0 usage | Usage based | Approximately EUR 0.88/audio hour | Provision only after PAYG and approval |
+| Azure Speech S0 usage | Usage based | Approximately EUR 0.88/audio hour | Provision only after separate resource/cost approval |
 | Speech private endpoint | Approximately EUR/USD 7-8 monthly | Under EUR/USD 0.10 demo usage | Separate recurring-cost approval |
 | Curated general-source ingestion | None fixed on existing services | USD 0.25 per initial batch | Source approval and ingestion |
 | Language model | Variable token usage | To be calculated for chosen deployment | Separate model deployment approval |
@@ -1421,7 +1447,7 @@ Estimated engineering scope: 4-7 working days.
 - curated public-reference index
 - separate general-context generation
 - separate general-citation rendering
-- model/Speech deployment after PAYG, quota, compliance, and cost approvals
+- model/Speech deployment after quota, compliance, architecture, and cost approvals
 
 Estimated engineering scope: 4-7 working days after model availability.
 
@@ -1437,7 +1463,7 @@ testable and deployable behind feature flags.
 5. Which authoritative public domains/sources are permitted in the curated general
    index.
 6. Selected EU model and approved token budget after quota becomes available.
-7. Azure Speech S0/private-endpoint recurring cost approval after PAYG activation.
+7. Azure Speech S0/private-endpoint recurring cost approval now that PAYG is active.
 
 ## 22. Documentation discipline for every change
 

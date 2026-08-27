@@ -118,7 +118,7 @@ export async function searchSessionEvidence(
         search: question.trim(),
         queryType: "simple",
         searchMode: "all",
-        searchFields: ["title", "section", "content"],
+        searchFields: "title,section,content",
         filter:
           `owner_object_id eq '${owner}' and conversation_id eq '${conversation}' ` +
           "and source_type eq 'session_attachment' and is_active eq true",

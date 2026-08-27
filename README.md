@@ -165,7 +165,7 @@ fail-closed local application contracts. The remaining delivery work includes:
 - completing the PDF extraction/indexing worker and attachment lifecycle UI;
 - asynchronous, page-preserving ingestion into a separate session Search index;
 - explicit promotion from temporary attachments to controlled sources;
-- Azure Speech input behind a disabled feature flag until PAYG approval;
+- Azure Speech input behind a disabled feature flag until separate resource/cost approval;
 - a Model Gateway and strictly separate, properly cited general-context section;
 - a controlled Azure rollout of the locally implemented non-root port-8080 runtime
   before live upload exposure.
