@@ -82,7 +82,7 @@ remain in this worktree and branch unless the owner explicitly changes this rule
 | Foundry account | `aif-helmonic-dev-001` |
 | Embedding account | `aif-helmonic-embed-dev-001`; France Central, public access disabled |
 | Embedding deployment | `text-embedding-3-small-helmonic-dev`; version 1, `DataZoneStandard`, capacity 1 |
-| Embedding private endpoint | `pe-ai-embed-helmonic-dev-001`; existing private DNS zone/VNet pattern |
+| Embedding private endpoint | `pe-ai-embed-helmonic-dev-001`; `10.36.1.11`, approved, with dedicated `privatelink.openai.azure.com` zone linked to `vnet-helmonic-dev-001` |
 | Log Analytics | `law-helmonic-dev-001` |
 
 The application URL is intentionally protected by Microsoft Entra authentication and
@@ -694,8 +694,11 @@ without D-011 approval.
   managed-identity query and ingestion embedding paths, permission pre-filtered hybrid
   queries, threshold filtering before citations, atomic-table manifest controls, v1/v2
   parity checks, and an eight-case fixture with isolated policy tests. The approved
-  France Central embedding foundation is provisioned; private `consult-demo-v2`
-  ingestion/evaluation is in progress. No runtime revision or traffic change exists.
+  France Central embedding foundation is provisioned. The private validation job proved
+  the sixteen-document payload (414 chunks, including 87 table pages), but Azure rejected
+  the first embedding request with `403 Traffic is not from an approved private endpoint`
+  even though in-job DNS resolved the approved endpoint to `10.36.1.11`. No v2 index was
+  created, and no runtime revision, index cutover, or traffic change exists.
 
 ### Pending/blocking
 
@@ -725,11 +728,13 @@ without D-011 approval.
   remains pending a separate cost estimate and approval.
 - Azure Speech has not been provisioned.
 - No live-web/general-context connector has been approved.
-- The D-011 gate was approved for the approximately USD 7.30/month embedding private
+- The D-011 gate was approved for the approximately USD 7.80/month embedding private
   endpoint and a USD 0.30 private re-index/evaluation ceiling. The France Central account,
-  Data Zone deployment, DNS link, and account-scoped runtime role are provisioned.
-  `consult-demo-v2` validation remains isolated; changing `AZURE_SEARCH_INDEX` or live
-  traffic still requires a new explicit approval.
+  Data Zone deployment, dedicated OpenAI private DNS zone/VNet link, and account-scoped
+  runtime role are provisioned. The temporary validation job, ingestion UAMI and all five
+  roles, repository, and short-lived user grant were removed after the failed private-link
+  request. `consult-demo-v2` validation remains isolated and incomplete; changing
+  `AZURE_SEARCH_INDEX` or live traffic still requires a new explicit approval.
 
 ### Tracked technical debt and risks
 
@@ -794,12 +799,15 @@ The D-021 hybrid retrieval source implementation, fixture inspection, and local 
 cost USD 0. Read-only inventory found no North Europe
 `DataZoneStandard` deployment for the selected embedding model; France Central and
 Sweden Central list it. The owner approved France Central creation with approximately
-USD 7.30/month for one additional private endpoint (plus negligible data processing),
+USD 7.80/month for one additional private endpoint and its dedicated private DNS zone
+(plus negligible data processing),
 USD 0 standing model/account charge, no new fixed Search charge, and a USD 0.30 ceiling
 for initial embedding, re-index, Search, storage, and short-lived job validation. The
-account/deployment/private endpoint now exist. Generated-answer evaluation, runtime
-revision, `AZURE_SEARCH_INDEX` cutover, and traffic movement remain later, separately
-estimated and approved gates.
+account/deployment/private endpoint now exist. The first complete private run built the
+sixteen-document/414-chunk payload but stopped on Azure's private-endpoint enforcement
+before any embedding or v2 index creation. Generated-answer evaluation, runtime revision,
+`AZURE_SEARCH_INDEX` cutover, and traffic movement remain later, separately estimated and
+approved gates.
 
 ## Implementation and operations chronology
 
@@ -831,7 +839,8 @@ estimated and approved gates.
 | 2026-08-27 | Approved GPT-5.5 private foundation | Deployed GA `gpt-5.5` version `2026-04-24` as `DataZoneStandard` in North Europe with a 10 kTPM rate limit; created approved private endpoint `pe-ai-helmonic-dev-001`, private DNS zone/VNet link, and the account-scoped `Cognitive Services OpenAI User` role for the Container App system identity. Foundry public access stayed disabled and live Container App traffic stayed 100% on `--p1b69b6b7a`. No model request or application revision was made in this foundation step |
 | 2026-08-27 | Target A private validation and live cutover | Deployed immutable image `78f31b9...` at zero traffic, proved non-root UID 1000 plus `/healthz` and `/readyz`, and validated one grounded known-evidence response plus a no-evidence response. The private five-case generated-answer suite then passed: all four evidence cases used valid document/page citations, including the Wetherspoon relevance guard, and the France case returned no answer or citations. Created final min-zero revision `--p1bgpt55fin`, shifted it to 100%, retained `--p1b69b6b7a` at 0% for rollback, and deactivated both temporary GPT validation revisions. Five paid model calls were made; the enforced per-call ceiling bounds validation model usage below $0.3575 and therefore below the approved $0.80 ceiling |
 | 2026-08-28 | Pilot-diagram reconciliation and local hybrid retrieval slice | Confirmed the out-of-scope box unchanged, GPT-5.5 as the sole provider, and lexical-only v1 as the gap to fix. Added disabled local contracts for `text-embedding-3-small`, versioned `consult-demo-v2`, managed-identity chunk/query embeddings, atomic table manifests, v1/v2 parity, pre-filtered BM25+HNSW retrieval, semantic/RRF cutoffs before citation creation, and eight-case evaluation plus unit tests. Offline fixtures, threshold tests, generated-answer policy, lint, and TypeScript pass. No Azure resource, index, ingestion, deployment, or traffic changed; D-011 cost approval remains the next gate |
-| 2026-08-28 | Approved hybrid embedding foundation | Reconfirmed France Central `text-embedding-3-small` Data Zone quota at 0 of 1,000, then created `aif-helmonic-embed-dev-001` with public access disabled/default deny from its initial resource PUT, deployed version 1 as `DataZoneStandard` capacity 1, created/approved `pe-ai-embed-helmonic-dev-001`, reused the private Cognitive Services DNS zone, and scoped the Container App identity to `Cognitive Services OpenAI User` on only the new account. Live `consult-demo-v1` and traffic were unchanged; isolated v2 validation remains in progress under the approved USD 0.30 ceiling |
+| 2026-08-28 | Approved hybrid embedding foundation | Reconfirmed France Central `text-embedding-3-small` Data Zone quota at 0 of 1,000, then created `aif-helmonic-embed-dev-001` with public access disabled/default deny from its initial resource PUT, deployed version 1 as `DataZoneStandard` capacity 1, created/approved `pe-ai-embed-helmonic-dev-001`, added dedicated `privatelink.openai.azure.com` DNS with VNet link and the correct endpoint zone group, and scoped the Container App identity to `Cognitive Services OpenAI User` on only the new account. Live `consult-demo-v1` and traffic were unchanged |
+| 2026-08-28 | Hybrid private validation and complete temporary cleanup | Temporarily raised the embedding deployment from 1 to 100 kTPM, then restored it to 1 immediately after the terminal run. The private job read all sixteen controlled PDFs and built 414 chunks including 87 table pages, but Azure rejected the first embedding call with `403 Traffic is not from an approved private endpoint`; in-job DNS nevertheless resolved the approved account connection to private IP `10.36.1.11`, so v2 ingestion and the eight-case evaluation did not run. Deleted the job, UAMI, all five UAMI roles, temporary ACR repository, and both short-lived repository-scoped user grants. Verified live traffic remains 100% on `--p1bgpt55fin` and `AZURE_SEARCH_INDEX=consult-demo-v1` |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
@@ -1616,7 +1625,7 @@ estimated at approximately USD 130-145 per month after conversion to PAYG.
 | Additional Blob containers | None | Less than USD 0.01 at initial scale | Container creation and validation |
 | Additional Search indexes | None on existing Search service | Included with ingestion ceiling | Index creation and ingestion |
 | Separate EU Foundry account for embeddings | No standing account charge; France Central account created after quota confirmation | USD 0 before inference | Approved and provisioned; public access disabled |
-| Embedding-account private endpoint | Approximately USD 7.30/month plus negligible data processing; existing private DNS zone reused | Included in the USD 0.30 hybrid validation ceiling | Approved and provisioned |
+| Embedding-account private endpoint and DNS | Approximately USD 7.80/month plus negligible data processing; dedicated `privatelink.openai.azure.com` zone linked to the DEV VNet | Included in the USD 0.30 hybrid validation ceiling | Approved and provisioned; private-link enforcement issue remains under diagnosis |
 | `text-embedding-3-small` Data Zone Standard | Usage based; no standing model charge; version 1/capacity 1 deployed | USD 0.05 conservative initial embedding ceiling | Approved for the current private validation only |
 | Semantic ranker for hybrid cutoff | No new fixed charge on existing Search Basic; its current free semantic plan includes the first 1,000 requests/month | Included in the USD 0.30 hybrid validation ceiling | v2 semantic configuration, evaluation, and live queries |
 | Initial 16-PDF hybrid ingestion validation | None fixed | USD 0.25 | Job execution, storage, Search transactions |
