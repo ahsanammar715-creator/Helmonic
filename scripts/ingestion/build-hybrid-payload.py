@@ -37,6 +37,7 @@ PAYLOAD_ROOT = Path(os.environ.get("HELMONIC_INGESTION_PAYLOAD", "/payload"))
 EXPECTED_DOCUMENTS = int(
     os.environ.get("HELMONIC_INGESTION_EXPECTED_DOCUMENT_COUNT", "16")
 )
+PERMISSION_SCOPE = required("HELMONIC_PERMISSION_SCOPE")
 
 
 def normalized_cell(value: object) -> str:
@@ -95,11 +96,15 @@ def read_manifest(credential: ManagedIdentityCredential) -> list[dict]:
         json={
             "search": "*",
             "top": 1000,
-            "select": "chunk_id,source_id,source_uri,title,section,page_number,content,permission_scope",
+            "select": "chunk_id,source_id,source_uri,title,section,page_number,content",
         },
         timeout=60,
     )
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(
+            f"Rollback index manifest failed with status {response.status_code}: "
+            f"{response.text[:500]}"
+        )
     values = response.json().get("value", [])
     if not values:
         raise RuntimeError(f"Rollback index {SEARCH_INDEX} returned no controlled chunks")
@@ -173,7 +178,7 @@ def main() -> None:
                 "sourceId": source_id,
                 "title": first["title"],
                 "fileName": file_name,
-                "permissionScope": first["permission_scope"],
+                "permissionScope": PERMISSION_SCOPE,
                 "tablePageNumbers": sorted(used_table_pages),
                 "chunks": payload_chunks,
             }
