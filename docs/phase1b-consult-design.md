@@ -327,7 +327,7 @@ unauthorized revision never receives traffic.
 | `scripts/ingestion/session-index-schema.json` | Proposed isolated, owner/conversation-filterable `consult-session-v1` Search schema |
 | `scripts/ingestion/payload.example.json` | Non-sensitive extraction-v2 example including atomic table metadata alongside source/chunk/page/hash fields |
 | `scripts/ingestion/README.md` | Operator instructions, corpus-count gate, versioned hybrid re-index safety contract, and least-privilege separation |
-| `scripts/ingestion/upload-payload.mjs` | Controlled writer with opt-in managed-identity embeddings, table validation, v1/v2 parity, all-vector readiness, and v1 rollback protection |
+| `scripts/ingestion/upload-payload.mjs` | Controlled writer with opt-in managed-identity embeddings, bounded Azure 429/`Retry-After` handling, table validation, v1/v2 parity, all-vector readiness, and v1 rollback protection |
 | `scripts/ingestion/build-hybrid-payload.py` | Private-job payload builder that reads only retrievable v1 manifest fields and controlled Blob originals, requires the permission scope explicitly because v1 keeps it non-retrievable, preserves detected PDF tables as atomic Markdown, and retains v1 identifiers/page metadata for parity |
 | `scripts/ingestion/Dockerfile.hybrid` | Temporary non-root hybrid-validation image combining table-preserving extraction, the managed-identity v2 uploader, and the eight-case private retrieval evaluation in one fail-closed job |
 | `scripts/validation/phase1b-bootstrap.cjs` | Temporary private-network validation job entrypoint for the idempotent Phase 1B migration plus isolated Blob container/Search index creation |

@@ -168,24 +168,36 @@ function validateHybridIndexSchema(schema) {
 }
 
 async function createEmbeddings(accessToken, inputs) {
-  const response = await fetch(
-    `${embeddingEndpoint}/openai/deployments/${encodeURIComponent(
-      embeddingDeployment,
-    )}/embeddings?api-version=${encodeURIComponent(embeddingApiVersion)}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-        "x-ms-client-request-id": crypto.randomUUID(),
+  let response;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    response = await fetch(
+      `${embeddingEndpoint}/openai/deployments/${encodeURIComponent(
+        embeddingDeployment,
+      )}/embeddings?api-version=${encodeURIComponent(embeddingApiVersion)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "x-ms-client-request-id": crypto.randomUUID(),
+        },
+        body: JSON.stringify({ input: inputs, dimensions: embeddingDimensions }),
+        signal: AbortSignal.timeout(60_000),
       },
-      body: JSON.stringify({ input: inputs, dimensions: embeddingDimensions }),
-      signal: AbortSignal.timeout(60_000),
-    },
-  );
-  if (!response.ok) {
-    throw new Error(`Embedding batch failed with status ${response.status}`);
+    );
+    if (response.ok) break;
+    if (response.status !== 429 || attempt === 7) {
+      const details = (await response.text()).slice(0, 500);
+      throw new Error(`Embedding batch failed with status ${response.status}: ${details}`);
+    }
+
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") || "", 10);
+    const delayMs = Number.isFinite(retryAfterSeconds)
+      ? Math.min(Math.max(retryAfterSeconds, 1) * 1000, 60_000)
+      : Math.min(2 ** attempt * 1000, 60_000);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
+  if (!response?.ok) throw new Error("Embedding batch retry policy exhausted");
 
   const payload = await response.json();
   const ordered = [...(payload.data || [])].sort((left, right) => left.index - right.index);

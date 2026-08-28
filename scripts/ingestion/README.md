@@ -48,7 +48,9 @@ as Markdown or explicit key/value content. This makes table preservation an audi
 manifest contract instead of silently flattening frequency or compliance tables.
 
 Before creating v2, the script embeds every chunk and rejects any missing, malformed, or
-wrong-dimension vector. It then compares the approved manifest with the live v1 chunk,
+wrong-dimension vector. Transient model throttling is retried only when Azure returns 429,
+using the service's `Retry-After` value with a bounded eight-attempt ceiling. It then
+compares the approved manifest with the live v1 chunk,
 source, title, and page metadata. After upload it repeats that parity check against v2.
 The target is not ready for evaluation or cutover unless both checks pass.
 
