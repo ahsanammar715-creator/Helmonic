@@ -329,7 +329,7 @@ unauthorized revision never receives traffic.
 | `scripts/ingestion/README.md` | Operator instructions, corpus-count gate, versioned hybrid re-index safety contract, and least-privilege separation |
 | `scripts/ingestion/upload-payload.mjs` | Controlled writer with opt-in managed-identity embeddings, table validation, v1/v2 parity, all-vector readiness, and v1 rollback protection |
 | `scripts/ingestion/build-hybrid-payload.py` | Private-job payload builder that reads the v1 manifest and controlled Blob originals, preserves detected PDF tables as atomic Markdown, and retains v1 identifiers/page metadata for parity |
-| `scripts/ingestion/Dockerfile.hybrid` | Temporary non-root hybrid-ingestion image combining table-preserving extraction with the managed-identity v2 uploader |
+| `scripts/ingestion/Dockerfile.hybrid` | Temporary non-root hybrid-validation image combining table-preserving extraction, the managed-identity v2 uploader, and the eight-case private retrieval evaluation in one fail-closed job |
 | `scripts/validation/phase1b-bootstrap.cjs` | Temporary private-network validation job entrypoint for the idempotent Phase 1B migration plus isolated Blob container/Search index creation |
 | `scripts/validation/phase1b-validation-maintenance.cjs` | Private-environment audit, retrieval evaluation, and tightly scoped synthetic-fixture cleanup used during Phase 1B validation |
 | `scripts/validation/phase1b-postgres-owner-recovery.cjs` | One-purpose cleanup utility that transfers bootstrap-created PostgreSQL object ownership to the permanent Entra administrator before deleting a temporary bootstrap principal |

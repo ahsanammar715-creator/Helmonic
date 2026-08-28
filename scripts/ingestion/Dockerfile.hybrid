@@ -18,7 +18,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY --chown=node:node scripts/ingestion ./scripts/ingestion
+COPY --chown=node:node scripts/evaluation ./scripts/evaluation
+COPY --chown=node:node src/lib/consult ./src/lib/consult
 RUN mkdir -p /payload && chown node:node /payload
 
 USER node
-CMD ["sh", "-c", "python3 scripts/ingestion/build-hybrid-payload.py && node scripts/ingestion/upload-payload.mjs"]
+CMD ["sh", "-c", "python3 scripts/ingestion/build-hybrid-payload.py && node scripts/ingestion/upload-payload.mjs && node --experimental-strip-types scripts/evaluation/run-consult-retrieval.mjs --live"]
