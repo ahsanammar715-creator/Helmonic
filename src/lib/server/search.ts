@@ -1,12 +1,17 @@
 import "server-only";
 
 import type { ConsultCitation } from "@/lib/consult/types";
-import { buildControlledSearchRequest } from "@/lib/consult/search-policy";
+import {
+  buildControlledHybridSearchRequest,
+  buildControlledSearchRequest,
+  retainRelevantHybridDocuments,
+} from "@/lib/consult/search-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
 import type { RuntimeConfig } from "@/lib/server/config";
 
 type SearchDocument = {
   "@search.score"?: number;
+  "@search.rerankerScore"?: number;
   chunk_id?: string;
   source_id?: string;
   source_uri?: string;
@@ -43,6 +48,25 @@ export async function searchConsultEvidence(
   config: RuntimeConfig,
 ) {
   const { endpoint, indexName } = requireSearchConfig(config);
+  const queryEmbedding = config.search.hybridEnabled
+    ? await import("@/lib/server/embeddings").then(({ createQueryEmbedding }) =>
+        createQueryEmbedding(question, requestId, config),
+      )
+    : null;
+  const searchRequest = queryEmbedding
+    ? buildControlledHybridSearchRequest(
+        question,
+        config.profile,
+        config.search.top,
+        queryEmbedding,
+        {
+          vectorK: config.search.vectorK,
+          semanticConfiguration: config.search.semanticEnabled
+            ? config.search.semanticConfiguration
+            : undefined,
+        },
+      )
+    : buildControlledSearchRequest(question, config.profile, config.search.top);
   const token = await getAzureAccessToken("https://search.azure.com/.default");
   const response = await fetch(
     `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(
@@ -55,9 +79,7 @@ export async function searchConsultEvidence(
         "Content-Type": "application/json",
         "x-ms-client-request-id": requestId,
       },
-      body: JSON.stringify(
-        buildControlledSearchRequest(question, config.profile, config.search.top),
-      ),
+      body: JSON.stringify(searchRequest),
       cache: "no-store",
       signal: AbortSignal.timeout(8_000),
     },
@@ -68,8 +90,29 @@ export async function searchConsultEvidence(
   }
 
   const payload = (await response.json()) as SearchResponse;
+  const retrievedDocuments = payload.value ?? [];
+  const relevantDocuments = config.search.hybridEnabled
+    ? retainRelevantHybridDocuments(retrievedDocuments, {
+        scoreKind: config.search.semanticEnabled ? "semantic" : "rrf",
+        minimumScore: config.search.semanticEnabled
+          ? config.search.minimumSemanticScore
+          : config.search.minimumRrfScore,
+      })
+    : retrievedDocuments;
 
-  return (payload.value ?? [])
+  if (config.search.hybridEnabled) {
+    console.info("Helmonic hybrid retrieval", {
+      requestId,
+      retrievedCount: retrievedDocuments.length,
+      retainedCount: relevantDocuments.length,
+      scoreKind: config.search.semanticEnabled ? "semantic" : "rrf",
+      minimumScore: config.search.semanticEnabled
+        ? config.search.minimumSemanticScore
+        : config.search.minimumRrfScore,
+    });
+  }
+
+  return relevantDocuments
     .filter((document) => document.content && document.source_id)
     .map<ConsultCitation>((document, index) => ({
       id: document.chunk_id ?? `citation-${index + 1}`,

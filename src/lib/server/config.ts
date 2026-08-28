@@ -1,6 +1,12 @@
 import "server-only";
 
-export type ReadinessCheckName = "search" | "postgres" | "blob" | "keyvault" | "model";
+export type ReadinessCheckName =
+  | "search"
+  | "postgres"
+  | "blob"
+  | "keyvault"
+  | "model"
+  | "embedding";
 
 const readinessCheckNames: ReadinessCheckName[] = [
   "search",
@@ -8,6 +14,7 @@ const readinessCheckNames: ReadinessCheckName[] = [
   "blob",
   "keyvault",
   "model",
+  "embedding",
 ];
 
 function optional(name: string) {
@@ -21,6 +28,11 @@ function withoutTrailingSlash(value: string | undefined) {
 
 function positiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function positiveNumber(value: string | undefined, fallback: number) {
+  const parsed = Number.parseFloat(value ?? "");
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
@@ -60,6 +72,18 @@ export function getRuntimeConfig() {
       indexName: optional("AZURE_SEARCH_INDEX"),
       apiVersion: optional("AZURE_SEARCH_API_VERSION") ?? "2025-09-01",
       top: positiveInteger(optional("HELMONIC_SEARCH_TOP"), 4),
+      hybridEnabled: enabled("HELMONIC_HYBRID_RETRIEVAL_ENABLED"),
+      vectorK: positiveInteger(optional("HELMONIC_SEARCH_VECTOR_K"), 50),
+      semanticEnabled: enabled("HELMONIC_SEARCH_SEMANTIC_ENABLED"),
+      semanticConfiguration: optional("AZURE_SEARCH_SEMANTIC_CONFIGURATION"),
+      minimumSemanticScore: positiveNumber(
+        optional("HELMONIC_SEARCH_MIN_SEMANTIC_SCORE"),
+        2,
+      ),
+      minimumRrfScore: positiveNumber(
+        optional("HELMONIC_SEARCH_MIN_RRF_SCORE"),
+        0.015,
+      ),
     },
     storage: {
       accountName: optional("AZURE_STORAGE_ACCOUNT"),
@@ -105,6 +129,18 @@ export function getRuntimeConfig() {
       ),
       timeoutMilliseconds: positiveInteger(optional("AZURE_OPENAI_TIMEOUT_MS"), 120_000),
     },
+    embedding: {
+      endpoint: withoutTrailingSlash(
+        optional("AZURE_OPENAI_EMBEDDING_ENDPOINT") ?? optional("AZURE_OPENAI_ENDPOINT"),
+      ),
+      deployment: optional("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
+      apiVersion: optional("AZURE_OPENAI_EMBEDDING_API_VERSION") ?? "2024-10-21",
+      dimensions: positiveInteger(optional("AZURE_OPENAI_EMBEDDING_DIMENSIONS"), 1_536),
+      timeoutMilliseconds: positiveInteger(
+        optional("AZURE_OPENAI_EMBEDDING_TIMEOUT_MS"),
+        30_000,
+      ),
+    },
     readiness,
   };
 }
@@ -116,6 +152,20 @@ export function getQueryConfigurationErrors(config: RuntimeConfig) {
 
   if (!config.search.endpoint) missing.push("AZURE_SEARCH_ENDPOINT");
   if (!config.search.indexName) missing.push("AZURE_SEARCH_INDEX");
+
+  if (config.search.hybridEnabled) {
+    if (config.search.indexName === "consult-demo-v1") {
+      missing.push("AZURE_SEARCH_INDEX (versioned hybrid index required)");
+    }
+    if (!config.embedding.endpoint) missing.push("AZURE_OPENAI_EMBEDDING_ENDPOINT");
+    if (!config.embedding.deployment) missing.push("AZURE_OPENAI_EMBEDDING_DEPLOYMENT");
+    if (!config.search.semanticEnabled) {
+      missing.push("HELMONIC_SEARCH_SEMANTIC_ENABLED=true");
+    }
+    if (!config.search.semanticConfiguration) {
+      missing.push("AZURE_SEARCH_SEMANTIC_CONFIGURATION");
+    }
+  }
 
   const modelPartiallyConfigured = Boolean(config.model.endpoint) !== Boolean(config.model.deployment);
   if (modelPartiallyConfigured) {

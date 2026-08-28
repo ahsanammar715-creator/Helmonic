@@ -2,7 +2,7 @@
 
 Status: Authoritative living reference for the active Phase 1A/1B branch
 
-Last reviewed: 26 August 2026
+Last reviewed: 28 August 2026
 
 Repository branch: `phase1a-consult-demo`
 
@@ -62,7 +62,8 @@ remain in this worktree and branch unless the owner explicitly changes this rule
 | Container Apps environment | `cae-helmonic-dev-002` |
 | Container App | `ca-helmonic-consult-dev-002` |
 | Authenticated application URL | `https://ca-helmonic-consult-dev-002.politemushroom-54e7948a.northeurope.azurecontainerapps.io` |
-| Current real revision | `ca-helmonic-consult-dev-002--p1b69b6b7a` (`helmonic-consult:69b6b7af9283657c9f509385fcb2050ab01c65c4`), 100% traffic, non-root UID 1000, port 8080 |
+| Current real revision | `ca-helmonic-consult-dev-002--p1bgpt55fin` (`helmonic-consult:78f31b938591daefae58c42de0f2d8fcb478c334`), 100% traffic, non-root UID 1000, port 8080, minimum replicas 0 |
+| Immediate Target B rollback | `ca-helmonic-consult-dev-002--p1b69b6b7a`, active at 0% traffic |
 | Prior real rollback revision | `ca-helmonic-consult-dev-002--ca72a0c`, active at 0% traffic; rollback also requires restoring ingress port 80 |
 | Placeholder rollback revision | `ca-helmonic-consult-dev-002--0000001`, active at 0% traffic |
 | Container registry | `acrhelmonicdev001` |
@@ -75,6 +76,7 @@ remain in this worktree and branch unless the owner explicitly changes this rule
 | Controlled-source Blob container | `consult-sources` |
 | Azure AI Search service | `srch-helmonic-dev-001` |
 | Controlled-source Search index | `consult-demo-v1` |
+| Proposed hybrid Search index | `consult-demo-v2`; source/schema only, not created |
 | Service Bus namespace | `sb-helmonic-dev-001` |
 | Service Bus queue | `consult-ingestion` |
 | Foundry account | `aif-helmonic-dev-001` |
@@ -98,13 +100,18 @@ Azure Container App
         | server-derived identity and permission filters
         v
 Azure AI Search through private endpoint
-  consult-demo-v1
+  consult-demo-v1 lexical retrieval (current live index)
         |
         +--> no evidence: explicit insufficient-evidence response
         |
-        +--> evidence: retrieval-only response + Sources panel
-        |
-        `--> future Model Gateway: grounded generated answer
+        `--> permitted evidence
+                 |
+                 v
+            Model Gateway
+              GPT-5.5 only, managed identity, Data Zone Standard
+                 |
+                 v
+            grounded generated answer + Sources panel
 ```
 
 The browser never receives Azure service credentials and does not call PostgreSQL,
@@ -138,12 +145,13 @@ filter. Phase 1B session attachments add both owner and conversation filters.
 ### Model Gateway
 
 The Model Gateway is a server-only application boundary, not a separately exposed
-public API. The current `src/lib/server/model.ts` is the initial direct Azure adapter;
-Phase 1B evolves it into a gateway that:
+public API. It has one approved provider path: GA GPT-5.5 `2026-04-24` through Azure
+OpenAI Data Zone Standard. `src/lib/server/model.ts` implements that adapter and the
+provider-neutral contract:
 
 - exposes one internal answer interface to Consult;
 - selects only explicitly configured Azure deployments;
-- supports a primary model and a deliberately configured secondary path;
+- deliberately has no Claude, Anthropic, Mistral, or other secondary provider path;
 - keeps retrieval-only Target B available when no model is usable;
 - separates document-answer calls from general-context calls;
 - prevents confidential evidence from reaching public-web connectors;
@@ -152,8 +160,9 @@ Phase 1B evolves it into a gateway that:
 - enforces per-request limits and future cost budgets;
 - uses managed identity for Azure model access.
 
-There is no approved model deployment at present. The gateway must degrade to
-retrieval-only behavior without weakening evidence or citation controls.
+Deployment `gpt-5-5-helmonic-dev` is live at 10 kTPM. The gateway still degrades to
+retrieval-only Target B without weakening evidence or citation controls when model
+configuration is absent.
 
 ### Managed-identity-only security
 
@@ -196,7 +205,7 @@ unauthorized revision never receives traffic.
 | Path | Responsibility |
 | --- | --- |
 | `.dockerignore` | Excludes local dependencies, build output, environment files, and development artifacts from container build context |
-| `.env.example` | Non-secret Phase 1A runtime configuration contract and optional model placeholders |
+| `.env.example` | Non-secret Phase 1A runtime, GPT, and disabled hybrid-retrieval configuration contract |
 | `.gitignore` | Excludes dependencies, build/test output, local environment files, Vercel state, and generated TypeScript files |
 | `.nvmrc` | Tested Node.js runtime version |
 | `AGENTS.md` | Repository-specific Next.js agent rule requiring bundled framework documentation to be consulted |
@@ -213,9 +222,10 @@ unauthorized revision never receives traffic.
 | `playwright.config.ts` | End-to-end browser-test configuration |
 | `scripts/verify-runtime-hardening.mjs` | Fails local/CI/image builds if root, port 80, or the expired exception label returns |
 | `tests/e2e/smoke.spec.ts` | Route smoke tests, fail-closed/runtime-user tests, Phase 1B disabled-boundary checks, UI flows, responsive behavior, settings, current corpus copy, and legacy mock attachment coverage |
-| `scripts/evaluation/consult-retrieval.json` | Versioned retrieval-relevance cases, including known-project matches and mandatory no-evidence cases |
-| `scripts/evaluation/run-consult-retrieval.mjs` | Offline suite/policy validation and opt-in managed-identity live Search evaluation |
-| `scripts/evaluation/run-consult-generated.mjs` | Offline citation-policy validation and opt-in five-case live Target A evaluation through the same-origin Consult API |
+| `scripts/evaluation/consult-retrieval.json` | Versioned eight-case hybrid fixture covering paraphrase, Wetherspoon/Premier Inn regression, numeric tables, no-evidence, and permission pre-filter behavior; owns the reviewable candidate cutoffs |
+| `scripts/evaluation/run-consult-retrieval.mjs` | Offline hybrid-suite/request validation and opt-in managed-identity embedding plus private v2 Search evaluation |
+| `scripts/evaluation/relevance-policy.test.mjs` | Isolated unit tests for semantic/RRF cutoffs, missing-score failure, embedding validation, and permission pre-filter construction |
+| `scripts/evaluation/run-consult-generated.mjs` | Offline citation-policy validation and opt-in Target A evaluation through the same-origin API using eligible v2 cases |
 
 ### App Router surfaces
 
@@ -283,13 +293,14 @@ unauthorized revision never receives traffic.
 | --- | --- |
 | `src/lib/consult/types.ts` | Consult document-answer, document/attachment citation, and isolated general-context response contracts |
 | `src/lib/consult/corpus.ts` | Single application source of truth for the current controlled-document count and label |
-| `src/lib/consult/search-policy.ts` | Pure precision-first controlled Search request policy shared by runtime and evaluation tooling |
+| `src/lib/consult/search-policy.ts` | Pure lexical/hybrid request construction, permission pre-filtering, reviewable cutoff constants, and fail-closed relevance filtering shared by runtime and evaluation tooling |
 | `src/lib/consult/model-policy.ts` | Pure fail-closed `D`/`A` document-answer marker validator shared by the runtime contract |
 | `src/lib/consult/organization.ts` | Folder/conversation persistence DTOs |
 | `src/lib/consult/uploads.ts` | Session-document lifecycle and composer attachment DTOs |
-| `src/lib/server/config.ts` | Runtime environment parsing, defaults, and completeness checks |
+| `src/lib/server/config.ts` | Runtime environment parsing, defaults, and fail-closed lexical/hybrid/model/embedding completeness checks |
 | `src/lib/server/azure-credential.ts` | Managed-identity/default Azure credential token acquisition |
-| `src/lib/server/search.ts` | Permission-scoped controlled and owner/conversation-scoped session Search queries and citation shaping |
+| `src/lib/server/search.ts` | Permission-scoped controlled lexical/hybrid retrieval, relevance filtering before citation creation, session Search, and citation shaping |
+| `src/lib/server/embeddings.ts` | Managed-identity query-embedding client with strict deployment, dimension, timeout, and finite-vector validation |
 | `src/lib/server/model.ts` | Managed-identity Azure GPT implementation of the Model Gateway with high reasoning, bounded output, strict document-marker validation, and usage telemetry |
 | `src/lib/server/model-gateway.ts` | Provider-neutral document/general request contracts, validation error boundary, and `G` citation validation seed |
 | `src/lib/server/postgres.ts` | Managed-identity PostgreSQL connection wrapper used by readiness and repositories |
@@ -297,7 +308,7 @@ unauthorized revision never receives traffic.
 | `src/lib/server/identity.ts` | Platform-authenticated actor extraction from Container Apps auth headers |
 | `src/lib/server/session-blob.ts` | Single-pass PDF signature/hash validation and managed-identity Blob streaming |
 | `src/lib/server/service-bus.ts` | Managed-identity REST dispatch for versioned session-ingestion messages |
-| `src/lib/server/readiness.ts` | Search, PostgreSQL, Blob, Key Vault, and optional model checks |
+| `src/lib/server/readiness.ts` | Search, PostgreSQL, Blob, Key Vault, model, and embedding configuration/identity checks |
 | `src/lib/data.ts` | Original illustrative/mock data; not authoritative backend data |
 | `src/lib/useSessionBoolean.ts` | Session-only panel preference helper |
 | `src/lib/workspaceTheme.ts` | Workspace color/theme mapping |
@@ -309,14 +320,15 @@ unauthorized revision never receives traffic.
 | Path | Responsibility |
 | --- | --- |
 | `scripts/ingestion/index-schema.json` | Current `consult-demo-v1` Search schema |
+| `scripts/ingestion/index-schema-v2.json` | Proposed `consult-demo-v2` schema with table metadata, a 1,536-dimension vector field, cosine HNSW, and `consult-semantic-v2` |
 | `scripts/ingestion/session-index-schema.json` | Proposed isolated, owner/conversation-filterable `consult-session-v1` Search schema |
-| `scripts/ingestion/payload.example.json` | Non-sensitive example of the source/chunk/page/hash ingestion payload contract |
-| `scripts/ingestion/README.md` | Operator instructions, current corpus-count gate, and least-privilege separation for controlled ingestion |
-| `scripts/ingestion/upload-payload.mjs` | Controlled 16-document Blob/Search writer, validation, and verification path |
+| `scripts/ingestion/payload.example.json` | Non-sensitive extraction-v2 example including atomic table metadata alongside source/chunk/page/hash fields |
+| `scripts/ingestion/README.md` | Operator instructions, corpus-count gate, versioned hybrid re-index safety contract, and least-privilege separation |
+| `scripts/ingestion/upload-payload.mjs` | Controlled writer with opt-in managed-identity embeddings, table validation, v1/v2 parity, all-vector readiness, and v1 rollback protection |
 | `scripts/validation/phase1b-bootstrap.cjs` | Temporary private-network validation job entrypoint for the idempotent Phase 1B migration plus isolated Blob container/Search index creation |
 | `scripts/validation/phase1b-validation-maintenance.cjs` | Private-environment audit, retrieval evaluation, and tightly scoped synthetic-fixture cleanup used during Phase 1B validation |
 | `scripts/validation/phase1b-postgres-owner-recovery.cjs` | One-purpose cleanup utility that transfers bootstrap-created PostgreSQL object ownership to the permanent Entra administrator before deleting a temporary bootstrap principal |
-| `scripts/deployment/set-consult-template.ps1` | Fail-closed zero-traffic deployment helper requiring an immutable image SHA and explicit feature flags; it sets the complete Target A model/readiness contract when provided and removes all model variables for Target B, refuses single-revision mode, and verifies the new revision receives no traffic |
+| `scripts/deployment/set-consult-template.ps1` | Fail-closed zero-traffic helper requiring an immutable image, explicit Search index and Phase 1B/hybrid flags; it sets or removes complete model/embedding/semantic/readiness contracts, refuses v1 hybrid targeting and single-revision mode, and verifies zero traffic |
 | `Dockerfile.validation` | Reproducible, non-root maintenance image used only under a temporary ACR tag for private-environment bootstrap and validation |
 | `.github/workflows/phase1a-consult-build.yml` | Branch-scoped OIDC application build; an explicit `[validation-image]` commit marker additionally publishes the temporary maintenance tag without deploying it |
 | `database/migrations/001_phase1b_consult.sql` | Backward-compatible Phase 1B schema with database-enforced same-owner folder, conversation, and attachment relationships; applied and validated in DEV |
@@ -336,6 +348,7 @@ mechanism, not authorization to ingest.
 | Path | Responsibility |
 | --- | --- |
 | `docs/phase1b-consult-design.md` | This authoritative living reference |
+| `docs/hybrid-retrieval-prompt.md` | Owner-approved focused build specification retained for traceability; this living reference remains authoritative for current state |
 | `docs/phase1a-tuesday-runtime-exception.md` | Focused historical/root-runtime exception and mandatory exit gate |
 | `README.md` | Original product/frontend README; currently tracked for accuracy update |
 
@@ -522,11 +535,54 @@ deployment, and traffic shift remain separate cost/approval gates.
 
 ### D-020: every Container Apps revision uses an explicit immutable template
 
-Revision creation must specify the immutable image SHA and the uploads, folders, and
-general-context feature flags together. `scripts/deployment/set-consult-template.ps1`
+Revision creation must specify the immutable image SHA, Search index, and uploads,
+folders, general-context, and hybrid feature flags together.
+`scripts/deployment/set-consult-template.ps1`
 enforces those inputs, refuses single-revision mode, and verifies that a newly created
 revision receives zero traffic. Operators must not use an image-only or flag-only
 update that silently inherits Azure's previous latest-revision template.
+
+### D-021: reconcile the pilot diagram through a versioned hybrid retrieval cutover
+
+The original Phase 1A pilot diagram is reconciled as follows. Its dashed out-of-scope
+box remains correct and authorizes no Outlook/email, planning, tender, maps/travel,
+lead-research, or automation work. The model layer has one provider only: the existing
+GA GPT-5.5 Azure OpenAI deployment; the diagram's Claude branch is removed and no
+Anthropic integration is permitted. The diagram's vector/hybrid/semantic Search layer
+is the intended state, while live `consult-demo-v1` is lexical-only; that mismatch is a
+retrieval defect to close, not behavior to preserve. The diagram's `8-15 documents`
+label is also stale: the controlled corpus contains sixteen documents. No standing
+ingestion worker or embedding deployment exists, Actions are not live, and MFA cannot
+be inferred from Container App authentication settings alone.
+
+The selected implementation is `text-embedding-3-small` at 1,536 dimensions, subject
+to live EU Data Zone Standard availability and a separate cost approval. Read-only
+inventory on 28 August 2026 found that North Europe offers this model only as
+`GlobalStandard`, while France Central and Sweden Central list `DataZoneStandard`.
+Therefore the existing North Europe Foundry account cannot host the approved embedding
+deployment type. The compliant proposal is a separate EU account in one of those two
+regions, public access disabled, reached through a new private endpoint in the existing
+DEV network; usable subscription quota must be reconfirmed immediately before creation.
+Controlled
+chunks and questions use the same managed-identity embedding deployment. BM25 and
+cosine HNSW execute as one hybrid query; `permission_scope` is applied through Search
+`preFilter` before vector traversal/fusion. Semantic reranking is selected for the
+primary relevance gate because Microsoft documents hybrid RRF score ranges as volatile.
+Candidate semantic `2.0` and RRF `0.015` cutoffs live in the committed fixture and pure
+policy; they are not approved for traffic until tuned against private v2 evaluation.
+Missing scores and below-threshold results are discarded before citations are built, so
+vector nearest-neighbour behavior cannot bypass D-004.
+
+`consult-demo-v1` is immutable rollback. A separately created `consult-demo-v2` adds
+the vector field, cosine HNSW profile, semantic configuration, and table metadata.
+Re-ingestion must preserve declared tables as atomic Markdown or key/value chunks,
+compute every vector before index creation, and prove source/chunk/title/page parity
+against v1 and again against v2. Mutating v1 in place is rejected because it removes the
+instant rollback boundary and vector field changes are unsafe to assume in-place.
+Embeddings alone are rejected because exact numeric, unit, and standards references
+need BM25. Claude as a second provider is rejected as outside the corrected diagram and
+single-provider decision. No Azure index, deployment, ingestion, or cutover occurs
+without D-011 approval.
 
 ## Current status
 
@@ -536,8 +592,9 @@ update that silently inherits Azure's previous latest-revision template.
   ingress port 8080. It uses immutable image
   `helmonic-consult:78f31b938591daefae58c42de0f2d8fcb478c334`, runs as UID 1000,
   and keeps minimum replicas at zero.
-- Azure Portal independently reconfirmed the persisted traffic weights on 26 August
-  2026: `--p1b69b6b7a` 100%, `--ca72a0c` 0%, and `--0000001` 0%.
+- A read-only Azure check on 28 August 2026 reconfirmed `--p1bgpt55fin` at 100%; all
+  retained rollback revisions remain at 0% and the live revision is Healthy/scales to
+  zero while idle.
 - The prior hardened revision `--p1b69b6b7a` remains active at 0% as the immediate
   Target B rollback. The older root/port-80 revision and placeholder remain available;
   a rollback to `--ca72a0c` must restore ingress port 80 as well as its traffic weight.
@@ -550,11 +607,12 @@ update that silently inherits Azure's previous latest-revision template.
 - Sixteen controlled iAcoustics PDFs have been ingested.
 - Blob originals and page-preserving Search chunks exist.
 - `consult-demo-v1` retrieval works and returns document/page citations.
-- The five-case private retrieval suite passes against live Azure Search: four
+- The original five-case lexical suite passes against live Azure Search: four
   known-evidence questions return only the expected Harold's Cross, Premier Inn, and
   Wetherspoon's Camden Street evidence, while the France question correctly returns no
   permitted evidence. The Wetherspoon case specifically confirms the former unrelated
-  Premier Inn relevance leak is closed.
+  Premier Inn relevance leak is closed for those named-project cases. It does not prove
+  paraphrase recall or vector-safe no-evidence behavior; D-021 owns that remaining gap.
 - The Sources panel displays retrieved passages.
 - The no-evidence response is implemented.
 - Generated-answer Target A is live through the provider-neutral Model Gateway using
@@ -625,6 +683,11 @@ update that silently inherits Azure's previous latest-revision template.
   DEV. The session-upload worker, Azure Speech resource, sidebar activation, upload
   activation, and general-context activation remain unimplemented or disabled; the
   separately approved Target A model path is the only newly activated Phase 1B feature.
+- The D-021 hybrid retrieval implementation is local and disabled. It adds the v2 schema,
+  managed-identity query and ingestion embedding paths, permission pre-filtered hybrid
+  queries, threshold filtering before citations, atomic-table manifest controls, v1/v2
+  parity checks, and an eight-case fixture with isolated policy tests. No embedding
+  deployment, `consult-demo-v2` index, re-ingestion, revision, or traffic change exists.
 
 ### Pending/blocking
 
@@ -654,6 +717,10 @@ update that silently inherits Azure's previous latest-revision template.
   remains pending a separate cost estimate and approval.
 - Azure Speech has not been provisioned.
 - No live-web/general-context connector has been approved.
+- Hybrid retrieval is blocked at the D-011 cost gate. Read-only inventory confirms the
+  deployment type in France Central and Sweden Central, but not in North Europe. A new
+  EU account/private endpoint, its recurring baseline, embedding usage, private
+  re-index/evaluation, and eventual traffic change remain separate approval gates.
 
 ### Tracked technical debt and risks
 
@@ -662,9 +729,9 @@ update that silently inherits Azure's previous latest-revision template.
 - The application copy now uses one centralized sixteen-document corpus constant. It
   will need to move to server-provided corpus metadata when arbitrary controlled-source
   administration is introduced.
-- A five-case retrieval evaluation set now guards known-project relevance and
-  no-evidence behavior. The runtime uses `searchMode: all` across title, section, and
-  content so a missing project term cannot match only generic question words. The
+- The original five-case retrieval set guards named-project relevance and basic
+  no-evidence behavior. The live runtime uses `searchMode: all` across title, section,
+  and content so a missing project term cannot match only generic question words. The
   26 August live evaluation found a blocking serialization defect before rollout: the
   Search REST API expects `searchFields` as one comma-separated primitive string. The
   first 27 August private rerun proved that serialization was fixed but returned zero
@@ -673,8 +740,12 @@ update that silently inherits Azure's previous latest-revision template.
   runtime now normalizes questions to their content-bearing terms while preserving the
   permission filter and `all`-term precision. Validation image `9117dfa` passed the
   corrected five-case private suite on 27 August: four expected-evidence cases returned
-  their correct projects and the no-evidence case behaved as expected. The live
-  relevance gap is closed; no Phase 1B traffic promotion was part of that validation.
+  their correct projects and the no-evidence case behaved as expected. That lexical
+  regression is closed, but paraphrased technical questions remain a tracked live gap.
+  D-021 replaces the fixture locally with eight reviewable paraphrase, regression,
+  numeric-table, out-of-scope, and permission cases plus explicit score cutoffs. The
+  broader gap moves to Resolved only after private v2 tuning, parity, generated-answer
+  validation, and approved cutover pass; no traffic promotion is implied by source code.
 - Azure's stored next-revision template now explicitly references immutable image
   `69b6b7af9283657c9f509385fcb2050ab01c65c4` with uploads, folders, and general context
   disabled. Validation revision `--p1btmpl69b6` was Healthy at 0% and then deactivated;
@@ -710,6 +781,18 @@ minimum scale, or live traffic. After PAYG, the existing DEV baseline was estima
 approximately USD 130-145 per month before model usage. Phase 1B incremental estimates
 and approval gates are recorded later in this document.
 
+The D-021 hybrid retrieval source implementation, fixture inspection, and local tests
+cost USD 0 and changed no Azure state. Read-only inventory found no North Europe
+`DataZoneStandard` deployment for the selected embedding model; France Central and
+Sweden Central list it. The proposed private EU embedding account/endpoint, embedding
+deployment, semantic-ranker usage, `consult-demo-v2` creation, private re-ingestion,
+evaluation calls, runtime revision, and cutover remain unapproved. The cost gate is:
+approximately USD 7.30/month for one additional private endpoint (plus negligible data
+processing), USD 0 standing model/account charge, no new fixed Search charge on the
+existing service, and a conservative USD 0.30 ceiling for the initial embedding,
+re-index, Search, storage, and short-lived job validation. Generated-answer evaluation
+and traffic movement are later, separately estimated gates.
+
 ## Implementation and operations chronology
 
 | Date | Evidence/change | Result |
@@ -739,6 +822,7 @@ and approval gates are recorded later in this document.
 | 2026-08-27 | Target A Model Gateway implementation | Wired document generation through the provider-neutral gateway; added managed-identity GPT-5.5 request settings (`high`, 2,000-token hard ceiling), fail-closed document-marker validation, token/citation telemetry without document content, and a live-capable five-case generated-answer evaluator. Offline generated/retrieval suites, generated route types, TypeScript, and lint passed. No Azure resource, revision, model, or traffic changed in this code step |
 | 2026-08-27 | Approved GPT-5.5 private foundation | Deployed GA `gpt-5.5` version `2026-04-24` as `DataZoneStandard` in North Europe with a 10 kTPM rate limit; created approved private endpoint `pe-ai-helmonic-dev-001`, private DNS zone/VNet link, and the account-scoped `Cognitive Services OpenAI User` role for the Container App system identity. Foundry public access stayed disabled and live Container App traffic stayed 100% on `--p1b69b6b7a`. No model request or application revision was made in this foundation step |
 | 2026-08-27 | Target A private validation and live cutover | Deployed immutable image `78f31b9...` at zero traffic, proved non-root UID 1000 plus `/healthz` and `/readyz`, and validated one grounded known-evidence response plus a no-evidence response. The private five-case generated-answer suite then passed: all four evidence cases used valid document/page citations, including the Wetherspoon relevance guard, and the France case returned no answer or citations. Created final min-zero revision `--p1bgpt55fin`, shifted it to 100%, retained `--p1b69b6b7a` at 0% for rollback, and deactivated both temporary GPT validation revisions. Five paid model calls were made; the enforced per-call ceiling bounds validation model usage below $0.3575 and therefore below the approved $0.80 ceiling |
+| 2026-08-28 | Pilot-diagram reconciliation and local hybrid retrieval slice | Confirmed the out-of-scope box unchanged, GPT-5.5 as the sole provider, and lexical-only v1 as the gap to fix. Added disabled local contracts for `text-embedding-3-small`, versioned `consult-demo-v2`, managed-identity chunk/query embeddings, atomic table manifests, v1/v2 parity, pre-filtered BM25+HNSW retrieval, semantic/RRF cutoffs before citation creation, and eight-case evaluation plus unit tests. Offline fixtures, threshold tests, generated-answer policy, lint, and TypeScript pass. No Azure resource, index, ingestion, deployment, or traffic changed; D-011 cost approval remains the next gate |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
@@ -830,11 +914,14 @@ Azure Container App: Helmonic UI + API
         +--> Container Apps ingestion job
         |      validate, extract by page, chunk, index, clean up
         |
-        +--> Azure AI Search
-        |      controlled index, session index, curated-general index
+        +--> Azure OpenAI embeddings (pending D-011 approval)
+        |      identical managed-identity chunk/query vectors
         |
-        +--> EU model deployment (pending quota/approval)
-        |      document-grounded answer and general-context answer
+        +--> Azure AI Search
+        |      versioned controlled hybrid index, session index, curated-general index
+        |
+        +--> GPT-5.5 Data Zone Standard (live, sole provider)
+        |      document-grounded answer; general context remains disabled
         |
         +--> Azure Speech (pending resource/cost approval)
                short speech-to-text transcription
@@ -895,7 +982,8 @@ boundary prevents generated artifacts from being mixed with evidence sources.
 
 Phase 1B uses separate indexes on the existing Azure AI Search service:
 
-- `consult-demo-v1`: existing controlled organizational documents.
+- `consult-demo-v1`: live lexical controlled documents and immutable rollback target.
+- `consult-demo-v2`: proposed versioned controlled hybrid index; not yet created.
 - `consult-session-v1`: temporary, conversation-scoped attachments.
 - `consult-general-v1`: curated authoritative public references.
 
@@ -927,9 +1015,13 @@ effective owner identity.
 
 ### 6.2 Controlled-index fields
 
-The existing controlled index retains its permission-scope filtering. Phase 1B adds
-document/version status where required so incomplete or superseded chunks cannot be
-returned.
+The existing v1 index retains its permission-scope filtering and remains untouched.
+The proposed v2 index retains every v1 citation/permission field and adds
+`chunk_kind`, `content_format`, and a non-retrievable 1,536-dimension
+`content_vector`. Its cosine HNSW profile supports nearest-neighbour retrieval and its
+`consult-semantic-v2` configuration prioritizes title, content, and section. Hybrid
+requests apply `permission_scope` with `vectorFilterMode: preFilter`, so unauthorized
+chunks are excluded during vector traversal rather than removed after ranking.
 
 ### 6.3 Curated-general fields
 
@@ -993,6 +1085,13 @@ The worker extracts text page-by-page. Chunks never cross a page boundary in the
 initial implementation, ensuring every chunk has an unambiguous page number. Headers,
 footers, and empty pages are handled deterministically. The original PDF remains the
 source of truth.
+
+Extraction v2 also requires every table-bearing page to be declared in the approved
+manifest. Frequency, octave-band, compliance, and similar tables are represented as one
+atomic Markdown table or explicit key/value chunk on a single page. The ingestion path
+rejects an undeclared format, split/non-atomic table, missing table-page chunk, or
+unstructured table content. This is validated before vectors or v2 index state can be
+treated as ready.
 
 ### 7.4 Duplicate handling
 
@@ -1174,6 +1273,21 @@ The document-evidence retrieval step searches:
 The server combines and reranks results while retaining their source classification.
 The model is never allowed to create source metadata or citation identifiers.
 
+For controlled v2 evidence, the server embeds the question with the same approved
+deployment and dimensions used for every chunk, then sends BM25 text and cosine HNSW
+vector components in one Azure AI Search request. Search fuses the result sets through
+RRF and the selected semantic configuration reranks them. BM25 is retained deliberately
+for exact frequencies, dB values, standards, codes, and other technical tokens that
+dense embeddings can blur.
+
+Nearest-neighbour search always returns candidates, so result existence is not evidence.
+Before creating `D` citations, the server discards documents without the configured
+score and those below the reviewable cutoff. The semantic candidate is `2.0` on the
+documented 0-4 reranker scale. RRF `0.015` exists only as a configurable fallback and is
+not approved for cutover because hybrid RRF ranges are volatile. Both candidates are
+owned by the committed fixture and require private v2 tuning. If every candidate is
+discarded, the existing no-evidence path runs and GPT-5.5 is not called.
+
 Citation markers:
 
 - `[D1]`, `[D2]`: controlled documents.
@@ -1188,6 +1302,7 @@ The Sources panel groups these classifications visibly. Attachments are labelled
 - Citation markers are validated against the server-provided citation set.
 - Unsupported markers are rejected rather than silently retained.
 - If evidence is absent, Helmonic says it has insufficient permitted evidence.
+- Hybrid nearest neighbours below the approved relevance cutoff count as absent.
 - If sources conflict, Helmonic identifies the conflicting sources and does not choose
   one without a stated basis.
 - General-context material cannot be used to fill a gap in the document-grounded
@@ -1426,6 +1541,15 @@ event structure must support them.
 - Unsupported citation markers fail validation.
 - Insufficient and conflicting evidence produce explicit states.
 - Retrieval-only mode remains usable if no model is configured.
+- Naturally phrased Harold's Cross and Premier Inn questions retrieve the correct
+  controlled evidence under v2.
+- Wetherspoon questions do not return Premier Inn passages.
+- The Wetherspoon 500 Hz bedroom-window lookup retains the atomic table content and
+  supports a correctly cited `54 dB` answer.
+- Subjective sound, population, and recipe questions remain no-evidence after vector
+  candidates are thresholded.
+- An in-corpus question under an unauthorized permission scope returns no results, and
+  the request contract proves `preFilter` is applied before vector scoring.
 
 ### 17.4 Speech
 
@@ -1448,16 +1572,23 @@ event structure must support them.
 ## 18. Deployment strategy
 
 1. Complete local code, unit/integration tests, and documentation.
-2. Build a non-root image through the existing GitHub/ACR path.
-3. Apply backward-compatible database migrations through the controlled migration
+2. Reconfirm usable quota in France Central or Sweden Central and approve the new EU
+   account/private endpoint, embedding, Search/semantic, and private validation costs
+   before creating anything. North Europe must not be used because its live inventory
+   does not offer the selected model as `DataZoneStandard`.
+3. Deploy the embedding model and build a non-root image through the existing paths.
+4. Validate the full extraction-v2 payload, embed every chunk, prove v1 parity, create
+   `consult-demo-v2`, upload, and prove v2 parity without changing v1.
+5. Apply backward-compatible database migrations through the controlled migration
    workflow.
-4. Provision/configure the ingestion job and its identity only after cost approval.
-5. Deploy a new Container Apps revision at zero traffic.
-6. Validate `/healthz`, `/readyz`, authentication, network restrictions, persistence,
-   upload, ingestion, retrieval, and citation separation.
-7. Keep the current revision available for rollback.
-8. Move traffic only after a separate costed approval.
-9. Rehearse the full authenticated flow repeatedly.
+6. Provision/configure the ingestion job and its identity only after cost approval.
+7. Deploy a new revision at zero traffic with `consult-demo-v2`, hybrid/semantic flags,
+   embedding configuration, and explicit immutable image.
+8. Validate `/healthz`, `/readyz`, authentication, network restrictions, parity, the
+   eight retrieval cases, generated answers, citations, and no-evidence behavior.
+9. Keep v1 and the current revision available for rollback.
+10. Move traffic only after a separate costed approval.
+11. Rehearse the full authenticated flow repeatedly.
 
 Database changes must be backward compatible with the rollback revision. Destructive
 migrations are deferred until all older revisions are retired.
@@ -1475,7 +1606,11 @@ estimated at approximately USD 130-145 per month after conversion to PAYG.
 | PostgreSQL schema and persistence | None on existing server | USD 0.05 | Migration and Azure validation |
 | Additional Blob containers | None | Less than USD 0.01 at initial scale | Container creation and validation |
 | Additional Search indexes | None on existing Search service | Included with ingestion ceiling | Index creation and ingestion |
-| Initial 10-20 text-PDF ingestion validation | None fixed | USD 0.25 | Job execution, storage, Search transactions |
+| Separate EU Foundry account for embeddings | No standing account charge | USD 0 before inference | Create only in a region with live `DataZoneStandard` inventory and reconfirmed quota |
+| Embedding-account private endpoint | Approximately USD 7.30/month plus negligible data processing; existing private DNS zone can be reused | Included in the USD 0.30 hybrid validation ceiling | New recurring resource requires explicit approval |
+| `text-embedding-3-small` Data Zone Standard | Usage based; no standing model charge | USD 0.05 conservative initial embedding ceiling | Deployment, chunk/query embedding calls, and quota allocation |
+| Semantic ranker for hybrid cutoff | No new fixed charge on existing Search Basic; its current free semantic plan includes the first 1,000 requests/month | Included in the USD 0.30 hybrid validation ceiling | v2 semantic configuration, evaluation, and live queries |
+| Initial 16-PDF hybrid ingestion validation | None fixed | USD 0.25 | Job execution, storage, Search transactions |
 | Container Apps ingestion job | No minimum while idle on consumption | Included above initially | New resource/configuration and executions |
 | Azure Speech S0 usage | Usage based | Approximately EUR 0.88/audio hour | Provision only after separate resource/cost approval |
 | Speech private endpoint | Approximately EUR/USD 7-8 monthly | Under EUR/USD 0.10 demo usage | Separate recurring-cost approval |

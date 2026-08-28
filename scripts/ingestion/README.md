@@ -26,3 +26,27 @@ exist; it does not overwrite or delete an existing index definition.
 
 The one-document example payload is for shape validation only. Never point that example
 at the live index.
+
+## Versioned hybrid re-index path
+
+The hybrid path is opt-in and must target `consult-demo-v2`; `consult-demo-v1` remains
+untouched as the rollback index. Set all of the following only in an approved private
+ingestion job:
+
+- `HELMONIC_HYBRID_INGESTION_ENABLED=true`;
+- `AZURE_SEARCH_INDEX=consult-demo-v2`;
+- `AZURE_SEARCH_ROLLBACK_INDEX=consult-demo-v1`;
+- `HELMONIC_INDEX_SCHEMA=scripts/ingestion/index-schema-v2.json`;
+- the approved managed-identity embedding endpoint, deployment, API version, and
+  1,536 dimensions.
+
+The v2 path fails before index creation unless the approved payload declares extraction
+version 2 and the `atomic-markdown-or-key-value` table strategy. Every document declares
+its `tablePageNumbers`; each listed page must contain an atomic `table` chunk represented
+as Markdown or explicit key/value content. This makes table preservation an auditable
+manifest contract instead of silently flattening frequency or compliance tables.
+
+Before creating v2, the script embeds every chunk and rejects any missing, malformed, or
+wrong-dimension vector. It then compares the approved manifest with the live v1 chunk,
+source, title, and page metadata. After upload it repeats that parity check against v2.
+The target is not ready for evaluation or cutover unless both checks pass.

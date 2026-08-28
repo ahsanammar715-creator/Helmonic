@@ -16,6 +16,14 @@ param(
   [ValidateSet("true", "false")]
   [string] $GeneralContextEnabled,
 
+  [Parameter(Mandatory)]
+  [ValidateSet("true", "false")]
+  [string] $HybridRetrievalEnabled,
+
+  [Parameter(Mandatory)]
+  [ValidatePattern("^[a-z0-9][a-z0-9-]{0,127}$")]
+  [string] $SearchIndex,
+
   [string] $ModelEndpoint,
   [string] $ModelDeployment,
 
@@ -31,6 +39,26 @@ param(
   [ValidateRange(1000, 300000)]
   [int] $ModelTimeoutMilliseconds = 120000,
 
+  [string] $EmbeddingEndpoint,
+  [string] $EmbeddingDeployment,
+
+  [ValidatePattern("^[0-9]{4}-[0-9]{2}-[0-9]{2}(-preview)?$")]
+  [string] $EmbeddingApiVersion = "2024-10-21",
+
+  [ValidateRange(1, 4096)]
+  [int] $EmbeddingDimensions = 1536,
+
+  [ValidateRange(1, 1000)]
+  [int] $VectorK = 50,
+
+  [string] $SemanticConfiguration = "consult-semantic-v2",
+
+  [ValidateRange(0.01, 4.0)]
+  [double] $MinimumSemanticScore = 2.0,
+
+  [ValidateRange(0.0001, 1.0)]
+  [double] $MinimumRrfScore = 0.015,
+
   [ValidatePattern("^[a-z0-9][a-z0-9-]{0,62}$")]
   [string] $RevisionSuffix,
 
@@ -42,11 +70,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 $modelConfigured = [bool]$ModelEndpoint -and [bool]$ModelDeployment
+$hybridConfigured = $HybridRetrievalEnabled -eq "true"
 if ([bool]$ModelEndpoint -ne [bool]$ModelDeployment) {
   throw "ModelEndpoint and ModelDeployment must be supplied together"
 }
 if ($ModelEndpoint -and $ModelEndpoint -notmatch '^https://[^/]+$') {
   throw "ModelEndpoint must be an HTTPS origin without a path or trailing slash"
+}
+if ($hybridConfigured) {
+  if (-not $EmbeddingEndpoint -or -not $EmbeddingDeployment) {
+    throw "EmbeddingEndpoint and EmbeddingDeployment are required for hybrid retrieval"
+  }
+  if ($EmbeddingEndpoint -notmatch '^https://[^/]+$') {
+    throw "EmbeddingEndpoint must be an HTTPS origin without a path or trailing slash"
+  }
+  if ($SearchIndex -eq "consult-demo-v1") {
+    throw "Hybrid retrieval must use a versioned index and cannot target consult-demo-v1"
+  }
 }
 $image = "$RegistryLoginServer/helmonic-consult:$ImageTag"
 if (-not $RevisionSuffix) {
@@ -57,8 +97,11 @@ $featureFlags = @(
   "HELMONIC_PHASE1B_UPLOADS_ENABLED=$UploadsEnabled",
   "HELMONIC_PHASE1B_FOLDERS_ENABLED=$FoldersEnabled",
   "HELMONIC_GENERAL_CONTEXT_ENABLED=$GeneralContextEnabled",
+  "AZURE_SEARCH_INDEX=$SearchIndex",
+  "HELMONIC_HYBRID_RETRIEVAL_ENABLED=$HybridRetrievalEnabled",
+  "HELMONIC_SEARCH_SEMANTIC_ENABLED=$(if ($hybridConfigured) { 'true' } else { 'false' })",
   "HELMONIC_ALLOW_RETRIEVAL_ONLY=$(if ($modelConfigured) { 'false' } else { 'true' })",
-  "HELMONIC_READINESS_CHECKS=$(if ($modelConfigured) { 'search,postgres,blob,keyvault,model' } else { 'search,postgres,blob,keyvault' })"
+  "HELMONIC_READINESS_CHECKS=$(if ($hybridConfigured -and $modelConfigured) { 'search,postgres,blob,keyvault,model,embedding' } elseif ($hybridConfigured) { 'search,postgres,blob,keyvault,embedding' } elseif ($modelConfigured) { 'search,postgres,blob,keyvault,model' } else { 'search,postgres,blob,keyvault' })"
 )
 $modelEnvironmentNames = @(
   "AZURE_OPENAI_ENDPOINT",
@@ -68,6 +111,16 @@ $modelEnvironmentNames = @(
   "AZURE_OPENAI_MAX_COMPLETION_TOKENS",
   "AZURE_OPENAI_TIMEOUT_MS"
 )
+$hybridEnvironmentNames = @(
+  "AZURE_OPENAI_EMBEDDING_ENDPOINT",
+  "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
+  "AZURE_OPENAI_EMBEDDING_API_VERSION",
+  "AZURE_OPENAI_EMBEDDING_DIMENSIONS",
+  "HELMONIC_SEARCH_VECTOR_K",
+  "AZURE_SEARCH_SEMANTIC_CONFIGURATION",
+  "HELMONIC_SEARCH_MIN_SEMANTIC_SCORE",
+  "HELMONIC_SEARCH_MIN_RRF_SCORE"
+)
 if ($modelConfigured) {
   $featureFlags += @(
     "AZURE_OPENAI_ENDPOINT=$ModelEndpoint",
@@ -76,6 +129,18 @@ if ($modelConfigured) {
     "AZURE_OPENAI_REASONING_EFFORT=$ModelReasoningEffort",
     "AZURE_OPENAI_MAX_COMPLETION_TOKENS=$ModelMaximumCompletionTokens",
     "AZURE_OPENAI_TIMEOUT_MS=$ModelTimeoutMilliseconds"
+  )
+}
+if ($hybridConfigured) {
+  $featureFlags += @(
+    "AZURE_OPENAI_EMBEDDING_ENDPOINT=$EmbeddingEndpoint",
+    "AZURE_OPENAI_EMBEDDING_DEPLOYMENT=$EmbeddingDeployment",
+    "AZURE_OPENAI_EMBEDDING_API_VERSION=$EmbeddingApiVersion",
+    "AZURE_OPENAI_EMBEDDING_DIMENSIONS=$EmbeddingDimensions",
+    "HELMONIC_SEARCH_VECTOR_K=$VectorK",
+    "AZURE_SEARCH_SEMANTIC_CONFIGURATION=$SemanticConfiguration",
+    "HELMONIC_SEARCH_MIN_SEMANTIC_SCORE=$MinimumSemanticScore",
+    "HELMONIC_SEARCH_MIN_RRF_SCORE=$MinimumRrfScore"
   )
 }
 
@@ -117,8 +182,15 @@ if ($PSCmdlet.ShouldProcess(
     "--revision-suffix", $RevisionSuffix,
     "--set-env-vars"
   ) + $featureFlags
+  $removeEnvironmentNames = @()
   if (-not $modelConfigured) {
-    $updateArguments += @("--remove-env-vars") + $modelEnvironmentNames
+    $removeEnvironmentNames += $modelEnvironmentNames
+  }
+  if (-not $hybridConfigured) {
+    $removeEnvironmentNames += $hybridEnvironmentNames
+  }
+  if ($removeEnvironmentNames.Count -gt 0) {
+    $updateArguments += @("--remove-env-vars") + $removeEnvironmentNames
   }
   $updateArguments += @("--output", "none")
   & $AzureCli @updateArguments
@@ -168,6 +240,11 @@ if ($PSCmdlet.ShouldProcess(
     uploadsEnabled = $actualEnvironment.HELMONIC_PHASE1B_UPLOADS_ENABLED
     foldersEnabled = $actualEnvironment.HELMONIC_PHASE1B_FOLDERS_ENABLED
     generalContextEnabled = $actualEnvironment.HELMONIC_GENERAL_CONTEXT_ENABLED
+    hybridRetrievalEnabled = $actualEnvironment.HELMONIC_HYBRID_RETRIEVAL_ENABLED
+    searchIndex = $actualEnvironment.AZURE_SEARCH_INDEX
+    embeddingDeployment = $actualEnvironment.AZURE_OPENAI_EMBEDDING_DEPLOYMENT
+    semanticConfiguration = $actualEnvironment.AZURE_SEARCH_SEMANTIC_CONFIGURATION
+    minimumSemanticScore = $actualEnvironment.HELMONIC_SEARCH_MIN_SEMANTIC_SCORE
     modelDeployment = $actualEnvironment.AZURE_OPENAI_DEPLOYMENT
     modelReasoningEffort = $actualEnvironment.AZURE_OPENAI_REASONING_EFFORT
     modelMaximumCompletionTokens = $actualEnvironment.AZURE_OPENAI_MAX_COMPLETION_TOKENS

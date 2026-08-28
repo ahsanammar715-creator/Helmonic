@@ -21,6 +21,17 @@ const schemaPath = process.env.HELMONIC_INDEX_SCHEMA || join(
   "ingestion",
   "index-schema.json",
 );
+const hybridIngestionEnabled = process.env.HELMONIC_HYBRID_INGESTION_ENABLED === "true";
+const rollbackIndex = process.env.AZURE_SEARCH_ROLLBACK_INDEX || "consult-demo-v1";
+const embeddingEndpoint = (
+  process.env.AZURE_OPENAI_EMBEDDING_ENDPOINT ||
+  process.env.AZURE_OPENAI_ENDPOINT ||
+  ""
+).replace(/\/+$/, "");
+const embeddingDeployment = process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT || "";
+const embeddingApiVersion = process.env.AZURE_OPENAI_EMBEDDING_API_VERSION || "2024-10-21";
+const embeddingDimensions = positiveInteger("AZURE_OPENAI_EMBEDDING_DIMENSIONS", 1536);
+const embeddingBatchSize = positiveInteger("HELMONIC_EMBEDDING_BATCH_SIZE", 16);
 
 const credential = new DefaultAzureCredential();
 
@@ -109,13 +120,19 @@ async function ensureSearchIndex(accessToken) {
     },
   );
 
-  if (existing.ok) return;
+  if (existing.ok) {
+    if (hybridIngestionEnabled) {
+      validateHybridIndexSchema(await existing.json());
+    }
+    return;
+  }
   if (existing.status !== 404) {
     throw new Error(`Search index lookup failed with status ${existing.status}`);
   }
 
   const schema = JSON.parse(await readFile(schemaPath, "utf8"));
   schema.name = searchIndex;
+  if (hybridIngestionEnabled) validateHybridIndexSchema(schema);
   const created = await fetch(`${searchEndpoint}/indexes?api-version=${searchApiVersion}`, {
     method: "POST",
     headers: {
@@ -129,6 +146,193 @@ async function ensureSearchIndex(accessToken) {
 
   if (!created.ok) {
     throw new Error(`Search index creation failed with status ${created.status}`);
+  }
+}
+
+function validateHybridIndexSchema(schema) {
+  const vectorField = schema.fields?.find((field) => field.name === "content_vector");
+  if (
+    !vectorField ||
+    vectorField.type !== "Collection(Edm.Single)" ||
+    vectorField.dimensions !== embeddingDimensions ||
+    !vectorField.vectorSearchProfile
+  ) {
+    throw new Error(
+      `Hybrid index must define a ${embeddingDimensions}-dimension content_vector field`,
+    );
+  }
+  const algorithms = schema.vectorSearch?.algorithms || [];
+  if (!algorithms.some((algorithm) => algorithm.kind === "hnsw")) {
+    throw new Error("Hybrid index must define an HNSW vector algorithm");
+  }
+}
+
+async function createEmbeddings(accessToken, inputs) {
+  const response = await fetch(
+    `${embeddingEndpoint}/openai/deployments/${encodeURIComponent(
+      embeddingDeployment,
+    )}/embeddings?api-version=${encodeURIComponent(embeddingApiVersion)}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "x-ms-client-request-id": crypto.randomUUID(),
+      },
+      body: JSON.stringify({ input: inputs, dimensions: embeddingDimensions }),
+      signal: AbortSignal.timeout(60_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Embedding batch failed with status ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const ordered = [...(payload.data || [])].sort((left, right) => left.index - right.index);
+  if (
+    ordered.length !== inputs.length ||
+    ordered.some(
+      (item) =>
+        !Array.isArray(item.embedding) ||
+        item.embedding.length !== embeddingDimensions ||
+        item.embedding.some((value) => !Number.isFinite(value)),
+    )
+  ) {
+    throw new Error("Embedding response did not contain one valid vector per chunk");
+  }
+  return ordered.map((item) => item.embedding);
+}
+
+async function embedEveryChunk(accessToken, chunks) {
+  const vectors = new Map();
+  for (let offset = 0; offset < chunks.length; offset += embeddingBatchSize) {
+    const batch = chunks.slice(offset, offset + embeddingBatchSize);
+    const embeddings = await createEmbeddings(
+      accessToken,
+      batch.map((chunk) => chunk.content),
+    );
+    for (let index = 0; index < batch.length; index += 1) {
+      vectors.set(batch[index].chunkId, embeddings[index]);
+    }
+  }
+  if (vectors.size !== chunks.length) {
+    throw new Error("Hybrid index is not ready: at least one chunk has no embedding");
+  }
+  return vectors;
+}
+
+async function loadIndexManifest(accessToken, indexName) {
+  const documents = [];
+  for (let skip = 0; ; skip += 1000) {
+    const response = await fetch(
+      `${searchEndpoint}/indexes/${encodeURIComponent(
+        indexName,
+      )}/docs/search?api-version=${searchApiVersion}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "x-ms-client-request-id": crypto.randomUUID(),
+        },
+        body: JSON.stringify({
+          search: "*",
+          top: 1000,
+          skip,
+          select: "chunk_id,source_id,title,page_number",
+        }),
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Index parity read for ${indexName} failed with ${response.status}`);
+    }
+    const page = await response.json();
+    const values = Array.isArray(page.value) ? page.value : [];
+    documents.push(...values);
+    if (values.length < 1000) break;
+  }
+  return documents;
+}
+
+function assertManifestParity(expected, actual, label) {
+  const normalized = (items) =>
+    new Map(
+      items.map((item) => [
+        item.chunk_id,
+        JSON.stringify({
+          source_id: item.source_id,
+          title: item.title,
+          page_number: item.page_number ?? null,
+        }),
+      ]),
+    );
+  const expectedMap = normalized(expected);
+  const actualMap = normalized(actual);
+  if (expectedMap.size !== actualMap.size) {
+    throw new Error(
+      `${label} parity failed: expected ${expectedMap.size} chunks, found ${actualMap.size}`,
+    );
+  }
+  for (const [chunkId, metadata] of expectedMap) {
+    if (actualMap.get(chunkId) !== metadata) {
+      throw new Error(`${label} parity failed for chunk ${chunkId}`);
+    }
+  }
+}
+
+function validateHybridExtraction(payload) {
+  if (
+    payload.extraction?.version !== 2 ||
+    payload.extraction?.tableStrategy !== "atomic-markdown-or-key-value"
+  ) {
+    throw new Error(
+      "Hybrid ingestion requires extraction version 2 with atomic table preservation",
+    );
+  }
+  for (const document of payload.documents) {
+    if (!Array.isArray(document.tablePageNumbers)) {
+      throw new Error(`Source ${document.sourceId} must declare tablePageNumbers`);
+    }
+    const declaredTablePages = new Set(document.tablePageNumbers);
+    for (const chunk of document.chunks) {
+      if (chunk.kind !== "text" && chunk.kind !== "table") {
+        throw new Error(`Chunk ${chunk.chunkId} must declare kind text or table`);
+      }
+      if (chunk.kind === "table") {
+        if (
+          chunk.atomic !== true ||
+          (chunk.contentFormat !== "markdown" && chunk.contentFormat !== "key_value") ||
+          !Number.isInteger(chunk.pageNumber)
+        ) {
+          throw new Error(
+            `Table chunk ${chunk.chunkId} must be atomic, page-bound, and structured`,
+          );
+        }
+        const structured =
+          chunk.contentFormat === "markdown"
+            ? /\|[^\n]+\|/.test(chunk.content) && /\|\s*:?-{3,}/.test(chunk.content)
+            : chunk.content
+                .split(/\r?\n/)
+                .filter((line) => /^[^:\n]+:\s*\S+/.test(line)).length >= 2;
+        if (!structured) {
+          throw new Error(
+            `Table chunk ${chunk.chunkId} is not valid ${chunk.contentFormat} structured content`,
+          );
+        }
+      }
+    }
+    for (const pageNumber of declaredTablePages) {
+      if (
+        !document.chunks.some(
+          (chunk) => chunk.kind === "table" && chunk.pageNumber === pageNumber,
+        )
+      ) {
+        throw new Error(
+          `Source ${document.sourceId} is missing an atomic table chunk for page ${pageNumber}`,
+        );
+      }
+    }
   }
 }
 
@@ -214,6 +418,16 @@ async function main() {
     );
   }
 
+  if (hybridIngestionEnabled) {
+    if (!embeddingEndpoint || !embeddingDeployment) {
+      throw new Error("Hybrid ingestion requires the managed-identity embedding deployment");
+    }
+    if (searchIndex === rollbackIndex) {
+      throw new Error("Hybrid ingestion must not mutate the consult-demo-v1 rollback index");
+    }
+    validateHybridExtraction(payload);
+  }
+
   const sourceIds = new Set();
   const chunkIds = new Set();
   for (const document of payload.documents) {
@@ -239,10 +453,34 @@ async function main() {
     }
   }
 
-  const [storageToken, searchToken] = await Promise.all([
+  const [storageToken, searchToken, embeddingToken] = await Promise.all([
     token("https://storage.azure.com/.default"),
     token("https://search.azure.com/.default"),
+    hybridIngestionEnabled
+      ? token("https://cognitiveservices.azure.com/.default")
+      : Promise.resolve(null),
   ]);
+
+  const payloadChunks = payload.documents.flatMap((document) =>
+    document.chunks.map((chunk) => ({ ...chunk, sourceId: document.sourceId })),
+  );
+  const expectedManifest = payload.documents.flatMap((document) =>
+    document.chunks.map((chunk) => ({
+      chunk_id: chunk.chunkId,
+      source_id: document.sourceId,
+      title: document.title,
+      page_number: chunk.pageNumber ?? null,
+    })),
+  );
+  const contentVectors = hybridIngestionEnabled
+    ? await embedEveryChunk(embeddingToken, payloadChunks)
+    : new Map();
+
+  if (hybridIngestionEnabled) {
+    const rollbackManifest = await loadIndexManifest(searchToken, rollbackIndex);
+    assertManifestParity(expectedManifest, rollbackManifest, `${rollbackIndex} source`);
+  }
+
   await Promise.all([ensureBlobContainer(storageToken), ensureSearchIndex(searchToken)]);
 
   const searchDocuments = [];
@@ -257,6 +495,13 @@ async function main() {
         section: chunk.section || "",
         page_number: chunk.pageNumber ?? null,
         content: chunk.content,
+        ...(hybridIngestionEnabled
+          ? {
+              chunk_kind: chunk.kind,
+              content_format: chunk.contentFormat,
+              content_vector: contentVectors.get(chunk.chunkId),
+            }
+          : {}),
         permission_scope: document.permissionScope,
         content_hash: chunk.contentHash,
         ingested_at: new Date().toISOString(),
@@ -270,6 +515,11 @@ async function main() {
 
   for (let offset = 0; offset < searchDocuments.length; offset += 500) {
     await uploadSearchDocuments(searchToken, searchDocuments.slice(offset, offset + 500));
+  }
+
+  if (hybridIngestionEnabled) {
+    const targetManifest = await loadIndexManifest(searchToken, searchIndex);
+    assertManifestParity(expectedManifest, targetManifest, `${searchIndex} target`);
   }
 
   const verificationQuestion =
@@ -287,6 +537,9 @@ async function main() {
       documentCount: payload.documents.length,
       expectedDocumentCount,
       chunkCount: searchDocuments.length,
+      embeddingCount: contentVectors.size,
+      embeddingDimensions: hybridIngestionEnabled ? embeddingDimensions : null,
+      rollbackIndex: hybridIngestionEnabled ? rollbackIndex : null,
       index: searchIndex,
       container: blobContainer,
       verifiedSourceId,

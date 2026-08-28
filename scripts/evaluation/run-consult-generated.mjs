@@ -7,6 +7,9 @@ const suite = JSON.parse(
   await readFile(join(scriptDirectory, "consult-retrieval.json"), "utf8"),
 );
 const live = process.argv.includes("--live");
+const generatedCases = suite.cases.filter(
+  (evaluationCase) => evaluationCase.runInGeneratedEvaluation !== false,
+);
 
 function answerMarkers(answer) {
   return Array.from(answer.matchAll(/\[([DA]\d+)\]/g), (match) => match[1]);
@@ -28,8 +31,8 @@ function validateGeneratedAnswer(answer, citations) {
 }
 
 function validateSuiteAndPolicy() {
-  if (suite.version !== 1 || !Array.isArray(suite.cases) || suite.cases.length < 5) {
-    throw new Error("Generated-answer suite must contain at least five version-1 cases");
+  if (suite.version !== 2 || generatedCases.length < 5) {
+    throw new Error("Generated-answer suite must contain at least five eligible version-2 cases");
   }
 
   const citations = [{ marker: "D1" }, { marker: "A1" }];
@@ -55,7 +58,7 @@ async function runLiveEvaluation() {
   const endpoint = required("HELMONIC_CONSULT_URL").replace(/\/+$/, "");
   const outcomes = [];
 
-  for (const evaluationCase of suite.cases) {
+  for (const evaluationCase of generatedCases) {
     const response = await fetch(`${endpoint}/api/consult/query`, {
       method: "POST",
       headers: {
@@ -99,12 +102,24 @@ async function runLiveEvaluation() {
     const expectedTitle = evaluationCase.expectedTitleIncludes.some((expected) =>
       titles.some((title) => title.toLowerCase().includes(expected.toLowerCase())),
     );
+    const forbiddenTitle = (evaluationCase.forbiddenTitleIncludes || []).some((expected) =>
+      titles.some((title) => title.toLowerCase().includes(expected.toLowerCase())),
+    );
+    const expectedAnswerContent = (evaluationCase.expectedContentIncludes || []).every(
+      (expected) =>
+        answer
+          .toLowerCase()
+          .replace(/\s+/g, "")
+          .includes(expected.toLowerCase().replace(/\s+/g, "")),
+    );
     outcomes.push({
       id: evaluationCase.id,
       passed:
         payload.mode === "generated" &&
         citations.length >= (evaluationCase.minimumCitations || 1) &&
         expectedTitle &&
+        !forbiddenTitle &&
+        expectedAnswerContent &&
         citationValidation.valid,
       mode: payload.mode,
       citationCount: citations.length,
@@ -126,6 +141,6 @@ if (live) {
   await runLiveEvaluation();
 } else {
   process.stdout.write(
-    `${JSON.stringify({ status: "validated", cases: suite.cases.length, live: false })}\n`,
+    `${JSON.stringify({ status: "validated", cases: generatedCases.length, live: false })}\n`,
   );
 }

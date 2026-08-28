@@ -88,6 +88,12 @@ async function runCheck(name: ReadinessCheckName, config: RuntimeConfig) {
       }
       await getAzureAccessToken("https://cognitiveservices.azure.com/.default");
       return { ok: true, detail: "configuration and identity token ready" };
+    case "embedding":
+      if (!config.embedding.endpoint || !config.embedding.deployment) {
+        throw new Error("Azure embedding model is not configured");
+      }
+      await getAzureAccessToken("https://cognitiveservices.azure.com/.default");
+      return { ok: true, detail: "configuration and identity token ready" };
   }
 }
 
