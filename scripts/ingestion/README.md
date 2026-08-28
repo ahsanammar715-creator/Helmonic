@@ -50,3 +50,10 @@ Before creating v2, the script embeds every chunk and rejects any missing, malfo
 wrong-dimension vector. It then compares the approved manifest with the live v1 chunk,
 source, title, and page metadata. After upload it repeats that parity check against v2.
 The target is not ready for evaluation or cutover unless both checks pass.
+
+`build-hybrid-payload.py` is the reproducible private-job payload builder used for the
+v2 validation. It reads the live v1 manifest and the existing controlled Blob originals
+with the job identity, preserves detected PDF tables as atomic Markdown, and retains the
+v1 identifiers/page metadata so the uploader can enforce parity. `Dockerfile.hybrid`
+packages that builder with the managed-identity uploader. The image and job are temporary;
+the source remains committed so a future approved re-index is reproducible.
