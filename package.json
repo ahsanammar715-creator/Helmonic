@@ -11,7 +11,7 @@
     "evaluate:retrieval": "node --experimental-strip-types scripts/evaluation/run-consult-retrieval.mjs",
     "evaluate:generated": "node scripts/evaluation/run-consult-generated.mjs",
     "test:retrieval-policy": "node --experimental-strip-types --test --test-isolation=none scripts/evaluation/relevance-policy.test.mjs scripts/evaluation/managed-identity-selection.test.mjs scripts/evaluation/index-parity.test.mjs",
-    "test:model-policy": "node --experimental-strip-types --test --test-isolation=none scripts/evaluation/model-answer-policy.test.mjs",
+    "test:model-policy": "node --experimental-strip-types --test --experimental-test-isolation=none scripts/evaluation/model-answer-policy.test.mjs",
     "verify:runtime": "node scripts/verify-runtime-hardening.mjs",
     "test:e2e": "playwright test"
   },
