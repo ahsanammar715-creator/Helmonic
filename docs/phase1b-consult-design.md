@@ -2,7 +2,7 @@
 
 Status: Authoritative living reference for the active Phase 1A/1B branch
 
-Last reviewed: 28 August 2026
+Last reviewed: 31 August 2026
 
 Repository branch: `phase1a-consult-demo`
 
@@ -712,13 +712,13 @@ without D-011 approval.
   managed-identity query and ingestion embedding paths, permission pre-filtered hybrid
   queries, threshold filtering before citations, atomic-table manifest controls, v1/v2
   parity checks, and an eight-case fixture with isolated policy tests. The approved
-  France Central embedding foundation is provisioned. The private validation job proved
-  the sixteen-document payload (414 chunks, including 87 table pages). Private networking
-  was subsequently corrected, but later attempts stopped before Search or embedding data
-  calls because the temporary ingestion UAMI was not selected reliably in a multi-UAMI
-  job. The permanent Node stages now require and explicitly use that UAMI's client ID;
-  private revalidation is still pending. No v2 index was created, and no runtime revision,
-  index cutover, or traffic change exists.
+  France Central embedding foundation is provisioned. The corrected private job selected
+  the ingestion UAMI explicitly, embedded and indexed all sixteen documents as 414 chunks
+  including 87 table pages, proved exact v1/v2 source-title-page parity, and passed all
+  eight retrieval cases. `consult-demo-v2` remains an isolated validated candidate: no
+  runtime revision, index cutover, or traffic change exists. The temporary job, ingestion
+  UAMI, five roles, ACR repository/grant, Cloud Shell source, and local credential bundle
+  were deleted after validation; the embedding deployment was restored to 1 kTPM.
 
 ### Pending/blocking
 
@@ -751,10 +751,10 @@ without D-011 approval.
 - The D-011 gate was approved for the approximately USD 7.80/month embedding private
   endpoint and a USD 0.30 private re-index/evaluation ceiling. The France Central account,
   Data Zone deployment, dedicated OpenAI private DNS zone/VNet link, and account-scoped
-  runtime role are provisioned. The temporary validation job, ingestion UAMI and all five
-  roles, repository, and short-lived user grant were removed after the failed private-link
-  request. `consult-demo-v2` validation remains isolated and incomplete; changing
-  `AZURE_SEARCH_INDEX` or live traffic still requires a new explicit approval.
+  runtime role are provisioned. `consult-demo-v2` passed exact corpus/vector parity and
+  all eight private retrieval cases. Every disposable validation resource and credential
+  was removed afterward. Changing `AZURE_SEARCH_INDEX` or live traffic still requires a
+  new explicit approval.
 
 ### Tracked technical debt and risks
 
@@ -823,14 +823,13 @@ USD 7.80/month for one additional private endpoint and its dedicated private DNS
 (plus negligible data processing),
 USD 0 standing model/account charge, no new fixed Search charge, and a USD 0.30 ceiling
 for initial embedding, re-index, Search, storage, and short-lived job validation. The
-account/deployment/private endpoint now exist. The first complete private run built the
-sixteen-document/414-chunk payload but stopped before any embedding or v2 index creation.
-Private networking was corrected; a later identity-isolation probe proved the environment's
-system-assigned identity endpoint works, and the multi-UAMI application path was corrected
-locally to select the ingestion client ID explicitly. Generated-answer evaluation, runtime
-revision,
-`AZURE_SEARCH_INDEX` cutover, and traffic movement remain later, separately estimated and
-approved gates.
+account/deployment/private endpoint now exist. After private networking and explicit
+multi-UAMI selection were corrected, the final private run embedded and indexed the full
+sixteen-document/414-chunk corpus, passed exact v1/v2 metadata parity, and passed all eight
+retrieval cases. The temporary 100 kTPM validation limit was restored to 1 kTPM and every
+disposable job, identity, role, image repository, grant, source folder, and credential was
+removed. Generated-answer evaluation against v2, a runtime revision, `AZURE_SEARCH_INDEX`
+cutover, and traffic movement remain later, separately estimated and approved gates.
 
 ## Implementation and operations chronology
 
@@ -866,6 +865,7 @@ approved gates.
 | 2026-08-28 | Hybrid private validation and complete temporary cleanup | Temporarily raised the embedding deployment from 1 to 100 kTPM, then restored it to 1 immediately after the terminal run. The private job read all sixteen controlled PDFs and built 414 chunks including 87 table pages, but Azure rejected the first embedding call with `403 Traffic is not from an approved private endpoint`; in-job DNS nevertheless resolved the approved account connection to private IP `10.36.1.11`, so v2 ingestion and the eight-case evaluation did not run. Deleted the job, UAMI, all five UAMI roles, temporary ACR repository, and both short-lived repository-scoped user grants. Verified live traffic remains 100% on `--p1bgpt55fin` and `AZURE_SEARCH_INDEX=consult-demo-v1` |
 | 2026-08-31 | Multi-UAMI diagnosis, cleanup, and local identity-selection correction | Later validation attempts returned managed-identity HTTP 400 `invalid_scope` (`No User Assigned or Delegated Managed Identity found for specified ClientId/ResourceId/PrincipalId`) before Search or embedding data calls. No active Container Apps service-health incident was found, while a same-environment throwaway job with only a system-assigned identity received HTTP 200 from the identity endpoint; this isolates the failure to the temporary UAMI path rather than the environment or private network. The standing ACR UAMI is consumed separately by the platform image-pull configuration. Because the disposable job attaches both ACR-pull and ingestion UAMIs, the Node uploader and evaluator were changed from ambiguous `DefaultAzureCredential` discovery to an explicit, fail-closed `ManagedIdentityCredential(AZURE_CLIENT_ID)` contract with regression tests and explicit container packaging. Seven policy/identity tests, the eight-case offline retrieval contract, seven-case generated-answer policy, lint, TypeScript, and runtime-hardening checks pass. Deleted and independently confirmed absent the diagnostic/validation jobs, disposable UAMI, five roles, temporary ACR repository and grant, and local payload archive. Live v1 and traffic were untouched; the corrected path remains pending a separately approved private validation run |
 | 2026-08-31 | First explicit-UAMI private hybrid run and parity timing correction | The corrected job acquired tokens with the selected ingestion UAMI, read all sixteen source documents, and built 414 chunks including 87 table pages, resolving the prior identity-endpoint blocker. Azure Search accepted the v2 upload but exposed only 348 of 414 chunks to the immediate parity query, so the fail-closed check stopped before the eight cases and live v1/traffic remained untouched. The uploader now waits through a bounded asynchronous-indexing window and rechecks the exact 414-chunk/source/title/page manifest; it does not relax parity or permit partial cutover. |
+| 2026-08-31 | `743fe63` final hybrid validation and cleanup | Added bounded Search-index visibility retries without weakening exact parity, with three regression tests and synchronized operator/architecture documentation. PR #16 CI and immutable ACR build passed. The private job embedded and indexed all sixteen documents as 414 chunks including 87 table pages, proved exact v1/v2 source-title-page parity, and passed all eight semantic/hybrid relevance cases with zero failures. Restored the embedding deployment from the temporary 100 kTPM validation limit to 1 kTPM; deleted the job, ingestion UAMI, all five roles, both temporary ACR tags/manifests and repository, short-lived user grant, Cloud Shell clone, and local GitHub CLI credential bundle. Independently verified zero job/UAMI/role/grant counts, live traffic 100% on `--p1bgpt55fin`, and live `AZURE_SEARCH_INDEX=consult-demo-v1`. `consult-demo-v2` remains isolated pending a separately approved zero-traffic/runtime cutover. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
@@ -957,7 +957,7 @@ Azure Container App: Helmonic UI + API
         +--> Container Apps ingestion job
         |      validate, extract by page, chunk, index, clean up
         |
-        +--> Azure OpenAI embeddings (pending D-011 approval)
+        +--> Azure OpenAI embeddings (provisioned; private v2 validation passed)
         |      identical managed-identity chunk/query vectors
         |
         +--> Azure AI Search
@@ -1026,7 +1026,7 @@ boundary prevents generated artifacts from being mixed with evidence sources.
 Phase 1B uses separate indexes on the existing Azure AI Search service:
 
 - `consult-demo-v1`: live lexical controlled documents and immutable rollback target.
-- `consult-demo-v2`: proposed versioned controlled hybrid index; not yet created.
+- `consult-demo-v2`: validated, isolated versioned controlled hybrid index; not selected by the live runtime.
 - `consult-session-v1`: temporary, conversation-scoped attachments.
 - `consult-general-v1`: curated authoritative public references.
 
@@ -1650,7 +1650,7 @@ estimated at approximately USD 130-145 per month after conversion to PAYG.
 | Additional Blob containers | None | Less than USD 0.01 at initial scale | Container creation and validation |
 | Additional Search indexes | None on existing Search service | Included with ingestion ceiling | Index creation and ingestion |
 | Separate EU Foundry account for embeddings | No standing account charge; France Central account created after quota confirmation | USD 0 before inference | Approved and provisioned; public access disabled |
-| Embedding-account private endpoint and DNS | Approximately USD 7.80/month plus negligible data processing; dedicated `privatelink.openai.azure.com` zone linked to the DEV VNet | Included in the USD 0.30 hybrid validation ceiling | Approved, provisioned, and corrected for private-endpoint-only access; the remaining multi-UAMI application-selection defect is fixed locally and awaits private revalidation |
+| Embedding-account private endpoint and DNS | Approximately USD 7.80/month plus negligible data processing; dedicated `privatelink.openai.azure.com` zone linked to the DEV VNet | Included in the USD 0.30 hybrid validation ceiling | Approved, provisioned, private-endpoint-only, and proven through the completed explicit-UAMI private validation |
 | `text-embedding-3-small` Data Zone Standard | Usage based; no standing model charge; version 1/capacity 1 deployed | USD 0.05 conservative initial embedding ceiling | Approved for the current private validation only |
 | Semantic ranker for hybrid cutoff | No new fixed charge on existing Search Basic; its current free semantic plan includes the first 1,000 requests/month | Included in the USD 0.30 hybrid validation ceiling | v2 semantic configuration, evaluation, and live queries |
 | Initial 16-PDF hybrid ingestion validation | None fixed | USD 0.25 | Job execution, storage, Search transactions |
@@ -1746,3 +1746,4 @@ Commit messages must state what changed and why. Code and its documentation are
 committed and pushed together. A documentation-only correction is allowed when it fixes
 an identified inaccuracy, but documentation catch-up after an implementation has
 already moved ahead is not the normal workflow.
+
