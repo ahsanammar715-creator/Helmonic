@@ -1668,8 +1668,13 @@ event structure must support them.
 - Naturally phrased Harold's Cross and Premier Inn questions retrieve the correct
   controlled evidence under v2.
 - Wetherspoon questions do not return Premier Inn passages.
-- The Wetherspoon 500 Hz bedroom-window lookup retains the atomic table content and
-  supports a correctly cited `54 dB` answer.
+- The Wetherspoon 500 Hz bedroom-window case is a required live regression. The
+  `--hyb71a81f4` validation run proved that the model correctly refuses to invent
+  the value when Search returns Wetherspoon narrative pages but omits the table
+  containing `54 dB`. The lexical normalizer now removes the generic words
+  `scenario`, `level`, `predicted`, and `band`, leaving the precise hybrid query
+  `future Wetherspoon bedroom window 500 Hz`; this must pass on a replacement
+  zero-traffic revision before cutover.
 - Subjective sound, population, and recipe questions remain no-evidence after vector
   candidates are thresholded.
 - An in-corpus question under an unauthorized permission scope returns no results, and

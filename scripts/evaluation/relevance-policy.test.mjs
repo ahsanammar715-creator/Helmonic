@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildControlledEvidenceExcerpt,
   buildControlledHybridSearchRequest,
+  normalizeControlledSearchQuery,
   retainRelevantHybridDocuments,
 } from "../../src/lib/consult/search-policy.ts";
 
@@ -71,6 +72,15 @@ test("table evidence preserves numeric comparisons beyond the narrative excerpt 
   assert.match(excerpt, /66dB/);
   assert.match(excerpt, /47dB/);
   assert.match(excerpt, /19dB/);
+});
+
+test("numeric lookup keeps exact project, scenario, location, and frequency terms", () => {
+  assert.equal(
+    normalizeControlledSearchQuery(
+      "For the future Wetherspoon scenario, what level was predicted at the bedroom window in the 500 Hz band?",
+    ),
+    "future Wetherspoon bedroom window 500 Hz",
+  );
 });
 
 test("ordinary narrative evidence retains the compact 420-character bound", () => {
