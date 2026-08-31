@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   buildControlledHybridSearchRequest,
+  buildControlledTableSiblingRequest,
+  mergeControlledPageEvidence,
   retainRelevantHybridDocuments,
 } from "../../src/lib/consult/search-policy.ts";
 
@@ -59,5 +61,58 @@ test("hybrid request rejects empty or malformed embeddings", () => {
         vectorK: 50,
       }),
     /finite query embedding/,
+  );
+});
+
+test("same-page table expansion remains permission scoped and bounded", () => {
+  const request = buildControlledTableSiblingRequest(
+    [
+      { chunk_id: "a", source_id: "source'one", page_number: 7 },
+      { chunk_id: "b", source_id: "source'one", page_number: 7 },
+      { chunk_id: "c", source_id: "source-two", page_number: 3 },
+      { chunk_id: "invalid", source_id: "source-three" },
+    ],
+    "scope'one",
+    4,
+  );
+
+  assert.ok(request);
+  assert.equal(request.search, "*");
+  assert.equal(request.queryType, "simple");
+  assert.equal(request.top, 2);
+  assert.match(request.filter, /permission_scope eq 'scope''one'/);
+  assert.match(request.filter, /chunk_kind eq 'table'/);
+  assert.match(request.filter, /source_id eq 'source''one' and page_number eq 7/);
+  assert.match(request.filter, /source_id eq 'source-two' and page_number eq 3/);
+});
+
+test("same-page table evidence is merged after ranked evidence without duplicates", () => {
+  const merged = mergeControlledPageEvidence(
+    [
+      { chunk_id: "ranked", content: "ranked" },
+      { chunk_id: "table", content: "already present" },
+    ],
+    [
+      { chunk_id: "table", content: "duplicate" },
+      { chunk_id: "sibling", content: "66dB - 47dB = 19dB" },
+    ],
+  );
+
+  assert.deepEqual(
+    merged.map((document) => document.chunk_id),
+    ["ranked", "table", "sibling"],
+  );
+});
+
+test("same-page table expansion skips evidence without a source and page", () => {
+  assert.equal(
+    buildControlledTableSiblingRequest(
+      [
+        { chunk_id: "missing-page", source_id: "source" },
+        { chunk_id: "missing-source", page_number: 7 },
+      ],
+      "scope",
+    ),
+    null,
   );
 });

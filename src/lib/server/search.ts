@@ -2,8 +2,10 @@ import "server-only";
 
 import type { ConsultCitation } from "@/lib/consult/types";
 import {
+  buildControlledTableSiblingRequest,
   buildControlledHybridSearchRequest,
   buildControlledSearchRequest,
+  mergeControlledPageEvidence,
   retainRelevantHybridDocuments,
 } from "@/lib/consult/search-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
@@ -91,7 +93,7 @@ export async function searchConsultEvidence(
 
   const payload = (await response.json()) as SearchResponse;
   const retrievedDocuments = payload.value ?? [];
-  const relevantDocuments = config.search.hybridEnabled
+  let relevantDocuments = config.search.hybridEnabled
     ? retainRelevantHybridDocuments(retrievedDocuments, {
         scoreKind: config.search.semanticEnabled ? "semantic" : "rrf",
         minimumScore: config.search.semanticEnabled
@@ -99,11 +101,48 @@ export async function searchConsultEvidence(
           : config.search.minimumRrfScore,
       })
     : retrievedDocuments;
+  const thresholdRetainedCount = relevantDocuments.length;
+  let samePageTableCount = 0;
+
+  if (config.search.hybridEnabled && relevantDocuments.length > 0) {
+    const tableSiblingRequest = buildControlledTableSiblingRequest(
+      relevantDocuments,
+      config.profile,
+      config.search.top,
+    );
+    if (tableSiblingRequest) {
+      const siblingResponse = await fetch(
+        `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(
+          config.search.apiVersion,
+        )}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "x-ms-client-request-id": requestId,
+          },
+          body: JSON.stringify(tableSiblingRequest),
+          cache: "no-store",
+          signal: AbortSignal.timeout(8_000),
+        },
+      );
+      if (!siblingResponse.ok) {
+        throw new Error(`Azure AI Search table expansion failed with status ${siblingResponse.status}`);
+      }
+      const siblingPayload = (await siblingResponse.json()) as SearchResponse;
+      const samePageTables = siblingPayload.value ?? [];
+      samePageTableCount = samePageTables.length;
+      relevantDocuments = mergeControlledPageEvidence(relevantDocuments, samePageTables);
+    }
+  }
 
   if (config.search.hybridEnabled) {
     console.info("Helmonic hybrid retrieval", {
       requestId,
       retrievedCount: retrievedDocuments.length,
+      thresholdRetainedCount,
+      samePageTableCount,
       retainedCount: relevantDocuments.length,
       scoreKind: config.search.semanticEnabled ? "semantic" : "rrf",
       minimumScore: config.search.semanticEnabled

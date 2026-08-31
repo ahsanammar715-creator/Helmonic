@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import {
   REVIEWABLE_HYBRID_THRESHOLDS,
   buildControlledHybridSearchRequest,
+  buildControlledTableSiblingRequest,
+  mergeControlledPageEvidence,
   retainRelevantHybridDocuments,
 } from "../../src/lib/consult/search-policy.ts";
 import { createUserAssignedManagedIdentityCredential } from "../managed-identity.mjs";
@@ -184,10 +186,41 @@ async function runLiveEvaluation() {
 
     const payload = await response.json();
     const rawResults = Array.isArray(payload.value) ? payload.value : [];
-    const results = retainRelevantHybridDocuments(rawResults, {
+    let results = retainRelevantHybridDocuments(rawResults, {
       scoreKind: "semantic",
       minimumScore: suite.thresholds.semantic,
     });
+    const thresholdRetainedCount = results.length;
+    let samePageTableCount = 0;
+    const tableSiblingRequest = buildControlledTableSiblingRequest(
+      results,
+      evaluationCase.permissionScope || suite.profile,
+      4,
+    );
+    if (tableSiblingRequest) {
+      const siblingResponse = await fetch(
+        `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(apiVersion)}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${searchAccessToken.token}`,
+            "Content-Type": "application/json",
+            "x-ms-client-request-id": crypto.randomUUID(),
+          },
+          body: JSON.stringify(tableSiblingRequest),
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      if (!siblingResponse.ok) {
+        throw new Error(
+          `Search table expansion ${evaluationCase.id} failed with ${siblingResponse.status}`,
+        );
+      }
+      const siblingPayload = await siblingResponse.json();
+      const samePageTables = Array.isArray(siblingPayload.value) ? siblingPayload.value : [];
+      samePageTableCount = samePageTables.length;
+      results = mergeControlledPageEvidence(results, samePageTables);
+    }
     const titles = results.map((result) => String(result.title || ""));
     const contents = results.map((result) => String(result.content || ""));
     const expectedTitles = evaluationCase.expectedTitleIncludes || [];
@@ -204,6 +237,8 @@ async function runLiveEvaluation() {
       id: evaluationCase.id,
       passed,
       rawResultCount: rawResults.length,
+      thresholdRetainedCount,
+      samePageTableCount,
       retainedResultCount: results.length,
       titles,
       scores: results.map((result) => ({

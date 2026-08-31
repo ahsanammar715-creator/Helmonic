@@ -587,6 +587,19 @@ policy; they are not approved for traffic until tuned against private v2 evaluat
 Missing scores and below-threshold results are discarded before citations are built, so
 vector nearest-neighbour behavior cannot bypass D-004.
 
+The first zero-traffic generated-answer smoke exposed a narrower completeness defect,
+not a model-arithmetic defect. The retained page-7 Wetherspoon narrative/table chunk
+supported a 7 dB recommended-level exceedance, while the separate atomic Table 6 chunk
+on that same source page contained the required 66 dB rating, 47 dB background, and
+19 dB difference. Initial ranked top-four retrieval omitted that sibling chunk. The
+selected correction preserves the relevance threshold and ranked evidence, then makes
+one bounded, fail-closed Search request for atomic table chunks on only the retained
+source/page anchors and the exact caller permission scope. It expands at most eight
+pages, deduplicates the results after ranked evidence, and never searches a new source
+or page. Simply increasing top-k is rejected because it broadens unrelated ranked
+evidence and remains dependent on unstable fusion order; same-page atomic expansion is
+the smaller deterministic completeness rule. The lexical v1 path is unchanged.
+
 Temporary validation jobs attach the standing ACR-pull UAMI and a disposable ingestion
 UAMI at the same time. Application-side token acquisition must therefore never rely on
 default identity discovery. The payload uploader and private evaluator require
@@ -752,7 +765,14 @@ disabled in live DEV until the hybrid-v2 runtime is separately approved and prom
   including 87 table pages, proved exact v1/v2 source-title-page parity, and passed all
   eight retrieval cases. `consult-demo-v2` remains an isolated validated candidate with
   a failed zero-traffic generated-answer promotion gate; no index or traffic cutover
-  exists. The temporary job, ingestion
+  exists. Local diagnosis confirmed that Table 6's 66 dB, 47 dB, and 19 dB values were
+  in a separate atomic chunk on the already-retained page 7. The runtime and private
+  evaluator now add a bounded, permission-scoped same-page table expansion after the
+  existing hybrid threshold; thirteen policy/identity/parity tests, the offline
+  eight-case contract, six generated-answer policy tests, lint, generated route types,
+  and TypeScript all pass locally. The correction is not pushed or deployed and still
+  requires a separately approved immutable build and private zero-traffic revalidation.
+  The temporary job, ingestion
   UAMI, five roles, ACR repository/grant, Cloud Shell source, and local credential bundle
   were deleted after validation; the embedding deployment was restored to 1 kTPM.
 
@@ -868,6 +888,9 @@ retrieval cases. The temporary 100 kTPM validation limit was restored to 1 kTPM 
 disposable job, identity, role, image repository, grant, source folder, and credential was
 removed. Generated-answer evaluation against v2, a runtime revision, `AZURE_SEARCH_INDEX`
 cutover, and traffic movement remain later, separately estimated and approved gates.
+The same-page table-completeness correction and its full local test suite cost USD 0.
+Building and revalidating it in Azure remain a separate approval gate; no Azure call or
+standing-resource change was made during local diagnosis.
 
 ## Implementation and operations chronology
 
@@ -906,6 +929,7 @@ cutover, and traffic movement remain later, separately estimated and approved ga
 | 2026-08-31 | `743fe63` final hybrid validation and cleanup | Added bounded Search-index visibility retries without weakening exact parity, with three regression tests and synchronized operator/architecture documentation. PR #16 CI and immutable ACR build passed. The private job embedded and indexed all sixteen documents as 414 chunks including 87 table pages, proved exact v1/v2 source-title-page parity, and passed all eight semantic/hybrid relevance cases with zero failures. Restored the embedding deployment from the temporary 100 kTPM validation limit to 1 kTPM; deleted the job, ingestion UAMI, all five roles, both temporary ACR tags/manifests and repository, short-lived user grant, Cloud Shell clone, and local GitHub CLI credential bundle. Independently verified zero job/UAMI/role/grant counts, live traffic 100% on `--p1bgpt55fin`, and live `AZURE_SEARCH_INDEX=consult-demo-v1`. `consult-demo-v2` remains isolated pending a separately approved zero-traffic/runtime cutover. |
 | 2026-08-31 | D-022 inline general-knowledge source slice | Superseded the split D-009 experience with one feature-gated GPT-5.5 answer, preserving strict server-authoritative `D`/`A` citations while allowing sequential unverified `G` disclosure markers. Removed the separate response/UI block and curated-index dependency, added the persistent conditional disclaimer and explicit no-document-evidence rule, and added six offline contract tests plus a CI policy gate. No Azure resource, model deployment, revision, flag, Search index, live request, or traffic change occurred; live DEV remains on v1 with general knowledge disabled. |
 | 2026-08-31 | Hybrid v2 zero-traffic promotion gate stopped | Created `--hyb743fe63` from immutable image `743fe63...` with minimum replicas zero, `consult-demo-v2`, hybrid/semantic retrieval enabled, and general context disabled; verified it active at 0% while `--p1bgpt55fin` stayed at 100%. `/healthz` returned healthy with UID 1000/non-root. A direct-revision Wetherspoon smoke query returned four real citations from pages 3 and 7 of the correct report, but the answer gave a 7 dB recommended-level exceedance and said the exact background comparison was unavailable instead of satisfying the suite's expected 19 dB result. Per the fail-closed gate, no further paid queries or traffic shift occurred. The temporary Entra callback used only for the direct revision was removed and the sole permanent callback independently reconfirmed. The candidate remains active at 0% for controlled diagnosis; live v1 and rollback state are unchanged. |
+| 2026-08-31 | Wetherspoon regression diagnosis and local same-page table fix | Source inspection proved the expected 66 dB rating, 47 dB background, and 19 dB difference exist in atomic Table 6 on report/PDF page 7, while the first smoke retained a neighboring page-7 narrative/table chunk that supported the different 7 dB statement. Added a bounded fail-closed second Search request for atomic table chunks on only the already-retained source/page anchors and exact permission scope, with ranked-first deduplication and an eight-page cap; v1 and the original threshold remain unchanged. Mirrored the rule in the private evaluator and added scope, anchor, ordering, and deduplication regression tests. Thirteen retrieval/identity/parity tests, the offline eight-case contract, six model-policy tests, lint, generated route types, and TypeScript pass locally. Cost was USD 0; no Azure resource, request, revision, index, flag, callback, or traffic changed. Push/build and private zero-traffic revalidation remain separately approved gates. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data

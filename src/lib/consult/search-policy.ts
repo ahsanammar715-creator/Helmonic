@@ -20,6 +20,21 @@ export type HybridSearchDocument = {
   "@search.rerankerScore"?: number;
 };
 
+export type ControlledPageDocument = {
+  chunk_id?: string;
+  source_id?: string;
+  page_number?: number;
+  content?: string;
+};
+
+export type ControlledTableSiblingRequest = {
+  search: "*";
+  queryType: "simple";
+  filter: string;
+  top: number;
+  select: string;
+};
+
 export type ControlledHybridSearchRequest = Omit<
   ControlledSearchRequest,
   "queryType"
@@ -158,4 +173,60 @@ export function retainRelevantHybridDocuments<T extends HybridSearchDocument>(
 
     return typeof score === "number" && Number.isFinite(score) && score >= policy.minimumScore;
   });
+}
+
+export function buildControlledTableSiblingRequest(
+  documents: ControlledPageDocument[],
+  permissionScope: string,
+  maximumPages = 8,
+): ControlledTableSiblingRequest | null {
+  const boundedMaximum = Math.max(1, Math.min(Math.trunc(maximumPages), 8));
+  const anchors = new Map<string, { sourceId: string; pageNumber: number }>();
+
+  for (const document of documents) {
+    const sourceId = document.source_id?.trim();
+    const pageNumber = document.page_number;
+    if (!sourceId || !Number.isInteger(pageNumber) || (pageNumber ?? 0) < 1) continue;
+
+    const key = `${sourceId}\u0000${pageNumber}`;
+    if (!anchors.has(key)) {
+      anchors.set(key, { sourceId, pageNumber: pageNumber as number });
+    }
+    if (anchors.size >= boundedMaximum) break;
+  }
+
+  if (anchors.size === 0) return null;
+
+  const pageFilter = Array.from(anchors.values(), ({ sourceId, pageNumber }) =>
+    `(source_id eq '${searchFilterValue(sourceId)}' and page_number eq ${pageNumber})`,
+  ).join(" or ");
+
+  return {
+    search: "*",
+    queryType: "simple",
+    filter:
+      `permission_scope eq '${searchFilterValue(permissionScope)}' ` +
+      `and chunk_kind eq 'table' and (${pageFilter})`,
+    top: anchors.size,
+    select: "chunk_id,source_id,source_uri,title,section,page_number,content",
+  };
+}
+
+export function mergeControlledPageEvidence<T extends ControlledPageDocument>(
+  primary: T[],
+  samePageTables: T[],
+) {
+  const merged: T[] = [];
+  const seen = new Set<string>();
+
+  for (const document of [...primary, ...samePageTables]) {
+    const key =
+      document.chunk_id?.trim() ||
+      `${document.source_id ?? ""}\u0000${document.page_number ?? ""}\u0000${document.content ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(document);
+  }
+
+  return merged;
 }
