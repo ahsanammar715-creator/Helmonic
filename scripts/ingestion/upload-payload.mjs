@@ -2,6 +2,10 @@ import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { createUserAssignedManagedIdentityCredential } from "../managed-identity.mjs";
+import {
+  assertManifestParity,
+  waitForManifestParity,
+} from "./index-parity.mjs";
 
 const searchApiVersion = process.env.AZURE_SEARCH_API_VERSION || "2025-09-01";
 const storageApiVersion = "2023-11-03";
@@ -267,32 +271,6 @@ async function loadIndexManifest(accessToken, indexName) {
   return documents;
 }
 
-function assertManifestParity(expected, actual, label) {
-  const normalized = (items) =>
-    new Map(
-      items.map((item) => [
-        item.chunk_id,
-        JSON.stringify({
-          source_id: item.source_id,
-          title: item.title,
-          page_number: item.page_number ?? null,
-        }),
-      ]),
-    );
-  const expectedMap = normalized(expected);
-  const actualMap = normalized(actual);
-  if (expectedMap.size !== actualMap.size) {
-    throw new Error(
-      `${label} parity failed: expected ${expectedMap.size} chunks, found ${actualMap.size}`,
-    );
-  }
-  for (const [chunkId, metadata] of expectedMap) {
-    if (actualMap.get(chunkId) !== metadata) {
-      throw new Error(`${label} parity failed for chunk ${chunkId}`);
-    }
-  }
-}
-
 function validateHybridExtraction(payload) {
   if (
     payload.extraction?.version !== 2 ||
@@ -530,8 +508,11 @@ async function main() {
   }
 
   if (hybridIngestionEnabled) {
-    const targetManifest = await loadIndexManifest(searchToken, searchIndex);
-    assertManifestParity(expectedManifest, targetManifest, `${searchIndex} target`);
+    await waitForManifestParity({
+      expected: expectedManifest,
+      label: `${searchIndex} target`,
+      load: () => loadIndexManifest(searchToken, searchIndex),
+    });
   }
 
   const verificationQuestion =

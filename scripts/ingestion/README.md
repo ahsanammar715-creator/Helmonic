@@ -58,6 +58,9 @@ wrong-dimension vector. Transient model throttling is retried only when Azure re
 using the service's `Retry-After` value with a bounded eight-attempt ceiling. It then
 compares the approved manifest with the live v1 chunk,
 source, title, and page metadata. After upload it repeats that parity check against v2.
+Because Azure Search can acknowledge writes before every document is query-visible, the
+v2 check uses a bounded retry window. It never accepts a partial manifest: all expected
+chunk IDs and their source, title, and page metadata must match before evaluation starts.
 The target is not ready for evaluation or cutover unless both checks pass.
 
 `build-hybrid-payload.py` is the reproducible private-job payload builder used for the

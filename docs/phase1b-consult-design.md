@@ -229,6 +229,7 @@ unauthorized revision never receives traffic.
 | `scripts/evaluation/run-consult-retrieval.mjs` | Offline hybrid-suite/request validation and opt-in private v2 evaluation; live execution explicitly selects the ingestion UAMI through `AZURE_CLIENT_ID` before acquiring embedding or Search tokens |
 | `scripts/evaluation/relevance-policy.test.mjs` | Isolated unit tests for semantic/RRF cutoffs, missing-score failure, embedding validation, and permission pre-filter construction |
 | `scripts/evaluation/managed-identity-selection.test.mjs` | Regression tests proving temporary jobs select the configured UAMI and fail closed when `AZURE_CLIENT_ID` is missing or blank |
+| `scripts/evaluation/index-parity.test.mjs` | Regression tests proving v2 manifest validation tolerates only bounded Azure Search indexing delay while preserving exact fail-closed chunk and metadata parity |
 | `scripts/evaluation/run-consult-generated.mjs` | Offline citation-policy validation and opt-in Target A evaluation through the same-origin API using eligible v2 cases |
 
 ### App Router surfaces
@@ -329,6 +330,7 @@ unauthorized revision never receives traffic.
 | `scripts/ingestion/payload.example.json` | Non-sensitive extraction-v2 example including atomic table metadata alongside source/chunk/page/hash fields |
 | `scripts/ingestion/README.md` | Operator instructions, corpus-count gate, explicit multi-UAMI client-ID contract, versioned hybrid re-index safety contract, and least-privilege separation |
 | `scripts/managed-identity.mjs` | Shared fail-closed constructor that requires `AZURE_CLIENT_ID` and creates an explicitly targeted `ManagedIdentityCredential` for temporary multi-UAMI jobs |
+| `scripts/ingestion/index-parity.mjs` | Exact v1/v2 chunk-metadata parity checks plus a bounded retry window for Azure Search's asynchronous indexing visibility |
 | `scripts/ingestion/upload-payload.mjs` | Controlled writer with an explicitly selected ingestion UAMI, opt-in embeddings, bounded Azure 429/`Retry-After` handling, table validation, v1/v2 parity, all-vector readiness, and v1 rollback protection |
 | `scripts/ingestion/build-hybrid-payload.py` | Private-job payload builder that reads only retrievable v1 manifest fields and controlled Blob originals, requires the permission scope explicitly because v1 keeps it non-retrievable, preserves detected PDF tables as atomic Markdown, and retains v1 identifiers/page metadata for parity |
 | `scripts/ingestion/Dockerfile.hybrid` | Temporary non-root hybrid-validation image combining table-preserving extraction, the shared explicit-UAMI helper, the v2 uploader, and the eight-case private retrieval evaluation in one fail-closed job |
@@ -588,6 +590,12 @@ default identity discovery. The payload uploader and private evaluator require
 identity; missing or blank configuration fails before any data-plane request. Image pull
 continues to use the separately configured ACR identity at the Container Apps platform
 layer.
+
+Azure Search document writes can report success before every new document is visible to
+a search query. The v2 uploader therefore polls the exact target manifest for a bounded
+period after upload. It never weakens the 414-chunk/source/title/page parity requirement:
+the job still fails closed if the complete manifest does not become visible within the
+bounded window.
 
 `consult-demo-v1` is immutable rollback. A separately created `consult-demo-v2` adds
 the vector field, cosine HNSW profile, semantic configuration, and table metadata.
@@ -857,6 +865,7 @@ approved gates.
 | 2026-08-28 | Approved hybrid embedding foundation | Reconfirmed France Central `text-embedding-3-small` Data Zone quota at 0 of 1,000, then created `aif-helmonic-embed-dev-001` with public access disabled/default deny from its initial resource PUT, deployed version 1 as `DataZoneStandard` capacity 1, created/approved `pe-ai-embed-helmonic-dev-001`, added dedicated `privatelink.openai.azure.com` DNS with VNet link and the correct endpoint zone group, and scoped the Container App identity to `Cognitive Services OpenAI User` on only the new account. Live `consult-demo-v1` and traffic were unchanged |
 | 2026-08-28 | Hybrid private validation and complete temporary cleanup | Temporarily raised the embedding deployment from 1 to 100 kTPM, then restored it to 1 immediately after the terminal run. The private job read all sixteen controlled PDFs and built 414 chunks including 87 table pages, but Azure rejected the first embedding call with `403 Traffic is not from an approved private endpoint`; in-job DNS nevertheless resolved the approved account connection to private IP `10.36.1.11`, so v2 ingestion and the eight-case evaluation did not run. Deleted the job, UAMI, all five UAMI roles, temporary ACR repository, and both short-lived repository-scoped user grants. Verified live traffic remains 100% on `--p1bgpt55fin` and `AZURE_SEARCH_INDEX=consult-demo-v1` |
 | 2026-08-31 | Multi-UAMI diagnosis, cleanup, and local identity-selection correction | Later validation attempts returned managed-identity HTTP 400 `invalid_scope` (`No User Assigned or Delegated Managed Identity found for specified ClientId/ResourceId/PrincipalId`) before Search or embedding data calls. No active Container Apps service-health incident was found, while a same-environment throwaway job with only a system-assigned identity received HTTP 200 from the identity endpoint; this isolates the failure to the temporary UAMI path rather than the environment or private network. The standing ACR UAMI is consumed separately by the platform image-pull configuration. Because the disposable job attaches both ACR-pull and ingestion UAMIs, the Node uploader and evaluator were changed from ambiguous `DefaultAzureCredential` discovery to an explicit, fail-closed `ManagedIdentityCredential(AZURE_CLIENT_ID)` contract with regression tests and explicit container packaging. Seven policy/identity tests, the eight-case offline retrieval contract, seven-case generated-answer policy, lint, TypeScript, and runtime-hardening checks pass. Deleted and independently confirmed absent the diagnostic/validation jobs, disposable UAMI, five roles, temporary ACR repository and grant, and local payload archive. Live v1 and traffic were untouched; the corrected path remains pending a separately approved private validation run |
+| 2026-08-31 | First explicit-UAMI private hybrid run and parity timing correction | The corrected job acquired tokens with the selected ingestion UAMI, read all sixteen source documents, and built 414 chunks including 87 table pages, resolving the prior identity-endpoint blocker. Azure Search accepted the v2 upload but exposed only 348 of 414 chunks to the immediate parity query, so the fail-closed check stopped before the eight cases and live v1/traffic remained untouched. The uploader now waits through a bounded asynchronous-indexing window and rechecks the exact 414-chunk/source/title/page manifest; it does not relax parity or permit partial cutover. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
