@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildControlledEvidenceExcerpt,
   buildControlledHybridSearchRequest,
-  buildControlledTableSiblingRequest,
-  mergeControlledPageEvidence,
   retainRelevantHybridDocuments,
 } from "../../src/lib/consult/search-policy.ts";
 
@@ -43,6 +42,7 @@ test("hybrid request applies permission scope before HNSW scoring", () => {
   assert.equal(request.filter, "permission_scope eq 'scope''with-quote'");
   assert.equal(request.vectorFilterMode, "preFilter");
   assert.equal(request.queryType, "semantic");
+  assert.match(request.select, /chunk_kind/);
   assert.equal(request.vectorQueries[0].fields, "content_vector");
   assert.equal(request.vectorQueries[0].k, 50);
 });
@@ -64,55 +64,17 @@ test("hybrid request rejects empty or malformed embeddings", () => {
   );
 });
 
-test("same-page table expansion remains permission scoped and bounded", () => {
-  const request = buildControlledTableSiblingRequest(
-    [
-      { chunk_id: "a", source_id: "source'one", page_number: 7 },
-      { chunk_id: "b", source_id: "source'one", page_number: 7 },
-      { chunk_id: "c", source_id: "source-two", page_number: 3 },
-      { chunk_id: "invalid", source_id: "source-three" },
-    ],
-    "scope'one",
-    4,
-  );
+test("table evidence preserves numeric comparisons beyond the narrative excerpt limit", () => {
+  const tableEvidence = `${"Narrative context ".repeat(40)} Rating Level: 66dB. Background Sound Level: 47dB. Excess: 19dB.`;
+  const excerpt = buildControlledEvidenceExcerpt(tableEvidence, "table");
 
-  assert.ok(request);
-  assert.equal(request.search, "*");
-  assert.equal(request.queryType, "simple");
-  assert.equal(request.top, 2);
-  assert.match(request.filter, /permission_scope eq 'scope''one'/);
-  assert.match(request.filter, /chunk_kind eq 'table'/);
-  assert.match(request.filter, /source_id eq 'source''one' and page_number eq 7/);
-  assert.match(request.filter, /source_id eq 'source-two' and page_number eq 3/);
+  assert.match(excerpt, /66dB/);
+  assert.match(excerpt, /47dB/);
+  assert.match(excerpt, /19dB/);
 });
 
-test("same-page table evidence is merged after ranked evidence without duplicates", () => {
-  const merged = mergeControlledPageEvidence(
-    [
-      { chunk_id: "ranked", content: "ranked" },
-      { chunk_id: "table", content: "already present" },
-    ],
-    [
-      { chunk_id: "table", content: "duplicate" },
-      { chunk_id: "sibling", content: "66dB - 47dB = 19dB" },
-    ],
-  );
-
-  assert.deepEqual(
-    merged.map((document) => document.chunk_id),
-    ["ranked", "table", "sibling"],
-  );
-});
-
-test("same-page table expansion skips evidence without a source and page", () => {
-  assert.equal(
-    buildControlledTableSiblingRequest(
-      [
-        { chunk_id: "missing-page", source_id: "source" },
-        { chunk_id: "missing-source", page_number: 7 },
-      ],
-      "scope",
-    ),
-    null,
-  );
+test("ordinary narrative evidence retains the compact 420-character bound", () => {
+  const excerpt = buildControlledEvidenceExcerpt("Narrative context ".repeat(40), "text");
+  assert.equal(excerpt.length, 420);
+  assert.match(excerpt, /…$/);
 });
