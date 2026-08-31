@@ -78,10 +78,6 @@ test.describe("Phase 1A runtime safeguards", () => {
         status: "not-configured",
         citations: [],
       },
-      generalContext: {
-        status: "disabled",
-        citations: [],
-      },
     });
   });
 
