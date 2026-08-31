@@ -733,16 +733,26 @@ disabled in live DEV until the hybrid-v2 runtime is separately approved and prom
   DEV. The session-upload worker, Azure Speech resource, sidebar activation, upload
   activation, and general-context activation remain unimplemented or disabled; the
   separately approved Target A model path is the only newly activated Phase 1B feature.
-- The D-021 hybrid retrieval runtime remains disabled and the live application continues
-  to target v1. The implementation adds the v2 schema,
+- The D-021 hybrid retrieval runtime remains disabled for live traffic and the live
+  application continues to target v1. Zero-traffic candidate revision
+  `--hyb743fe63` now targets `consult-demo-v2` with hybrid/semantic retrieval enabled,
+  general context disabled, and minimum replicas zero. Its `/healthz` response passed
+  on immutable image `743fe63...` with non-root UID 1000. The first paid live smoke
+  question retrieved four real Wetherspoon document/page citations, but the generated
+  answer reported a 7 dB exceedance and insufficient exact background evidence instead
+  of the evaluation contract's expected 19 dB comparison. The fail-closed gate stopped
+  the remaining paid smoke suite; no traffic moved, the temporary direct-revision Entra
+  callback was removed, and `--p1bgpt55fin` remains 100% live on v1. The implementation
+  adds the v2 schema,
   managed-identity query and ingestion embedding paths, permission pre-filtered hybrid
   queries, threshold filtering before citations, atomic-table manifest controls, v1/v2
   parity checks, and an eight-case fixture with isolated policy tests. The approved
   France Central embedding foundation is provisioned. The corrected private job selected
   the ingestion UAMI explicitly, embedded and indexed all sixteen documents as 414 chunks
   including 87 table pages, proved exact v1/v2 source-title-page parity, and passed all
-  eight retrieval cases. `consult-demo-v2` remains an isolated validated candidate: no
-  runtime revision, index cutover, or traffic change exists. The temporary job, ingestion
+  eight retrieval cases. `consult-demo-v2` remains an isolated validated candidate with
+  a failed zero-traffic generated-answer promotion gate; no index or traffic cutover
+  exists. The temporary job, ingestion
   UAMI, five roles, ACR repository/grant, Cloud Shell source, and local credential bundle
   were deleted after validation; the embedding deployment was restored to 1 kTPM.
 
@@ -895,6 +905,7 @@ cutover, and traffic movement remain later, separately estimated and approved ga
 | 2026-08-31 | First explicit-UAMI private hybrid run and parity timing correction | The corrected job acquired tokens with the selected ingestion UAMI, read all sixteen source documents, and built 414 chunks including 87 table pages, resolving the prior identity-endpoint blocker. Azure Search accepted the v2 upload but exposed only 348 of 414 chunks to the immediate parity query, so the fail-closed check stopped before the eight cases and live v1/traffic remained untouched. The uploader now waits through a bounded asynchronous-indexing window and rechecks the exact 414-chunk/source/title/page manifest; it does not relax parity or permit partial cutover. |
 | 2026-08-31 | `743fe63` final hybrid validation and cleanup | Added bounded Search-index visibility retries without weakening exact parity, with three regression tests and synchronized operator/architecture documentation. PR #16 CI and immutable ACR build passed. The private job embedded and indexed all sixteen documents as 414 chunks including 87 table pages, proved exact v1/v2 source-title-page parity, and passed all eight semantic/hybrid relevance cases with zero failures. Restored the embedding deployment from the temporary 100 kTPM validation limit to 1 kTPM; deleted the job, ingestion UAMI, all five roles, both temporary ACR tags/manifests and repository, short-lived user grant, Cloud Shell clone, and local GitHub CLI credential bundle. Independently verified zero job/UAMI/role/grant counts, live traffic 100% on `--p1bgpt55fin`, and live `AZURE_SEARCH_INDEX=consult-demo-v1`. `consult-demo-v2` remains isolated pending a separately approved zero-traffic/runtime cutover. |
 | 2026-08-31 | D-022 inline general-knowledge source slice | Superseded the split D-009 experience with one feature-gated GPT-5.5 answer, preserving strict server-authoritative `D`/`A` citations while allowing sequential unverified `G` disclosure markers. Removed the separate response/UI block and curated-index dependency, added the persistent conditional disclaimer and explicit no-document-evidence rule, and added six offline contract tests plus a CI policy gate. No Azure resource, model deployment, revision, flag, Search index, live request, or traffic change occurred; live DEV remains on v1 with general knowledge disabled. |
+| 2026-08-31 | Hybrid v2 zero-traffic promotion gate stopped | Created `--hyb743fe63` from immutable image `743fe63...` with minimum replicas zero, `consult-demo-v2`, hybrid/semantic retrieval enabled, and general context disabled; verified it active at 0% while `--p1bgpt55fin` stayed at 100%. `/healthz` returned healthy with UID 1000/non-root. A direct-revision Wetherspoon smoke query returned four real citations from pages 3 and 7 of the correct report, but the answer gave a 7 dB recommended-level exceedance and said the exact background comparison was unavailable instead of satisfying the suite's expected 19 dB result. Per the fail-closed gate, no further paid queries or traffic shift occurred. The temporary Entra callback used only for the direct revision was removed and the sole permanent callback independently reconfirmed. The candidate remains active at 0% for controlled diagnosis; live v1 and rollback state are unchanged. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
