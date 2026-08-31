@@ -1,6 +1,9 @@
 import "server-only";
 
-import { validateDocumentAnswerCitations } from "@/lib/consult/model-policy";
+import {
+  NO_DOCUMENT_EVIDENCE_NOTICE,
+  validateDocumentAnswerCitations,
+} from "@/lib/consult/model-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
 import type { RuntimeConfig } from "@/lib/server/config";
 import {
@@ -25,6 +28,8 @@ type ChatCompletionResponse = {
 };
 
 function buildEvidence(citations: DocumentModelRequest["evidence"]) {
+  if (citations.length === 0) return "No permitted document evidence was retrieved.";
+
   return citations
     .map((citation, index) => {
       const marker = citation.marker ?? `D${index + 1}`;
@@ -50,6 +55,10 @@ async function createDocumentAnswer(
     throw new Error("Azure model is not configured");
   }
 
+  const answerPolicy = request.allowGeneralKnowledge
+    ? `Write one natural, flowing answer. Claims supported by the supplied documents must use their exact [D#] or [A#] marker. You may add useful background from your own general knowledge in the same paragraphs, but every such passage must use sequential markers starting at [G1]. [G] markers are disclosure labels only: they are not verified sources and must never be described as document citations. Do not invent a source, URL, standard, clause, measurement, page, or document marker. If no evidence was supplied, begin with this exact sentence: "${NO_DOCUMENT_EVIDENCE_NOTICE}" You may then provide clearly marked general knowledge, or say that you do not know enough to answer reliably. Never let general knowledge conceal missing or conflicting document evidence.`
+    : "Answer only from the supplied evidence. Cite every factual paragraph with one or more supplied document markers such as [D1] or attachment markers such as [A1]. Never invent a source, clause, page, measurement, citation marker, or general-knowledge claim. If the evidence conflicts, identify the conflict and cite both sides. If it is insufficient, say so clearly and do not fill the gap from general knowledge.";
+
   const token = await getAzureAccessToken("https://cognitiveservices.azure.com/.default");
   const response = await fetch(
     `${config.model.endpoint}/openai/deployments/${encodeURIComponent(
@@ -67,7 +76,7 @@ async function createDocumentAnswer(
           {
             role: "system",
             content:
-              `You are Helmonic Consult for the fixed ${config.profile} evidence set. Answer only from the supplied evidence. Cite every factual paragraph with one or more supplied document markers such as [D1] or attachment markers such as [A1]. Never invent a source, clause, page, measurement, citation marker, or general-knowledge claim. If the evidence conflicts, identify the conflict and cite both sides. If it is insufficient, say so clearly and do not fill the gap from general knowledge. Keep the answer concise and practical.`,
+              `You are Helmonic Consult for the fixed ${config.profile} evidence set. ${answerPolicy} Keep the answer concise and practical.`,
           },
           {
             role: "user",
@@ -94,7 +103,9 @@ async function createDocumentAnswer(
     throw new Error("Azure model returned an empty answer");
   }
 
-  const validation = validateDocumentAnswerCitations(answer, request.evidence);
+  const validation = validateDocumentAnswerCitations(answer, request.evidence, {
+    allowGeneralKnowledge: request.allowGeneralKnowledge,
+  });
   if (!validation.valid) {
     throw new ModelGatewayValidationError(validation.errors.join(" "));
   }
@@ -106,6 +117,7 @@ async function createDocumentAnswer(
     completionTokens: payload.usage?.completion_tokens,
     reasoningTokens: payload.usage?.completion_tokens_details?.reasoning_tokens,
     citationMarkers: validation.markers,
+    generalKnowledgeMarkers: validation.generalMarkers,
   });
 
   return answer;
@@ -113,11 +125,6 @@ async function createDocumentAnswer(
 
 export function createConsultModelGateway(config: RuntimeConfig): ConsultModelGateway {
   return {
-    createDocumentAnswer: (request) => createDocumentAnswer(request, config),
-    createGeneralContext: async () => {
-      throw new ModelGatewayValidationError(
-        "General context remains disabled until its separate source pathway is approved.",
-      );
-    },
+    createAnswer: (request) => createDocumentAnswer(request, config),
   };
 }

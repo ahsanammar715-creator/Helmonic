@@ -1,25 +1,16 @@
 import "server-only";
 
-import type {
-  ConsultCitation,
-  GeneralCitation,
-} from "@/lib/consult/types";
+import type { ConsultCitation } from "@/lib/consult/types";
 
 export type DocumentModelRequest = {
   requestId: string;
   question: string;
   evidence: ConsultCitation[];
-};
-
-export type GeneralContextModelRequest = {
-  requestId: string;
-  question: string;
-  references: GeneralCitation[];
+  allowGeneralKnowledge: boolean;
 };
 
 export interface ConsultModelGateway {
-  createDocumentAnswer(request: DocumentModelRequest): Promise<string>;
-  createGeneralContext(request: GeneralContextModelRequest): Promise<string>;
+  createAnswer(request: DocumentModelRequest): Promise<string>;
 }
 
 export class ModelGatewayValidationError extends Error {
@@ -27,10 +18,4 @@ export class ModelGatewayValidationError extends Error {
     super(message);
     this.name = "ModelGatewayValidationError";
   }
-}
-
-export function validateGeneralCitationMarkers(text: string, citations: GeneralCitation[]) {
-  const allowed = new Set(citations.map((citation) => citation.marker));
-  const markers = text.match(/\[G\d+\]/g) ?? [];
-  return markers.every((marker) => allowed.has(marker.slice(1, -1) as `G${number}`));
 }

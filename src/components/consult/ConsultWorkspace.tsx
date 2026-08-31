@@ -6,7 +6,6 @@ import { useState } from "react";
 
 import { AssistantBubble, UserBubble } from "@/components/ChatBubble";
 import ChatComposer from "@/components/ChatComposer";
-import GeneralContextSection from "@/components/consult/GeneralContextSection";
 import SourcesPanel from "@/components/SourcesPanel";
 import TopBar from "@/components/TopBar";
 import WaveDivider from "@/components/WaveDivider";
@@ -28,7 +27,7 @@ type Exchange = {
   error?: string;
   mode?: ConsultQueryResponse["mode"];
   citations: ConsultCitation[];
-  generalContext?: ConsultQueryResponse["generalContext"];
+  generalKnowledgeUsed?: boolean;
 };
 
 const suggestedQuestions = [
@@ -37,7 +36,15 @@ const suggestedQuestions = [
   "What does the evidence say about sound insulation?",
 ];
 
-function modeLabel(mode: ConsultQueryResponse["mode"] | undefined) {
+function modeLabel(
+  mode: ConsultQueryResponse["mode"] | undefined,
+  generalKnowledgeUsed = false,
+  hasDocumentEvidence = false,
+) {
+  if (mode === "generated" && generalKnowledgeUsed && hasDocumentEvidence) {
+    return "Documents + general context";
+  }
+  if (mode === "generated" && generalKnowledgeUsed) return "General context";
   if (mode === "generated") return "Grounded answer";
   if (mode === "retrieval-only") return "Retrieval verified";
   if (mode === "no-evidence") return "Insufficient evidence";
@@ -92,7 +99,7 @@ export default function ConsultWorkspace() {
                 answer: payload.answer,
                 mode: payload.mode,
                 citations: payload.citations,
-                generalContext: payload.generalContext,
+                generalKnowledgeUsed: payload.generalKnowledgeUsed,
               }
             : exchange,
         ),
@@ -245,9 +252,17 @@ export default function ConsultWorkspace() {
                       </div>
                     ) : exchange.mode !== "generated" ? (
                       <>
-                        {modeLabel(exchange.mode) && (
+                        {modeLabel(
+                          exchange.mode,
+                          exchange.generalKnowledgeUsed,
+                          exchange.citations.length > 0,
+                        ) && (
                           <span className="self-start rounded-full bg-primary-tint px-2.5 py-1 text-[11px] font-semibold text-primary">
-                            {modeLabel(exchange.mode)}
+                            {modeLabel(
+                              exchange.mode,
+                              exchange.generalKnowledgeUsed,
+                              exchange.citations.length > 0,
+                            )}
                           </span>
                         )}
                         <p className="m-0 text-[14px] leading-[1.7]">
@@ -260,29 +275,37 @@ export default function ConsultWorkspace() {
                             for the evidence.
                           </div>
                         )}
-                        {exchange.generalContext && (
-                          <GeneralContextSection context={exchange.generalContext} />
-                        )}
                       </>
                     ) : (
                       <>
-                        {modeLabel(exchange.mode) && (
+                        {modeLabel(
+                          exchange.mode,
+                          exchange.generalKnowledgeUsed,
+                          exchange.citations.length > 0,
+                        ) && (
                           <span className="self-start rounded-full bg-primary-tint px-2.5 py-1 text-[11px] font-semibold text-primary">
-                            {modeLabel(exchange.mode)}
+                            {modeLabel(
+                              exchange.mode,
+                              exchange.generalKnowledgeUsed,
+                              exchange.citations.length > 0,
+                            )}
                           </span>
                         )}
                         <p className="m-0 whitespace-pre-wrap text-[14px] leading-[1.7]">
                           {exchange.answer}
                         </p>
+                        {exchange.generalKnowledgeUsed && (
+                          <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
+                            [G] marks the model&apos;s own general knowledge, not verified
+                            against your documents.
+                          </p>
+                        )}
                         {exchange.citations.length > 0 && (
                           <div className="border-t border-line pt-3 text-[12px] text-muted">
                             {exchange.citations.length} server-verified source passage
                             {exchange.citations.length === 1 ? "" : "s"} retrieved. Open Sources
                             for the evidence.
                           </div>
-                        )}
-                        {exchange.generalContext && (
-                          <GeneralContextSection context={exchange.generalContext} />
                         )}
                       </>
                     )}
@@ -300,7 +323,7 @@ export default function ConsultWorkspace() {
             onChange={(event) => setIncludeGeneralContext(event.target.checked)}
             className="accent-primary"
           />
-          Include separately cited general context when an approved model is available
+          Allow clearly marked general knowledge in the same answer
         </label>
 
         <ChatComposer

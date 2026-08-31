@@ -11,16 +11,6 @@ export type ConsultCitation = {
   marker?: `D${number}` | `A${number}`;
 };
 
-export type GeneralCitation = {
-  id: string;
-  marker: `G${number}`;
-  title: string;
-  publisher: string;
-  url: string;
-  excerpt: string;
-  retrievedAt: string;
-};
-
 export type ConsultAnswerMode =
   | "generated"
   | "retrieval-only"
@@ -32,15 +22,11 @@ export type ConsultQueryResponse = {
   citations: ConsultCitation[];
   mode: ConsultAnswerMode;
   requestId: string;
+  generalKnowledgeUsed: boolean;
   documentAnswer: {
     status: ConsultAnswerMode;
     text: string | null;
     citations: ConsultCitation[];
-  };
-  generalContext: {
-    status: "generated" | "unavailable" | "insufficient-evidence" | "disabled";
-    text: string | null;
-    citations: GeneralCitation[];
   };
 };
 

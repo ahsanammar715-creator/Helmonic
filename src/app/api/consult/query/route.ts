@@ -15,23 +15,16 @@ export const dynamic = "force-dynamic";
 
 const maximumQuestionLength = 1_200;
 
-function generalContext(
+function generalKnowledgeEnabled(
   requested: boolean,
   config: ReturnType<typeof getRuntimeConfig>,
-): ConsultQueryResponse["generalContext"] {
-  if (!requested) return { status: "disabled", text: null, citations: [] };
-  if (
-    !config.phase1b.generalContextEnabled ||
-    !config.phase1b.generalSearchIndex ||
-    !config.model.endpoint ||
-    !config.model.deployment
-  ) {
-    return { status: "unavailable", text: null, citations: [] };
-  }
-
-  // Activation deliberately remains fail-closed until a curated general index and
-  // approved model are deployed and the gateway implementation is validated.
-  return { status: "unavailable", text: null, citations: [] };
+): boolean {
+  return Boolean(
+    requested &&
+      config.phase1b.generalContextEnabled &&
+      config.model.endpoint &&
+      config.model.deployment,
+  );
 }
 
 function errorResponse(message: string, requestId: string, status: number) {
@@ -51,8 +44,8 @@ export async function POST(request: Request) {
       citations: [],
       mode: "not-configured",
       requestId,
+      generalKnowledgeUsed: false,
       documentAnswer: { status: "not-configured", text: null, citations: [] },
-      generalContext: { status: "disabled", text: null, citations: [] },
     };
     return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
   }
@@ -138,15 +131,16 @@ export async function POST(request: Request) {
         : Promise.resolve([]),
     ]);
     const citations = [...controlledCitations, ...attachmentCitations];
+    const allowGeneralKnowledge = generalKnowledgeEnabled(includeGeneralContext, config);
 
-    if (citations.length === 0) {
+    if (citations.length === 0 && !allowGeneralKnowledge) {
       const response: ConsultQueryResponse = {
         answer: null,
         citations: [],
         mode: "no-evidence",
         requestId,
+        generalKnowledgeUsed: false,
         documentAnswer: { status: "no-evidence", text: null, citations: [] },
-        generalContext: generalContext(includeGeneralContext, config),
       };
       return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
     }
@@ -157,26 +151,32 @@ export async function POST(request: Request) {
         citations,
         mode: "retrieval-only",
         requestId,
+        generalKnowledgeUsed: false,
         documentAnswer: { status: "retrieval-only", text: null, citations },
-        generalContext: generalContext(includeGeneralContext, config),
       };
       return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
     }
 
     const { createConsultModelGateway } = await import("@/lib/server/model");
     const gateway = createConsultModelGateway(config);
-    const answer = await gateway.createDocumentAnswer({
+    const answer = await gateway.createAnswer({
       requestId,
       question: trimmedQuestion,
       evidence: citations,
+      allowGeneralKnowledge,
     });
+    const generalKnowledgeUsed = /\[G\d+\]/.test(answer);
     const response: ConsultQueryResponse = {
       answer,
       citations,
       mode: "generated",
       requestId,
-      documentAnswer: { status: "generated", text: answer, citations },
-      generalContext: generalContext(includeGeneralContext, config),
+      generalKnowledgeUsed,
+      documentAnswer: {
+        status: citations.length > 0 ? "generated" : "no-evidence",
+        text: citations.length > 0 ? answer : null,
+        citations,
+      },
     };
 
     return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });

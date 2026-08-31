@@ -108,7 +108,6 @@ export function getRuntimeConfig() {
       sessionBlobContainer:
         optional("AZURE_STORAGE_SESSION_CONTAINER") ?? "consult-session-uploads",
       sessionSearchIndex: optional("AZURE_SEARCH_SESSION_INDEX"),
-      generalSearchIndex: optional("AZURE_SEARCH_GENERAL_INDEX"),
       maximumUploadBytes: positiveInteger(
         optional("HELMONIC_MAX_UPLOAD_BYTES"),
         40 * 1024 * 1024,

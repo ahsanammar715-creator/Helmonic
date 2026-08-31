@@ -253,7 +253,7 @@ unauthorized revision never receives traffic.
 | `src/app/(workspace)/growth/marketing/page.tsx` | Mock conversational marketing and drafts workflow |
 | `src/app/(workspace)/growth/leads/page.tsx` | Mock Smart Studio leads and iAcoustics planning-signals modes |
 | `src/app/(workspace)/growth/tenders/page.tsx` | Mock Ireland-wide tender-intelligence workflow and Consult handoff |
-| `src/app/api/consult/query/route.ts` | Same-origin Consult query API, controlled/session Search orchestration, retrieval-only/model modes, and isolated general-context response contract |
+| `src/app/api/consult/query/route.ts` | Same-origin Consult query API, controlled/session Search orchestration, retrieval-only/model modes, and feature-gated single-answer general-knowledge fallback |
 | `src/app/api/consult/conversations/route.ts` | Owner-scoped list/create API for persistent Consult conversations; disabled until Phase 1B persistence activation |
 | `src/app/api/consult/conversations/[conversationId]/documents/route.ts` | Authenticated, owner-scoped PDF upload endpoint that streams to session Blob and queues ingestion |
 | `src/app/api/consult/folders/route.ts` | Owner-scoped list/create API for nested Consult folders |
@@ -265,8 +265,7 @@ unauthorized revision never receives traffic.
 
 | Path | Responsibility |
 | --- | --- |
-| `src/components/consult/ConsultWorkspace.tsx` | Live Consult state, query/conversation/upload calls, answer-mode rendering, and active document/general citations |
-| `src/components/consult/GeneralContextSection.tsx` | Dedicated general-context surface using only `G` citations and never the document Sources panel |
+| `src/components/consult/ConsultWorkspace.tsx` | Live Consult state, query/conversation/upload calls, single-answer rendering, persistent `[G]` disclosure, and active document citations |
 | `src/components/ChatComposer.tsx` | Shared text composer with uploading/queued/ready/failed attachment state |
 | `src/components/AttachPopover.tsx` | File picker/drag-drop control that passes the selected `File` to an approved upload handler |
 | `src/components/ChatBubble.tsx` | User and assistant message presentation |
@@ -296,18 +295,18 @@ unauthorized revision never receives traffic.
 
 | Path | Responsibility |
 | --- | --- |
-| `src/lib/consult/types.ts` | Consult document-answer, document/attachment citation, and isolated general-context response contracts |
+| `src/lib/consult/types.ts` | Consult single-answer, document/attachment citation, and general-knowledge-use response contracts |
 | `src/lib/consult/corpus.ts` | Single application source of truth for the current controlled-document count and label |
 | `src/lib/consult/search-policy.ts` | Pure lexical/hybrid request construction, permission pre-filtering, reviewable cutoff constants, and fail-closed relevance filtering shared by runtime and evaluation tooling |
-| `src/lib/consult/model-policy.ts` | Pure fail-closed `D`/`A` document-answer marker validator shared by the runtime contract |
+| `src/lib/consult/model-policy.ts` | Pure fail-closed `D`/`A` validator plus opt-in sequential `G` marker and explicit no-document-evidence policy |
 | `src/lib/consult/organization.ts` | Folder/conversation persistence DTOs |
 | `src/lib/consult/uploads.ts` | Session-document lifecycle and composer attachment DTOs |
 | `src/lib/server/config.ts` | Runtime environment parsing, defaults, and fail-closed lexical/hybrid/model/embedding completeness checks |
 | `src/lib/server/azure-credential.ts` | Managed-identity/default Azure credential token acquisition |
 | `src/lib/server/search.ts` | Permission-scoped controlled lexical/hybrid retrieval, relevance filtering before citation creation, session Search, and citation shaping |
 | `src/lib/server/embeddings.ts` | Managed-identity query-embedding client with strict deployment, dimension, timeout, and finite-vector validation |
-| `src/lib/server/model.ts` | Managed-identity Azure GPT implementation of the Model Gateway with high reasoning, bounded output, strict document-marker validation, and usage telemetry |
-| `src/lib/server/model-gateway.ts` | Provider-neutral document/general request contracts, validation error boundary, and `G` citation validation seed |
+| `src/lib/server/model.ts` | Managed-identity Azure GPT implementation of the Model Gateway with high reasoning, bounded output, one-call document/general prompting, strict marker validation, and usage telemetry |
+| `src/lib/server/model-gateway.ts` | Provider-neutral single-answer request contract and validation error boundary |
 | `src/lib/server/postgres.ts` | Managed-identity PostgreSQL connection wrapper used by readiness and repositories |
 | `src/lib/server/consult-repository.ts` | Transactional, owner-scoped folder, conversation, upload, and ingestion-job persistence |
 | `src/lib/server/identity.ts` | Platform-authenticated actor extraction from Container Apps auth headers |
@@ -332,6 +331,7 @@ unauthorized revision never receives traffic.
 | `scripts/managed-identity.mjs` | Shared fail-closed constructor that requires `AZURE_CLIENT_ID` and creates an explicitly targeted `ManagedIdentityCredential` for temporary multi-UAMI jobs |
 | `scripts/ingestion/index-parity.mjs` | Exact v1/v2 chunk-metadata parity checks plus a bounded retry window for Azure Search's asynchronous indexing visibility |
 | `scripts/ingestion/upload-payload.mjs` | Controlled writer with an explicitly selected ingestion UAMI, opt-in embeddings, bounded Azure 429/`Retry-After` handling, table validation, v1/v2 parity, all-vector readiness, and v1 rollback protection |
+| `scripts/evaluation/model-answer-policy.test.mjs` | Offline contract tests for document-only, blended document/general, general-only no-evidence, and honest uncertainty answers |
 | `scripts/ingestion/build-hybrid-payload.py` | Private-job payload builder that reads only retrievable v1 manifest fields and controlled Blob originals, requires the permission scope explicitly because v1 keeps it non-retrievable, preserves detected PDF tables as atomic Markdown, and retains v1 identifiers/page metadata for parity |
 | `scripts/ingestion/Dockerfile.hybrid` | Temporary non-root hybrid-validation image combining table-preserving extraction, the shared explicit-UAMI helper, the v2 uploader, and the eight-case private retrieval evaluation in one fail-closed job |
 | `scripts/validation/phase1b-bootstrap.cjs` | Temporary private-network validation job entrypoint for the idempotent Phase 1B migration plus isolated Blob container/Search index creation |
@@ -388,20 +388,22 @@ A. Model unavailability cannot cause uncited generation.
 ### D-004: no-evidence rule
 
 If permitted retrieval returns no adequate evidence, Consult says so explicitly. It
-does not answer from hidden model memory, fabricate a source, or treat general context
-as document evidence.
+does not fabricate a source or treat general context as document evidence. If the user
+has explicitly enabled D-022, visibly marked model knowledge may follow the mandatory
+no-document-evidence statement; it never changes the document-evidence result.
 
 ### D-005: citations are server-authoritative
 
 The server creates citation objects from Search results. The model can reference only
 provided markers. The Sources panel displays real document/page evidence. Phase 1B adds
 separate `D`, `A`, and `G` marker namespaces so controlled documents, conversation
-attachments, and general references cannot be blended.
+attachments, and unverified model knowledge cannot be mistaken for one another.
 
-Target A is fail-closed: the Model Gateway rejects an empty answer, an answer without a
-document marker, an unsupported `D`/`A` marker, or any `G`/numeric marker in the document
-answer. It does not silently remove an invalid marker or append a citation the model did
-not actually use. The no-evidence branch returns before the Model Gateway is invoked.
+Target A is fail-closed: the Model Gateway rejects an empty answer, missing or
+unsupported document markers when evidence exists, malformed markers, and any `G`
+marker unless the D-022 feature is explicitly enabled. When evidence is absent, it
+rejects a fallback that omits the mandatory disclosure. It does not silently remove an
+invalid marker or append a citation the model did not actually use.
 
 ### D-006: root/port-80 was a tracked temporary exception
 
@@ -459,12 +461,13 @@ limit Off. Default quota appeared after the upgrade, so duplicate increase reque
 were not submitted. This historical quota result does not restore Mistral candidacy;
 the later Preview/DPA decision above controls.
 
-### D-009: general context is additive and isolated
+### D-009: general context is additive and isolated (superseded)
 
 The controlled-document answer remains primary. General context uses a separate source
 set, model call, response object, UI block, and citation namespace. Live Bing grounding
 stays disabled because Microsoft documents that its queries leave the Azure
-compliance/Geo boundary.
+compliance/Geo boundary. D-022 supersedes the separate-call and separate-UI parts of
+this decision; the no-web-grounding boundary remains unchanged.
 
 ### D-010: brainstorming uploads are not controlled company sources
 
@@ -538,8 +541,9 @@ authenticated Entra object ID as the ownership boundary and database-level compo
 foreign keys prevent cross-owner folder/conversation/document relationships. Session
 attachments use a separate Blob container and Search index, and retrieval filters on
 both owner and conversation before results are shaped as `A` citations. Controlled
-documents retain `D` citations; general references use `G` citations and never enter
-the Sources panel. The migration, session container/index, worker, feature activation,
+documents retain `D` citations; optional model knowledge uses `G` disclosure markers and never enters
+the Sources panel. D-022 later reclassified `G` as an unverified model-knowledge marker
+rather than a reference citation. The migration, session container/index, worker, feature activation,
 deployment, and traffic shift remain separate cost/approval gates.
 
 ### D-020: every Container Apps revision uses an explicit immutable template
@@ -607,6 +611,23 @@ Embeddings alone are rejected because exact numeric, unit, and standards referen
 need BM25. Claude as a second provider is rejected as outside the corrected diagram and
 single-provider decision. No Azure index, deployment, ingestion, or cutover occurs
 without D-011 approval.
+
+### D-022: one flowing answer with visibly unverified general knowledge
+
+D-009's split answer, second model call, curated general index, and dedicated UI block
+are replaced by one existing GPT-5.5 call and one natural answer. Server-retrieved
+controlled and attachment claims retain strict `[D#]` and `[A#]` validation. Optional
+model-memory context uses sequential `[G#]` disclosure markers in the same paragraphs;
+those markers are not citations, do not create source records, and never enter the
+Sources panel. Whenever a `G` marker appears, the UI permanently displays: `[G] marks
+the model's own general knowledge, not verified against your documents.` If no permitted
+document evidence exists, the response must state that fact before any general fallback.
+No web search, new index, second model call, or new data-egress path is introduced.
+
+This reduces latency, cost, and the fragmented reading experience, but it accepts a
+clear product risk: `[G]` content is not externally verified and can be wrong. The
+feature therefore remains opt-in, flag-controlled, honestly uncertain when needed, and
+disabled in live DEV until the hybrid-v2 runtime is separately approved and promoted.
 
 ## Current status
 
@@ -696,8 +717,13 @@ without D-011 approval.
   a versioned ingestion message to Service Bus.
 - A separate session Search schema and owner/conversation-filtered retrieval path are
   defined. Controlled results use `D` markers and attachments use `A` markers.
-- A provider-neutral Model Gateway contract and a separate general-context UI use only
-  `G` citations and never populate the controlled Sources panel.
+- The provider-neutral Model Gateway now supports one feature-gated flowing answer:
+  server-validated `D`/`A` document markers and explicitly unverified sequential `G`
+  markers share prose, while the controlled Sources panel remains document-only.
+- The prior separate general-context response block and component are removed. A
+  persistent one-line disclosure appears only when the answer actually contains a `G`
+  marker. Six offline policy tests cover fully grounded, blended, general-only,
+  no-evidence, malformed, and honest-uncertainty behavior.
 - The document-answer route now invokes the provider-neutral Model Gateway rather than a
   provider function directly. Its Azure GPT implementation uses managed identity, high
   reasoning, a 2,000-token reasoning/output ceiling, strict marker validation, and
@@ -747,7 +773,9 @@ without D-011 approval.
   Voice deployment is no longer account-tier-blocked, but Azure Speech resource creation
   remains pending a separate cost estimate and approval.
 - Azure Speech has not been provisioned.
-- No live-web/general-context connector has been approved.
+- No live-web connector has been approved. The inline general-knowledge source contract
+  is implemented locally behind `HELMONIC_GENERAL_CONTEXT_ENABLED=false`; no live
+  revision, flag, Search-index, resource, or traffic change has been made for it.
 - The D-011 gate was approved for the approximately USD 7.80/month embedding private
   endpoint and a USD 0.30 private re-index/evaluation ceiling. The France Central account,
   Data Zone deployment, dedicated OpenAI private DNS zone/VNet link, and account-scoped
@@ -866,6 +894,7 @@ cutover, and traffic movement remain later, separately estimated and approved ga
 | 2026-08-31 | Multi-UAMI diagnosis, cleanup, and local identity-selection correction | Later validation attempts returned managed-identity HTTP 400 `invalid_scope` (`No User Assigned or Delegated Managed Identity found for specified ClientId/ResourceId/PrincipalId`) before Search or embedding data calls. No active Container Apps service-health incident was found, while a same-environment throwaway job with only a system-assigned identity received HTTP 200 from the identity endpoint; this isolates the failure to the temporary UAMI path rather than the environment or private network. The standing ACR UAMI is consumed separately by the platform image-pull configuration. Because the disposable job attaches both ACR-pull and ingestion UAMIs, the Node uploader and evaluator were changed from ambiguous `DefaultAzureCredential` discovery to an explicit, fail-closed `ManagedIdentityCredential(AZURE_CLIENT_ID)` contract with regression tests and explicit container packaging. Seven policy/identity tests, the eight-case offline retrieval contract, seven-case generated-answer policy, lint, TypeScript, and runtime-hardening checks pass. Deleted and independently confirmed absent the diagnostic/validation jobs, disposable UAMI, five roles, temporary ACR repository and grant, and local payload archive. Live v1 and traffic were untouched; the corrected path remains pending a separately approved private validation run |
 | 2026-08-31 | First explicit-UAMI private hybrid run and parity timing correction | The corrected job acquired tokens with the selected ingestion UAMI, read all sixteen source documents, and built 414 chunks including 87 table pages, resolving the prior identity-endpoint blocker. Azure Search accepted the v2 upload but exposed only 348 of 414 chunks to the immediate parity query, so the fail-closed check stopped before the eight cases and live v1/traffic remained untouched. The uploader now waits through a bounded asynchronous-indexing window and rechecks the exact 414-chunk/source/title/page manifest; it does not relax parity or permit partial cutover. |
 | 2026-08-31 | `743fe63` final hybrid validation and cleanup | Added bounded Search-index visibility retries without weakening exact parity, with three regression tests and synchronized operator/architecture documentation. PR #16 CI and immutable ACR build passed. The private job embedded and indexed all sixteen documents as 414 chunks including 87 table pages, proved exact v1/v2 source-title-page parity, and passed all eight semantic/hybrid relevance cases with zero failures. Restored the embedding deployment from the temporary 100 kTPM validation limit to 1 kTPM; deleted the job, ingestion UAMI, all five roles, both temporary ACR tags/manifests and repository, short-lived user grant, Cloud Shell clone, and local GitHub CLI credential bundle. Independently verified zero job/UAMI/role/grant counts, live traffic 100% on `--p1bgpt55fin`, and live `AZURE_SEARCH_INDEX=consult-demo-v1`. `consult-demo-v2` remains isolated pending a separately approved zero-traffic/runtime cutover. |
+| 2026-08-31 | D-022 inline general-knowledge source slice | Superseded the split D-009 experience with one feature-gated GPT-5.5 answer, preserving strict server-authoritative `D`/`A` citations while allowing sequential unverified `G` disclosure markers. Removed the separate response/UI block and curated-index dependency, added the persistent conditional disclaimer and explicit no-document-evidence rule, and added six offline contract tests plus a CI policy gate. No Azure resource, model deployment, revision, flag, Search index, live request, or traffic change occurred; live DEV remains on v1 with general knowledge disabled. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
@@ -878,7 +907,8 @@ or infrastructure record.
 Phase 1B extends the proven Phase 1A Consult vertical slice into a persistent,
 user-operated document workspace. It adds real document attachment and ingestion,
 persistent conversations and folders, speech-to-text input, and a strictly separated
-general-context capability.
+general-context capability. D-022 now implements that context as visibly marked prose
+inside one flowing answer rather than a second answer block.
 
 The design preserves the core Phase 1A guarantees:
 
@@ -961,10 +991,10 @@ Azure Container App: Helmonic UI + API
         |      identical managed-identity chunk/query vectors
         |
         +--> Azure AI Search
-        |      versioned controlled hybrid index, session index, curated-general index
+        |      versioned controlled hybrid index and session index
         |
         +--> GPT-5.5 Data Zone Standard (live, sole provider)
-        |      document-grounded answer; general context remains disabled
+        |      document answer; feature-gated inline [G] context is source-only today
         |
         +--> Azure Speech (pending resource/cost approval)
                short speech-to-text transcription
@@ -1028,7 +1058,6 @@ Phase 1B uses separate indexes on the existing Azure AI Search service:
 - `consult-demo-v1`: live lexical controlled documents and immutable rollback target.
 - `consult-demo-v2`: validated, isolated versioned controlled hybrid index; not selected by the live runtime.
 - `consult-session-v1`: temporary, conversation-scoped attachments.
-- `consult-general-v1`: curated authoritative public references.
 
 Creating additional indexes does not create another Search service or another fixed
 Search SKU charge.
@@ -1277,23 +1306,25 @@ memory copies. It returns a document ID and initial state; extraction is asynchr
 }
 ```
 
-The response is structurally separated:
+The response keeps one answer while retaining the document-only compatibility object:
 
 ```json
 {
   "requestId": "uuid",
+  "answer": "one flowing answer or null",
+  "citations": [],
+  "generalKnowledgeUsed": true,
   "documentAnswer": {
     "status": "generated | retrieval-only | insufficient-evidence",
-    "text": "string or null",
-    "citations": []
-  },
-  "generalContext": {
-    "status": "generated | unavailable | insufficient-evidence | disabled",
     "text": "string or null",
     "citations": []
   }
 }
 ```
+
+`citations` and `documentAnswer.citations` contain only server-authoritative `D`/`A`
+sources. `generalKnowledgeUsed` controls the persistent `G` disclosure and never adds a
+source card.
 
 ### 9.4 Speech
 
@@ -1348,28 +1379,37 @@ The Sources panel groups these classifications visibly. Attachments are labelled
 - Hybrid nearest neighbours below the approved relevance cutoff count as absent.
 - If sources conflict, Helmonic identifies the conflicting sources and does not choose
   one without a stated basis.
-- General-context material cannot be used to fill a gap in the document-grounded
-  section without being visibly classified as general context.
+- Model-memory material cannot fill a document-evidence gap without a visible `[G#]`
+  marker, and it cannot conceal the explicit no-document-evidence statement.
 
 ### 10.3 General context
 
-General context is generated through a separate retrieval and model call. This is a
-deliberate isolation boundary; it reduces the risk that public material is presented as
-if it came from the user's documents.
+When explicitly requested and feature-enabled, GPT-5.5 may add useful general knowledge
+inside the same natural answer as controlled evidence. This is one model call, not a
+second answer section or a second retrieval pipeline.
 
-Citation markers:
+Marker namespaces remain visibly distinct:
 
-- `[G1]`, `[G2]`: curated public references.
+- `[D1]`, `[D2]`: server-retrieved controlled documents.
+- `[A1]`, `[A2]`: server-retrieved conversation attachments.
+- `[G1]`, `[G2]`: the model's own general knowledge, unverified against the documents.
 
-General citations never enter the Sources panel. They appear only inside a separate
-`General context - not from your documents` component.
+`G` markers are disclosure labels, not citations. They never create a source object,
+never enter the Sources panel, and never pretend to identify a public reference. If any
+`G` marker is present, the UI shows the persistent statement: `[G] marks the model's
+own general knowledge, not verified against your documents.` Fully document-grounded
+answers show neither `G` markers nor the disclaimer.
 
-The primary Phase 1B source is the EU-hosted `consult-general-v1` curated reference
-index. Sources must be authoritative, allowlisted, traceable, and retained with their
-real public URLs and content hashes.
+If retrieval returns no permitted document evidence, the answer must begin by stating
+that the permitted Helmonic documents do not contain relevant evidence. General context
+may follow with `G` markers, or the model must say that it does not know enough to answer
+reliably. Unsupported `D`/`A` markers, malformed markers, non-sequential `G` markers,
+and hidden no-evidence fallbacks fail validation.
 
-The model is not permitted to invent or complete a URL. If retrieval provides no
-verified public reference, general context is marked insufficient or unavailable.
+The risk tradeoff is explicit: model memory is faster and avoids another resource, call,
+and index, but it is not source-verified and can be wrong. This pathway does not satisfy
+a request for independently sourced public evidence; that remains a separate future
+capability with its own governance and approval gate.
 
 ### 10.4 Live web grounding
 
@@ -1456,11 +1496,13 @@ answer changes the panel to that answer's immutable citation snapshot.
 It contains separate groups for controlled documents and conversation attachments. It
 never contains general-context citations.
 
-### 12.5 General-context component
+### 12.5 Inline general-knowledge disclosure
 
-The general section appears below the document-grounded answer with a distinct border,
-heading, explanatory label, citation markers, and uncertainty state. It is never shown
-as a continuation of the document answer.
+Document evidence and optional general knowledge render as one flowing assistant answer.
+Inline `D`/`A` markers continue to resolve through the document-only Sources panel.
+Inline `G` markers have no source card; whenever one appears, a persistent one-line
+disclaimer immediately below the answer explains that it is model knowledge not
+verified against the documents.
 
 ## 13. Identity and authorization
 
@@ -1694,9 +1736,8 @@ Estimated engineering scope: 4-7 working days.
 ### Phase 1B-C: voice and general context
 
 - voice UI and disabled Speech adapter
-- curated public-reference index
-- separate general-context generation
-- separate general-citation rendering
+- feature-gated single-call inline general knowledge with `G` disclosure markers
+- document-only Sources panel plus conditional persistent `G` disclaimer
 - model/Speech deployment after quota, compliance, architecture, and cost approvals
 
 Estimated engineering scope: 4-7 working days after model availability.
@@ -1710,10 +1751,7 @@ testable and deployable behind feature flags.
 2. Initial maximum PDF size: 40 MB in the local contract; review before live activation.
 3. Whether Phase 1B requires malware scanning before production use.
 4. Who can promote attachments into the controlled knowledge base.
-5. Which authoritative public domains/sources are permitted in the curated general
-   index.
-6. Selected EU model and approved token budget after quota becomes available.
-7. Azure Speech S0/private-endpoint recurring cost approval now that PAYG is active.
+5. Azure Speech S0/private-endpoint recurring cost approval now that PAYG is active.
 
 ## 22. Documentation discipline for every change
 
