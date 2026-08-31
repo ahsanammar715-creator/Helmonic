@@ -20,6 +20,12 @@ Apps Job runs `upload-payload.mjs` with a dedicated user-assigned identity that 
 - `Search Service Contributor` to create the named index;
 - `Search Index Data Contributor` to load chunks.
 
+The job also carries the standing ACR-pull UAMI, so data-plane credential discovery must
+not choose a default identity. Set `AZURE_CLIENT_ID` to the disposable ingestion UAMI's
+client ID. The Python builder, Node uploader, and private evaluator all select that exact
+identity and fail closed if the value is missing; the ACR identity remains a platform-only
+image-pull setting.
+
 The live Container App retains Search read-only access. Service Bus is not part of this
 historical Tuesday path. The script creates the index only when it does not already
 exist; it does not overwrite or delete an existing index definition.

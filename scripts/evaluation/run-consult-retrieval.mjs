@@ -2,13 +2,12 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { DefaultAzureCredential } from "@azure/identity";
-
 import {
   REVIEWABLE_HYBRID_THRESHOLDS,
   buildControlledHybridSearchRequest,
   retainRelevantHybridDocuments,
 } from "../../src/lib/consult/search-policy.ts";
+import { createUserAssignedManagedIdentityCredential } from "../managed-identity.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const suite = JSON.parse(
@@ -140,7 +139,7 @@ async function runLiveEvaluation() {
     10,
   );
   const semanticConfiguration = required("AZURE_SEARCH_SEMANTIC_CONFIGURATION");
-  const credential = new DefaultAzureCredential();
+  const credential = createUserAssignedManagedIdentityCredential();
   const [searchAccessToken, embeddingAccessToken] = await Promise.all([
     credential.getToken("https://search.azure.com/.default"),
     credential.getToken("https://cognitiveservices.azure.com/.default"),

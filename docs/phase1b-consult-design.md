@@ -226,8 +226,9 @@ unauthorized revision never receives traffic.
 | `scripts/verify-runtime-hardening.mjs` | Fails local/CI/image builds if root, port 80, or the expired exception label returns |
 | `tests/e2e/smoke.spec.ts` | Route smoke tests, fail-closed/runtime-user tests, Phase 1B disabled-boundary checks, UI flows, responsive behavior, settings, current corpus copy, and legacy mock attachment coverage |
 | `scripts/evaluation/consult-retrieval.json` | Versioned eight-case hybrid fixture covering paraphrase, Wetherspoon/Premier Inn regression, numeric tables, no-evidence, and permission pre-filter behavior; owns the reviewable candidate cutoffs |
-| `scripts/evaluation/run-consult-retrieval.mjs` | Offline hybrid-suite/request validation and opt-in managed-identity embedding plus private v2 Search evaluation |
+| `scripts/evaluation/run-consult-retrieval.mjs` | Offline hybrid-suite/request validation and opt-in private v2 evaluation; live execution explicitly selects the ingestion UAMI through `AZURE_CLIENT_ID` before acquiring embedding or Search tokens |
 | `scripts/evaluation/relevance-policy.test.mjs` | Isolated unit tests for semantic/RRF cutoffs, missing-score failure, embedding validation, and permission pre-filter construction |
+| `scripts/evaluation/managed-identity-selection.test.mjs` | Regression tests proving temporary jobs select the configured UAMI and fail closed when `AZURE_CLIENT_ID` is missing or blank |
 | `scripts/evaluation/run-consult-generated.mjs` | Offline citation-policy validation and opt-in Target A evaluation through the same-origin API using eligible v2 cases |
 
 ### App Router surfaces
@@ -326,10 +327,11 @@ unauthorized revision never receives traffic.
 | `scripts/ingestion/index-schema-v2.json` | Proposed `consult-demo-v2` schema with table metadata, a 1,536-dimension vector field, cosine HNSW, and `consult-semantic-v2` |
 | `scripts/ingestion/session-index-schema.json` | Proposed isolated, owner/conversation-filterable `consult-session-v1` Search schema |
 | `scripts/ingestion/payload.example.json` | Non-sensitive extraction-v2 example including atomic table metadata alongside source/chunk/page/hash fields |
-| `scripts/ingestion/README.md` | Operator instructions, corpus-count gate, versioned hybrid re-index safety contract, and least-privilege separation |
-| `scripts/ingestion/upload-payload.mjs` | Controlled writer with opt-in managed-identity embeddings, bounded Azure 429/`Retry-After` handling, table validation, v1/v2 parity, all-vector readiness, and v1 rollback protection |
+| `scripts/ingestion/README.md` | Operator instructions, corpus-count gate, explicit multi-UAMI client-ID contract, versioned hybrid re-index safety contract, and least-privilege separation |
+| `scripts/managed-identity.mjs` | Shared fail-closed constructor that requires `AZURE_CLIENT_ID` and creates an explicitly targeted `ManagedIdentityCredential` for temporary multi-UAMI jobs |
+| `scripts/ingestion/upload-payload.mjs` | Controlled writer with an explicitly selected ingestion UAMI, opt-in embeddings, bounded Azure 429/`Retry-After` handling, table validation, v1/v2 parity, all-vector readiness, and v1 rollback protection |
 | `scripts/ingestion/build-hybrid-payload.py` | Private-job payload builder that reads only retrievable v1 manifest fields and controlled Blob originals, requires the permission scope explicitly because v1 keeps it non-retrievable, preserves detected PDF tables as atomic Markdown, and retains v1 identifiers/page metadata for parity |
-| `scripts/ingestion/Dockerfile.hybrid` | Temporary non-root hybrid-validation image combining table-preserving extraction, the managed-identity v2 uploader, and the eight-case private retrieval evaluation in one fail-closed job |
+| `scripts/ingestion/Dockerfile.hybrid` | Temporary non-root hybrid-validation image combining table-preserving extraction, the shared explicit-UAMI helper, the v2 uploader, and the eight-case private retrieval evaluation in one fail-closed job |
 | `scripts/validation/phase1b-bootstrap.cjs` | Temporary private-network validation job entrypoint for the idempotent Phase 1B migration plus isolated Blob container/Search index creation |
 | `scripts/validation/phase1b-validation-maintenance.cjs` | Private-environment audit, retrieval evaluation, and tightly scoped synthetic-fixture cleanup used during Phase 1B validation |
 | `scripts/validation/phase1b-postgres-owner-recovery.cjs` | One-purpose cleanup utility that transfers bootstrap-created PostgreSQL object ownership to the permanent Entra administrator before deleting a temporary bootstrap principal |
@@ -579,6 +581,14 @@ policy; they are not approved for traffic until tuned against private v2 evaluat
 Missing scores and below-threshold results are discarded before citations are built, so
 vector nearest-neighbour behavior cannot bypass D-004.
 
+Temporary validation jobs attach the standing ACR-pull UAMI and a disposable ingestion
+UAMI at the same time. Application-side token acquisition must therefore never rely on
+default identity discovery. The payload uploader and private evaluator require
+`AZURE_CLIENT_ID` and construct `ManagedIdentityCredential` for that exact ingestion
+identity; missing or blank configuration fails before any data-plane request. Image pull
+continues to use the separately configured ACR identity at the Container Apps platform
+layer.
+
 `consult-demo-v1` is immutable rollback. A separately created `consult-demo-v2` adds
 the vector field, cosine HNSW profile, semantic configuration, and table metadata.
 Re-ingestion must preserve declared tables as atomic Markdown or key/value chunks,
@@ -695,10 +705,12 @@ without D-011 approval.
   queries, threshold filtering before citations, atomic-table manifest controls, v1/v2
   parity checks, and an eight-case fixture with isolated policy tests. The approved
   France Central embedding foundation is provisioned. The private validation job proved
-  the sixteen-document payload (414 chunks, including 87 table pages), but Azure rejected
-  the first embedding request with `403 Traffic is not from an approved private endpoint`
-  even though in-job DNS resolved the approved endpoint to `10.36.1.11`. No v2 index was
-  created, and no runtime revision, index cutover, or traffic change exists.
+  the sixteen-document payload (414 chunks, including 87 table pages). Private networking
+  was subsequently corrected, but later attempts stopped before Search or embedding data
+  calls because the temporary ingestion UAMI was not selected reliably in a multi-UAMI
+  job. The permanent Node stages now require and explicitly use that UAMI's client ID;
+  private revalidation is still pending. No v2 index was created, and no runtime revision,
+  index cutover, or traffic change exists.
 
 ### Pending/blocking
 
@@ -804,8 +816,11 @@ USD 7.80/month for one additional private endpoint and its dedicated private DNS
 USD 0 standing model/account charge, no new fixed Search charge, and a USD 0.30 ceiling
 for initial embedding, re-index, Search, storage, and short-lived job validation. The
 account/deployment/private endpoint now exist. The first complete private run built the
-sixteen-document/414-chunk payload but stopped on Azure's private-endpoint enforcement
-before any embedding or v2 index creation. Generated-answer evaluation, runtime revision,
+sixteen-document/414-chunk payload but stopped before any embedding or v2 index creation.
+Private networking was corrected; a later identity-isolation probe proved the environment's
+system-assigned identity endpoint works, and the multi-UAMI application path was corrected
+locally to select the ingestion client ID explicitly. Generated-answer evaluation, runtime
+revision,
 `AZURE_SEARCH_INDEX` cutover, and traffic movement remain later, separately estimated and
 approved gates.
 
@@ -841,6 +856,7 @@ approved gates.
 | 2026-08-28 | Pilot-diagram reconciliation and local hybrid retrieval slice | Confirmed the out-of-scope box unchanged, GPT-5.5 as the sole provider, and lexical-only v1 as the gap to fix. Added disabled local contracts for `text-embedding-3-small`, versioned `consult-demo-v2`, managed-identity chunk/query embeddings, atomic table manifests, v1/v2 parity, pre-filtered BM25+HNSW retrieval, semantic/RRF cutoffs before citation creation, and eight-case evaluation plus unit tests. Offline fixtures, threshold tests, generated-answer policy, lint, and TypeScript pass. No Azure resource, index, ingestion, deployment, or traffic changed; D-011 cost approval remains the next gate |
 | 2026-08-28 | Approved hybrid embedding foundation | Reconfirmed France Central `text-embedding-3-small` Data Zone quota at 0 of 1,000, then created `aif-helmonic-embed-dev-001` with public access disabled/default deny from its initial resource PUT, deployed version 1 as `DataZoneStandard` capacity 1, created/approved `pe-ai-embed-helmonic-dev-001`, added dedicated `privatelink.openai.azure.com` DNS with VNet link and the correct endpoint zone group, and scoped the Container App identity to `Cognitive Services OpenAI User` on only the new account. Live `consult-demo-v1` and traffic were unchanged |
 | 2026-08-28 | Hybrid private validation and complete temporary cleanup | Temporarily raised the embedding deployment from 1 to 100 kTPM, then restored it to 1 immediately after the terminal run. The private job read all sixteen controlled PDFs and built 414 chunks including 87 table pages, but Azure rejected the first embedding call with `403 Traffic is not from an approved private endpoint`; in-job DNS nevertheless resolved the approved account connection to private IP `10.36.1.11`, so v2 ingestion and the eight-case evaluation did not run. Deleted the job, UAMI, all five UAMI roles, temporary ACR repository, and both short-lived repository-scoped user grants. Verified live traffic remains 100% on `--p1bgpt55fin` and `AZURE_SEARCH_INDEX=consult-demo-v1` |
+| 2026-08-31 | Multi-UAMI diagnosis, cleanup, and local identity-selection correction | Later validation attempts returned managed-identity HTTP 400 `invalid_scope` (`No User Assigned or Delegated Managed Identity found for specified ClientId/ResourceId/PrincipalId`) before Search or embedding data calls. No active Container Apps service-health incident was found, while a same-environment throwaway job with only a system-assigned identity received HTTP 200 from the identity endpoint; this isolates the failure to the temporary UAMI path rather than the environment or private network. The standing ACR UAMI is consumed separately by the platform image-pull configuration. Because the disposable job attaches both ACR-pull and ingestion UAMIs, the Node uploader and evaluator were changed from ambiguous `DefaultAzureCredential` discovery to an explicit, fail-closed `ManagedIdentityCredential(AZURE_CLIENT_ID)` contract with regression tests and explicit container packaging. Seven policy/identity tests, the eight-case offline retrieval contract, seven-case generated-answer policy, lint, TypeScript, and runtime-hardening checks pass. Deleted and independently confirmed absent the diagnostic/validation jobs, disposable UAMI, five roles, temporary ACR repository and grant, and local payload archive. Live v1 and traffic were untouched; the corrected path remains pending a separately approved private validation run |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
@@ -1625,7 +1641,7 @@ estimated at approximately USD 130-145 per month after conversion to PAYG.
 | Additional Blob containers | None | Less than USD 0.01 at initial scale | Container creation and validation |
 | Additional Search indexes | None on existing Search service | Included with ingestion ceiling | Index creation and ingestion |
 | Separate EU Foundry account for embeddings | No standing account charge; France Central account created after quota confirmation | USD 0 before inference | Approved and provisioned; public access disabled |
-| Embedding-account private endpoint and DNS | Approximately USD 7.80/month plus negligible data processing; dedicated `privatelink.openai.azure.com` zone linked to the DEV VNet | Included in the USD 0.30 hybrid validation ceiling | Approved and provisioned; private-link enforcement issue remains under diagnosis |
+| Embedding-account private endpoint and DNS | Approximately USD 7.80/month plus negligible data processing; dedicated `privatelink.openai.azure.com` zone linked to the DEV VNet | Included in the USD 0.30 hybrid validation ceiling | Approved, provisioned, and corrected for private-endpoint-only access; the remaining multi-UAMI application-selection defect is fixed locally and awaits private revalidation |
 | `text-embedding-3-small` Data Zone Standard | Usage based; no standing model charge; version 1/capacity 1 deployed | USD 0.05 conservative initial embedding ceiling | Approved for the current private validation only |
 | Semantic ranker for hybrid cutoff | No new fixed charge on existing Search Basic; its current free semantic plan includes the first 1,000 requests/month | Included in the USD 0.30 hybrid validation ceiling | v2 semantic configuration, evaluation, and live queries |
 | Initial 16-PDF hybrid ingestion validation | None fixed | USD 0.25 | Job execution, storage, Search transactions |

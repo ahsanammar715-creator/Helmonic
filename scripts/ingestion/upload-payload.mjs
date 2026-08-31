@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
-import { DefaultAzureCredential } from "@azure/identity";
+import { createUserAssignedManagedIdentityCredential } from "../managed-identity.mjs";
 
 const searchApiVersion = process.env.AZURE_SEARCH_API_VERSION || "2025-09-01";
 const storageApiVersion = "2023-11-03";
@@ -33,7 +33,7 @@ const embeddingApiVersion = process.env.AZURE_OPENAI_EMBEDDING_API_VERSION || "2
 const embeddingDimensions = positiveInteger("AZURE_OPENAI_EMBEDDING_DIMENSIONS", 1536);
 const embeddingBatchSize = positiveInteger("HELMONIC_EMBEDDING_BATCH_SIZE", 16);
 
-const credential = new DefaultAzureCredential();
+const credential = createUserAssignedManagedIdentityCredential();
 
 function required(name) {
   const value = process.env[name]?.trim();

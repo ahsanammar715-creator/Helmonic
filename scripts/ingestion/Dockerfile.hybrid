@@ -19,6 +19,7 @@ RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY --chown=node:node scripts/ingestion ./scripts/ingestion
 COPY --chown=node:node scripts/evaluation ./scripts/evaluation
+COPY --chown=node:node scripts/managed-identity.mjs ./scripts/managed-identity.mjs
 COPY --chown=node:node src/lib/consult ./src/lib/consult
 RUN mkdir -p /payload && chown node:node /payload
 
