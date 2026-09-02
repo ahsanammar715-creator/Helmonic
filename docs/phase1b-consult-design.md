@@ -774,6 +774,15 @@ disabled in live DEV until the hybrid-v2 runtime is separately approved and prom
   while narrative remains bounded. The first paid query on `--hyb5237aa3` failed, so the
   remaining paid suite stopped; no traffic moved. A corrected immutable image and new
   zero-traffic revision are still required before validation resumes.
+- That required replacement is now complete. Healthy active-at-0% revision
+  `--hyb570514c` uses immutable image `570514c...`, `consult-demo-v2`, hybrid/semantic
+  retrieval, minimum replicas zero, and disabled general context/uploads/folders. Its
+  full eight-case live suite passed: both paraphrases, both Wetherspoon regressions,
+  all three out-of-scope no-evidence cases with zero sources, and the unauthorized
+  permission-scope pre-filter case. The disposable scope probe is inactive, temporary
+  callbacks are removed, the stored next-revision template is restored to the authorized
+  v2 configuration, and live traffic remains 100% on `--p1bgpt55fin`/v1. No index or
+  traffic cutover has occurred; that remains a separate approval.
   The temporary job, ingestion
   UAMI, five roles, ACR repository/grant, Cloud Shell source, and local credential bundle
   were deleted after validation; the embedding deployment was restored to 1 kTPM.
@@ -934,6 +943,7 @@ standing-resource change was made during local diagnosis.
 | 2026-08-31 | Wetherspoon regression diagnosis corrected by live evidence | Source inspection first proved the expected 66 dB rating, 47 dB background, and 19 dB difference exist in Table 6 on report/PDF page 7. A provisional same-page table lookup passed local tests, but its first zero-traffic live query still returned four page-7/page-3 citations and the 7 dB answer. Ingestion-code and live-output comparison then established the precise cause: all page-7 tables are appended to one atomic chunk that was already retrieved, while the server exposed only its first 420 characters to GPT-5.5. The second Search call was removed. Hybrid Search now selects `chunk_kind`; atomic table evidence receives a bounded 3,000-character projection while ordinary narrative remains at 420. Tests explicitly prove 66 dB, 47 dB, and 19 dB survive the table projection. Live v1, permission filtering, the threshold, general-context flag, and traffic remain unchanged. |
 | 2026-08-31 | CI parity corrections before hybrid deployment | The first approved push reached Vercel Preview and built the ACR image, but CI stopped before application build because Node 22.22.2 does not accept the later `--test-isolation=none` spelling. The suite still needs in-process execution in the restricted local runner, so only `test:model-policy` was changed to Node 22's compatible `--experimental-test-isolation=none` alias; its six cases then passed in CI. The next gate exposed one stale E2E assertion for the separate `generalContext` object removed by D-022; the fail-closed route correctly returns the documented single-answer contract, so that obsolete assertion was removed without changing runtime behavior. No Azure revision, index, flag, request, or traffic change occurred. |
 | 2026-08-31 | `5237aa3` zero-traffic gate stopped on first Wetherspoon query | CI, ACR, and Vercel Preview passed after the parity corrections. Created `--hyb5237aa3` from immutable image `5237aa3...` with minimum replicas zero, v2 hybrid/semantic retrieval enabled, uploads/folders/general context disabled, and live traffic still 100% on `--p1bgpt55fin`. Container Apps reported the corrected replica Healthy/Provisioned, proving its configured health/readiness probes. The authenticated Wetherspoon query still answered 7 dB because table values were truncated from the model evidence projection. Per the fail-closed gate, the other paid cases did not run. The temporary callback remains scheduled for removal after the replacement revision is validated or this attempt is closed; no traffic or v1 configuration changed. |
+| 2026-09-02 | `570514c` full zero-traffic hybrid/generated validation passed | CI, immutable ACR build, and Vercel Preview were green for the structured-table-first evidence fix. Healthy zero-traffic revision `--hyb570514c` used the exact immutable image, `consult-demo-v2`, hybrid and semantic retrieval, minimum replicas zero, and general context/uploads/folders disabled. All eight live cases passed: Harold's Cross and Premier Inn paraphrases returned the correct reports; the Wetherspoon comparison returned 66 dB versus 47 dB and the required 19 dB difference with no Premier Inn contamination; the 500 Hz table case returned 54 dB; the sound, France-population, and sourdough questions returned insufficient evidence with zero sources; and a disposable same-image zero-traffic revision with server-authoritative scope `unauthorized-evaluation-scope` returned no evidence for the in-corpus Premier Inn question, proving the permission pre-filter without exposing a caller-controlled test hook. The scope probe and template-restoration revision were deactivated, the stored next-revision template was restored to the authorized v2 configuration, both temporary Entra callbacks were removed, and failed pre-build ACR Quick Run attempts produced no repository or image. Live traffic remained 100% on `--p1bgpt55fin`/v1. No traffic or index cutover was made; that remains a separate approval. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
@@ -1689,6 +1699,11 @@ event structure must support them.
   cases or traffic shift were attempted. The failed candidate was then deactivated
   with zero replicas, its temporary Entra callback was removed, and Azure was read
   back to confirm the sole permanent callback and 100% traffic on `--p1bgpt55fin`.
+- The replacement `--hyb570514c` candidate passed all eight live cases. In particular,
+  it answered the table regression as 54 dB, answered the background comparison as
+  66 dB versus 47 dB/19 dB with no Premier Inn contamination, and returned no evidence
+  under a server-authoritative unauthorized permission scope. This closes the
+  zero-traffic validation gate but does not authorize an index or traffic cutover.
 - Subjective sound, population, and recipe questions remain no-evidence after vector
   candidates are thresholded.
 - An in-corpus question under an unauthorized permission scope returns no results, and
