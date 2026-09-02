@@ -1675,6 +1675,20 @@ event structure must support them.
   `scenario`, `level`, `predicted`, and `band`, leaving the precise hybrid query
   `future Wetherspoon bedroom window 500 Hz`; this must pass on a replacement
   zero-traffic revision before cutover.
+- The subsequent `--hybdbdb74d` zero-traffic run proved the normalized query still
+  returned the correct Wetherspoon page-7 atomic table chunk, but the generated
+  answer correctly refused `54 dB`. Inspection of the approved source PDF found
+  two structured tables on PDF page 7 totaling 1,875 compact characters, including
+  `Noise Levels Impacting on Bedroom Window | 47 | 51 | 54` under the 125/250/500 Hz
+  columns. The ingestion format appends those structured Markdown tables after a
+  long narrative, while the runtime previously retained only the first 3,000
+  characters. Table evidence now places the appended `Table 1` Markdown block
+  first and uses remaining bounded space for narrative context. The 3,000-character
+  limit is unchanged; both the 500 Hz/54 dB row and 66/47/19 dB comparison have
+  regression coverage. The run stopped after this first failure; no remaining
+  cases or traffic shift were attempted. The failed candidate was then deactivated
+  with zero replicas, its temporary Entra callback was removed, and Azure was read
+  back to confirm the sole permanent callback and 100% traffic on `--p1bgpt55fin`.
 - Subjective sound, population, and recipe questions remain no-evidence after vector
   candidates are thresholded.
 - An in-corpus question under an unauthorized permission scope returns no results, and

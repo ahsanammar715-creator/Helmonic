@@ -165,8 +165,15 @@ export function retainRelevantHybridDocuments<T extends HybridSearchDocument>(
 }
 
 export function buildControlledEvidenceExcerpt(value: string, chunkKind?: string) {
-  const compact = value.replace(/\s+/g, " ").trim();
   const maximumLength = chunkKind === "table" ? 3_000 : 420;
+  const structuredTableMarker = "\n\nTable 1\n|";
+  const structuredTableStart =
+    chunkKind === "table" ? value.lastIndexOf(structuredTableMarker) : -1;
+  const orderedValue =
+    structuredTableStart >= 0
+      ? `${value.slice(structuredTableStart + 2)}\n\nContext: ${value.slice(0, structuredTableStart)}`
+      : value;
+  const compact = orderedValue.replace(/\s+/g, " ").trim();
   return compact.length > maximumLength
     ? `${compact.slice(0, maximumLength - 1)}…`
     : compact;

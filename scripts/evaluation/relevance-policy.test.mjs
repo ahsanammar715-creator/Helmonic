@@ -66,12 +66,16 @@ test("hybrid request rejects empty or malformed embeddings", () => {
 });
 
 test("table evidence preserves numeric comparisons beyond the narrative excerpt limit", () => {
-  const tableEvidence = `${"Narrative context ".repeat(40)} Rating Level: 66dB. Background Sound Level: 47dB. Excess: 19dB.`;
+  const tableEvidence = `${"Narrative context ".repeat(250)}\n\nTable 1\n| Description | 125Hz | 250Hz | 500Hz |\n| --- | --- | --- | --- |\n| Noise Levels Impacting on Bedroom Window | 47 | 51 | 54 |\n\nTable 2\n| Noise Type | Result |\n| --- | --- |\n| Rating Level | 66dB |\n| Background Sound Level | 47dB |\n| Excess | 19dB |`;
   const excerpt = buildControlledEvidenceExcerpt(tableEvidence, "table");
 
+  assert.match(excerpt, /^Table 1/);
+  assert.match(excerpt, /500Hz/);
+  assert.match(excerpt, /Bedroom Window \| 47 \| 51 \| 54/);
   assert.match(excerpt, /66dB/);
   assert.match(excerpt, /47dB/);
   assert.match(excerpt, /19dB/);
+  assert.equal(excerpt.length, 3_000);
 });
 
 test("numeric lookup keeps exact project, scenario, location, and frequency terms", () => {
