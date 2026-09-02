@@ -62,8 +62,9 @@ remain in this worktree and branch unless the owner explicitly changes this rule
 | Container Apps environment | `cae-helmonic-dev-002` |
 | Container App | `ca-helmonic-consult-dev-002` |
 | Authenticated application URL | `https://ca-helmonic-consult-dev-002.politemushroom-54e7948a.northeurope.azurecontainerapps.io` |
-| Current real revision | `ca-helmonic-consult-dev-002--p1bgpt55fin` (`helmonic-consult:78f31b938591daefae58c42de0f2d8fcb478c334`), 100% traffic, non-root UID 1000, port 8080, minimum replicas 0 |
-| Immediate Target B rollback | `ca-helmonic-consult-dev-002--p1b69b6b7a`, active at 0% traffic |
+| Current real revision | `ca-helmonic-consult-dev-002--hyb570514c` (`helmonic-consult:570514ca8733453dbd98ad0c32ecc6bbd69a8912`), 100% traffic, `consult-demo-v2`, hybrid/semantic retrieval, non-root UID 1000, port 8080, minimum replicas 0 |
+| Immediate v1 rollback | `ca-helmonic-consult-dev-002--p1bgpt55fin`, active at 0% traffic with `consult-demo-v1` |
+| Prior Target B rollback | `ca-helmonic-consult-dev-002--p1b69b6b7a`, active at 0% traffic |
 | Prior real rollback revision | `ca-helmonic-consult-dev-002--ca72a0c`, active at 0% traffic; rollback also requires restoring ingress port 80 |
 | Placeholder rollback revision | `ca-helmonic-consult-dev-002--0000001`, active at 0% traffic |
 | Container registry | `acrhelmonicdev001` |
@@ -75,8 +76,8 @@ remain in this worktree and branch unless the owner explicitly changes this rule
 | Storage account | `sthelmonicdev001` |
 | Controlled-source Blob container | `consult-sources` |
 | Azure AI Search service | `srch-helmonic-dev-001` |
-| Controlled-source Search index | `consult-demo-v1` |
-| Hybrid Search validation index | `consult-demo-v2`; isolated validation target, never the live index without a separate cutover approval |
+| Live controlled-source Search index | `consult-demo-v2`; versioned hybrid/semantic index |
+| Immediate controlled-source rollback index | `consult-demo-v1`; immutable lexical rollback target |
 | Service Bus namespace | `sb-helmonic-dev-001` |
 | Service Bus queue | `consult-ingestion` |
 | Foundry account | `aif-helmonic-dev-001` |
@@ -103,7 +104,7 @@ Azure Container App
         | server-derived identity and permission filters
         v
 Azure AI Search through private endpoint
-  consult-demo-v1 lexical retrieval (current live index)
+  consult-demo-v2 hybrid/semantic retrieval (current live index)
         |
         +--> no evidence: explicit insufficient-evidence response
         |
@@ -646,13 +647,14 @@ disabled in live DEV until the hybrid-v2 runtime is separately approved and prom
 
 ### Live and working
 
-- Target A revision `--p1bgpt55fin` receives 100% of live traffic through application
+- Hybrid v2 revision `--hyb570514c` receives 100% of live traffic through application
   ingress port 8080. It uses immutable image
-  `helmonic-consult:78f31b938591daefae58c42de0f2d8fcb478c334`, runs as UID 1000,
-  and keeps minimum replicas at zero.
-- A read-only Azure check on 28 August 2026 reconfirmed `--p1bgpt55fin` at 100%; all
-  retained rollback revisions remain at 0% and the live revision is Healthy/scales to
-  zero while idle.
+  `helmonic-consult:570514ca8733453dbd98ad0c32ecc6bbd69a8912`, targets
+  `consult-demo-v2`, runs as UID 1000, and keeps minimum replicas at zero.
+- The prior Target A revision `--p1bgpt55fin` remains active at 0% as the immediate
+  `consult-demo-v1` rollback. The 10% -> 25% -> 50% -> 100% cutover completed without
+  5xx responses, restarts, sustained latency regression, citation failure, or an
+  unexpected no-evidence response.
 - The prior hardened revision `--p1b69b6b7a` remains active at 0% as the immediate
   Target B rollback. The older root/port-80 revision and placeholder remain available;
   a rollback to `--ca72a0c` must restore ingress port 80 as well as its traffic weight.
@@ -664,7 +666,8 @@ disabled in live DEV until the hybrid-v2 runtime is separately approved and prom
 - CORS is disabled and Vercel is outside the real data path.
 - Sixteen controlled iAcoustics PDFs have been ingested.
 - Blob originals and page-preserving Search chunks exist.
-- `consult-demo-v1` retrieval works and returns document/page citations.
+- `consult-demo-v2` hybrid/semantic retrieval is live and returns document/page citations.
+- `consult-demo-v1` remains available through the retained rollback revision.
 - The original five-case lexical suite passes against live Azure Search: four
   known-evidence questions return only the expected Harold's Cross, Premier Inn, and
   Wetherspoon's Camden Street evidence, while the France question correctly returns no
@@ -746,46 +749,20 @@ disabled in live DEV until the hybrid-v2 runtime is separately approved and prom
   DEV. The session-upload worker, Azure Speech resource, sidebar activation, upload
   activation, and general-context activation remain unimplemented or disabled; the
   separately approved Target A model path is the only newly activated Phase 1B feature.
-- The D-021 hybrid retrieval runtime remains disabled for live traffic and the live
-  application continues to target v1. Zero-traffic candidate revision
-  `--hyb743fe63` now targets `consult-demo-v2` with hybrid/semantic retrieval enabled,
-  general context disabled, and minimum replicas zero. Its `/healthz` response passed
-  on immutable image `743fe63...` with non-root UID 1000. The first paid live smoke
-  question retrieved four real Wetherspoon document/page citations, but the generated
-  answer reported a 7 dB exceedance and insufficient exact background evidence instead
-  of the evaluation contract's expected 19 dB comparison. The fail-closed gate stopped
-  the remaining paid smoke suite; no traffic moved, the temporary direct-revision Entra
-  callback was removed, and `--p1bgpt55fin` remains 100% live on v1. The implementation
-  adds the v2 schema,
-  managed-identity query and ingestion embedding paths, permission pre-filtered hybrid
-  queries, threshold filtering before citations, atomic-table manifest controls, v1/v2
-  parity checks, and an eight-case fixture with isolated policy tests. The approved
-  France Central embedding foundation is provisioned. The corrected private job selected
-  the ingestion UAMI explicitly, embedded and indexed all sixteen documents as 414 chunks
-  including 87 table pages, proved exact v1/v2 source-title-page parity, and passed all
-  eight retrieval cases. `consult-demo-v2` remains an isolated validated candidate with
-  a failed zero-traffic generated-answer promotion gate; no index or traffic cutover
-  exists. Live diagnosis against corrected zero-traffic revision `--hyb5237aa3` proved
-  the atomic page-7 table chunk was already cited but its appended Table 6 values were
-  removed by the universal 420-character citation projection before model generation.
-  The local runtime now selects `chunk_kind`, keeps narrative excerpts at 420
-  characters, and permits a bounded 3,000-character excerpt only for atomic table
-  chunks. Regression coverage proves the 66 dB, 47 dB, and 19 dB comparison survives
-  while narrative remains bounded. The first paid query on `--hyb5237aa3` failed, so the
-  remaining paid suite stopped; no traffic moved. A corrected immutable image and new
-  zero-traffic revision are still required before validation resumes.
-- That required replacement is now complete. Healthy active-at-0% revision
+- D-021 hybrid retrieval is now live. Healthy revision
   `--hyb570514c` uses immutable image `570514c...`, `consult-demo-v2`, hybrid/semantic
   retrieval, minimum replicas zero, and disabled general context/uploads/folders. Its
   full eight-case live suite passed: both paraphrases, both Wetherspoon regressions,
   all three out-of-scope no-evidence cases with zero sources, and the unauthorized
   permission-scope pre-filter case. The disposable scope probe is inactive, temporary
-  callbacks are removed, the stored next-revision template is restored to the authorized
-  v2 configuration, and live traffic remains 100% on `--p1bgpt55fin`/v1. No index or
-  traffic cutover has occurred; that remains a separate approval.
-  The temporary job, ingestion
-  UAMI, five roles, ACR repository/grant, Cloud Shell source, and local credential bundle
-  were deleted after validation; the embedding deployment was restored to 1 kTPM.
+  callbacks are removed, the stored next-revision template remains on the authorized v2
+  configuration, and live traffic is 100% on `--hyb570514c`/v2. The prior
+  `--p1bgpt55fin`/v1 revision remains active at 0% for immediate rollback and may be
+  retired only after the owner accepts the completed observation window.
+  The temporary job, ingestion UAMI, five roles, ACR repository/grant, Cloud Shell
+  source, and local credential bundle were deleted after validation; the embedding
+  deployment was restored to 1 kTPM. Earlier failed promotion attempts and their exact
+  diagnoses remain preserved in the decision log rather than the current-state section.
 
 ### Pending/blocking
 
@@ -944,6 +921,7 @@ standing-resource change was made during local diagnosis.
 | 2026-08-31 | CI parity corrections before hybrid deployment | The first approved push reached Vercel Preview and built the ACR image, but CI stopped before application build because Node 22.22.2 does not accept the later `--test-isolation=none` spelling. The suite still needs in-process execution in the restricted local runner, so only `test:model-policy` was changed to Node 22's compatible `--experimental-test-isolation=none` alias; its six cases then passed in CI. The next gate exposed one stale E2E assertion for the separate `generalContext` object removed by D-022; the fail-closed route correctly returns the documented single-answer contract, so that obsolete assertion was removed without changing runtime behavior. No Azure revision, index, flag, request, or traffic change occurred. |
 | 2026-08-31 | `5237aa3` zero-traffic gate stopped on first Wetherspoon query | CI, ACR, and Vercel Preview passed after the parity corrections. Created `--hyb5237aa3` from immutable image `5237aa3...` with minimum replicas zero, v2 hybrid/semantic retrieval enabled, uploads/folders/general context disabled, and live traffic still 100% on `--p1bgpt55fin`. Container Apps reported the corrected replica Healthy/Provisioned, proving its configured health/readiness probes. The authenticated Wetherspoon query still answered 7 dB because table values were truncated from the model evidence projection. Per the fail-closed gate, the other paid cases did not run. The temporary callback remains scheduled for removal after the replacement revision is validated or this attempt is closed; no traffic or v1 configuration changed. |
 | 2026-09-02 | `570514c` full zero-traffic hybrid/generated validation passed | CI, immutable ACR build, and Vercel Preview were green for the structured-table-first evidence fix. Healthy zero-traffic revision `--hyb570514c` used the exact immutable image, `consult-demo-v2`, hybrid and semantic retrieval, minimum replicas zero, and general context/uploads/folders disabled. All eight live cases passed: Harold's Cross and Premier Inn paraphrases returned the correct reports; the Wetherspoon comparison returned 66 dB versus 47 dB and the required 19 dB difference with no Premier Inn contamination; the 500 Hz table case returned 54 dB; the sound, France-population, and sourdough questions returned insufficient evidence with zero sources; and a disposable same-image zero-traffic revision with server-authoritative scope `unauthorized-evaluation-scope` returned no evidence for the in-corpus Premier Inn question, proving the permission pre-filter without exposing a caller-controlled test hook. The scope probe and template-restoration revision were deactivated, the stored next-revision template was restored to the authorized v2 configuration, both temporary Entra callbacks were removed, and failed pre-build ACR Quick Run attempts produced no repository or image. Live traffic remained 100% on `--p1bgpt55fin`/v1. No traffic or index cutover was made; that remains a separate approval. |
+| 2026-09-02 | Staged hybrid v2 live cutover completed | After a separate under-USD-0.10 approval, traffic moved from `--p1bgpt55fin`/`consult-demo-v1` to `--hyb570514c`/`consult-demo-v2` through independently verified 10%, 25%, 50%, and 100% stages. Each stage held for authenticated UI loads and Azure health/metrics checks. Sixty repeated authenticated page loads succeeded across the staged window; the 50% no-evidence query returned zero sources, and the 100% Wetherspoon 500 Hz query returned 54 dB with four server-verified page citations. The final observation recorded zero 5xx responses and no restarts; ordinary repeated loads remained sub-1.3 seconds apart from isolated scale/cold-routing samples that did not recur. The v1 revision remains active and Healthy at 0% for immediate rollback and is eligible for retirement after owner confirmation. No new resource or recurring cost was introduced. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
@@ -1104,8 +1082,8 @@ boundary prevents generated artifacts from being mixed with evidence sources.
 
 Phase 1B uses separate indexes on the existing Azure AI Search service:
 
-- `consult-demo-v1`: live lexical controlled documents and immutable rollback target.
-- `consult-demo-v2`: validated, isolated versioned controlled hybrid index; not selected by the live runtime.
+- `consult-demo-v1`: retained lexical controlled-document rollback target.
+- `consult-demo-v2`: live versioned controlled hybrid/semantic index.
 - `consult-session-v1`: temporary, conversation-scoped attachments.
 
 Creating additional indexes does not create another Search service or another fixed
@@ -1702,8 +1680,9 @@ event structure must support them.
 - The replacement `--hyb570514c` candidate passed all eight live cases. In particular,
   it answered the table regression as 54 dB, answered the background comparison as
   66 dB versus 47 dB/19 dB with no Premier Inn contamination, and returned no evidence
-  under a server-authoritative unauthorized permission scope. This closes the
-  zero-traffic validation gate but does not authorize an index or traffic cutover.
+  under a server-authoritative unauthorized permission scope. A later separate approval
+  moved v2 through 10%, 25%, 50%, and 100% traffic stages without errors; v1 remains
+  active at 0% for rollback.
 - Subjective sound, population, and recipe questions remain no-evidence after vector
   candidates are thresholded.
 - An in-corpus question under an unauthorized permission scope returns no results, and
