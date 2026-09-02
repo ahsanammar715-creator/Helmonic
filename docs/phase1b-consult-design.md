@@ -335,6 +335,10 @@ unauthorized revision never receives traffic.
 | `scripts/evaluation/model-answer-policy.test.mjs` | Offline contract tests for document-only, blended document/general, general-only no-evidence, and honest uncertainty answers |
 | `scripts/ingestion/build-hybrid-payload.py` | Private-job payload builder that reads only retrievable v1 manifest fields and controlled Blob originals, requires the permission scope explicitly because v1 keeps it non-retrievable, preserves detected PDF tables as atomic Markdown, and retains v1 identifiers/page metadata for parity |
 | `scripts/ingestion/Dockerfile.hybrid` | Temporary non-root hybrid-validation image combining table-preserving extraction, the shared explicit-UAMI helper, the v2 uploader, and the eight-case private retrieval evaluation in one fail-closed job |
+| `scripts/corpus_audit/audit_corpus.py` | Read-only, resumable inventory of the approximately 300 GB source collection: checklist mapping, format/integrity checks, page-level OCR triage, and exact/possible duplicate reporting without retaining extracted text |
+| `scripts/corpus_audit/run-corpus-audit.ps1` | Normal-Windows launcher for the mapped company share; fixes source/output boundaries and selects the bundled Python document runtime |
+| `scripts/corpus_audit/test_audit_corpus.py` | Synthetic end-to-end safety, exclusion, mapping, OCR-candidate, broken-file, and duplicate regression coverage |
+| `scripts/corpus_audit/README.md` | Corpus-audit operating instructions, report definitions, resume behavior, exclusions, and OCR-classification caveat |
 | `scripts/validation/phase1b-bootstrap.cjs` | Temporary private-network validation job entrypoint for the idempotent Phase 1B migration plus isolated Blob container/Search index creation |
 | `scripts/validation/phase1b-validation-maintenance.cjs` | Private-environment audit, retrieval evaluation, and tightly scoped synthetic-fixture cleanup used during Phase 1B validation |
 | `scripts/validation/phase1b-postgres-owner-recovery.cjs` | One-purpose cleanup utility that transfers bootstrap-created PostgreSQL object ownership to the permanent Entra administrator before deleting a temporary bootstrap principal |
@@ -643,6 +647,27 @@ clear product risk: `[G]` content is not externally verified and can be wrong. T
 feature therefore remains opt-in, flag-controlled, honestly uncertain when needed, and
 disabled in live DEV until the hybrid-v2 runtime is separately approved and promoted.
 
+### D-023: inventory and quality-gate the full corpus before ingestion
+
+The approximately 300 GB company collection is not treated as one approved upload batch.
+A read-only, resumable local audit must first count formats by checklist area, verify PDF
+and Word structure, identify byte-identical duplicates, list possible filename variants,
+and measure full/partial OCR candidates. No extracted text is retained in audit reports,
+and the source share is never written to. `backup_glen`, `backup_owen`, `Book Directory`,
+`downloads_helmonic_smart_studio`, and `Tender Desk` are excluded; the checklist document
+is reference-only. `IA-02.1` and `IA-02.2` jointly represent `IA-02`; `IA-21` remains
+explicitly unmapped pending human classification. Approved books/IOA material and
+third-party reports remain eligible, while Cadna/specialist material is classified
+against the raw-data/calculation categories rather than guessed into an ingestion batch.
+
+OCR procurement is decided only from the completed page-level audit and a human spot
+check of candidates, because low-text drawings and blank pages can resemble scans. Word
+files are intended to render to PDF before extraction so page citations remain consistent;
+a file that cannot render faithfully will be flagged and skipped. Human owners still set
+business-value priority. A well-tested, high-value majority is preferred to a rushed full
+corpus. No Azure resource, index write, document upload, or OCR service is authorized by
+the inventory itself.
+
 ## Current status
 
 ### Live and working
@@ -718,6 +743,12 @@ disabled in live DEV until the hybrid-v2 runtime is separately approved and prom
   through PostgreSQL, Blob, and Service Bus to the expected `queued` state. The worker
   boundary remains intentionally unimplemented. The synthetic Blob/message/database
   rows were deleted and the revision was deactivated at 0 replicas/0% traffic.
+- The read-only all-page corpus audit completed against the mapped company share without
+  modifying it and without filesystem scan errors. It examined 29,703 files/286.9 GB,
+  including 2,308 PDFs and 325 Word files. It identified 21 unreadable/broken documents,
+  zero encrypted documents, 197 strong OCR candidates, 50 partial OCR candidates, 134
+  exact duplicate groups containing 147 extra copies, and 332 possible filename-variant
+  groups. The five exclusions and combined IA-02 mapping were applied as approved.
 
 ### Implemented in source; Azure foundation validation completed
 
@@ -791,6 +822,13 @@ disabled in live DEV until the hybrid-v2 runtime is separately approved and prom
   Voice deployment is no longer account-tier-blocked, but Azure Speech resource creation
   remains pending a separate cost estimate and approval.
 - Azure Speech has not been provisioned.
+- The approximately 300 GB corpus has not been ingested. Its read-only audit is complete:
+  approximately 7.5% of PDF/Word files are strong OCR candidates and another 1.9% are
+  partial candidates before human false-positive review. The 2,057 text-extractable PDFs
+  and 306 readable modern Word files form the initial technical candidate pool, subject
+  to deduplication, Word-to-PDF render validation, human business priority, permission
+  checks, and the standing batch-quality gate. Raw/proprietary measurement formats are
+  not silently treated as RAG documents.
 - No live-web connector has been approved. The inline general-knowledge source contract
   is implemented locally behind `HELMONIC_GENERAL_CONTEXT_ENABLED=false`; no live
   revision, flag, Search-index, resource, or traffic change has been made for it.
@@ -922,6 +960,7 @@ standing-resource change was made during local diagnosis.
 | 2026-08-31 | `5237aa3` zero-traffic gate stopped on first Wetherspoon query | CI, ACR, and Vercel Preview passed after the parity corrections. Created `--hyb5237aa3` from immutable image `5237aa3...` with minimum replicas zero, v2 hybrid/semantic retrieval enabled, uploads/folders/general context disabled, and live traffic still 100% on `--p1bgpt55fin`. Container Apps reported the corrected replica Healthy/Provisioned, proving its configured health/readiness probes. The authenticated Wetherspoon query still answered 7 dB because table values were truncated from the model evidence projection. Per the fail-closed gate, the other paid cases did not run. The temporary callback remains scheduled for removal after the replacement revision is validated or this attempt is closed; no traffic or v1 configuration changed. |
 | 2026-09-02 | `570514c` full zero-traffic hybrid/generated validation passed | CI, immutable ACR build, and Vercel Preview were green for the structured-table-first evidence fix. Healthy zero-traffic revision `--hyb570514c` used the exact immutable image, `consult-demo-v2`, hybrid and semantic retrieval, minimum replicas zero, and general context/uploads/folders disabled. All eight live cases passed: Harold's Cross and Premier Inn paraphrases returned the correct reports; the Wetherspoon comparison returned 66 dB versus 47 dB and the required 19 dB difference with no Premier Inn contamination; the 500 Hz table case returned 54 dB; the sound, France-population, and sourdough questions returned insufficient evidence with zero sources; and a disposable same-image zero-traffic revision with server-authoritative scope `unauthorized-evaluation-scope` returned no evidence for the in-corpus Premier Inn question, proving the permission pre-filter without exposing a caller-controlled test hook. The scope probe and template-restoration revision were deactivated, the stored next-revision template was restored to the authorized v2 configuration, both temporary Entra callbacks were removed, and failed pre-build ACR Quick Run attempts produced no repository or image. Live traffic remained 100% on `--p1bgpt55fin`/v1. No traffic or index cutover was made; that remains a separate approval. |
 | 2026-09-02 | Staged hybrid v2 live cutover completed | After a separate under-USD-0.10 approval, traffic moved from `--p1bgpt55fin`/`consult-demo-v1` to `--hyb570514c`/`consult-demo-v2` through independently verified 10%, 25%, 50%, and 100% stages. Each stage held for authenticated UI loads and Azure health/metrics checks. Sixty repeated authenticated page loads succeeded across the staged window; the 50% no-evidence query returned zero sources, and the 100% Wetherspoon 500 Hz query returned 54 dB with four server-verified page citations. The final observation recorded zero 5xx responses and no restarts; ordinary repeated loads remained sub-1.3 seconds apart from isolated scale/cold-routing samples that did not recur. The v1 revision remains active and Healthy at 0% for immediate rollback and is eligible for retirement after owner confirmation. No new resource or recurring cost was introduced. |
+| 2026-09-02 | D-023 full-corpus discovery gate implemented and completed | Added a read-only, resumable audit and Windows launcher for the approximately 300 GB mapped collection. It encodes the five owner-approved exclusions, IA-02.1/IA-02.2 mapping, validated reference/third-party treatment, Cadna raw/calculation classification flag, and unmapped IA-21 warning. Synthetic end-to-end tests passed, followed by an all-page normal-Windows run over 29,703 files/286.9 GB with zero scan errors and no source mutation. The corpus contains 2,308 PDFs and 325 Word files; 21 documents are broken/unreadable, none are encrypted, 197 are strong OCR candidates, 50 are partial OCR candidates, 134 exact duplicate groups contain 147 extra copies, and 332 possible filename-variant groups require review. No Azure call or cost occurred. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
@@ -979,6 +1018,10 @@ folder organization, speech input, or live general-context generation.
 5. A separately generated and separately cited general-context section.
 6. End-to-end architecture, operations, security, deployment, and cost documentation.
 7. Removal of the temporary root/port-80 runtime exception before live uploads.
+8. Read-only inventory and prioritization of the approximately 300 GB controlled-source
+   candidate collection before any bulk upload.
+9. Word-to-PDF conversion with a render-quality gate so page citations remain authoritative.
+10. An evidence-based OCR decision after the full-corpus page analysis and spot check.
 
 ### 3.2 Initially out of scope
 
@@ -986,8 +1029,8 @@ folder organization, speech input, or live general-context generation.
 - Unrestricted live-web search under the current EU-only governance posture.
 - Automatic email or external messaging.
 - Autonomous promotion of attachments into the controlled knowledge base.
-- OCR for scanned/image-only PDFs.
-- DOCX and CSV ingestion where mandatory page citations cannot be guaranteed.
+- Automatic OCR deployment before the corpus audit and separate costed decision.
+- CSV ingestion where mandatory page citations cannot be guaranteed.
 - Multi-tenant administration and broad user provisioning.
 - Permanent audio retention.
 - Fine-tuning a language model on Helmonic documents.
@@ -1740,6 +1783,7 @@ estimated at approximately USD 130-145 per month after conversion to PAYG.
 | Work item | New fixed cost | Initial validation ceiling | Approval boundary |
 | --- | ---: | ---: | --- |
 | Local design, code, tests, documentation | USD 0 | USD 0 | Repository changes only |
+| Read-only 300 GB corpus inventory | USD 0 | USD 0 | Local/share reads only; no Azure call and no source mutation |
 | PostgreSQL schema and persistence | None on existing server | USD 0.05 | Migration and Azure validation |
 | Additional Blob containers | None | Less than USD 0.01 at initial scale | Container creation and validation |
 | Additional Search indexes | None on existing Search service | Included with ingestion ceiling | Index creation and ingestion |
@@ -1836,4 +1880,33 @@ Commit messages must state what changed and why. Code and its documentation are
 committed and pushed together. A documentation-only correction is allowed when it fixes
 an identified inaccuracy, but documentation catch-up after an implementation has
 already moved ahead is not the normal workflow.
+
+## 23. October controlled-corpus discovery runbook
+
+The first production-deadline action is a local, non-mutating discovery run, not a bulk
+Azure ingestion. Run `scripts/corpus_audit/run-corpus-audit.ps1` from a normal Windows
+PowerShell session that can open `S:\z_Helmonic_iAcoustics`. The default `all` mode reads
+every PDF page and is the authoritative OCR input; `sample` is permitted only for an early
+duration/volume estimate. An interrupted run resumes unchanged files from local SQLite.
+
+The review gate requires all of the following before ingestion-pipeline capacity or OCR
+is proposed:
+
+1. PDF and Word counts and bytes by checklist/top-level folder.
+2. Broken, encrypted, legacy-conversion, and scan-error lists.
+3. Exact SHA-256 duplicate groups separated from possible filename variants.
+4. Full and partial OCR-candidate counts, percentages, and a representative human spot
+   check that removes blank/drawing false positives.
+5. Explicit classification of `IA-21` and Cadna/specialist material.
+6. A human-confirmed highest-value batch order; the audit does not invent business value.
+7. A scaled evaluation plan for each batch, including paraphrase recall, numeric/table
+   accuracy, permission filtering, citations, and no-evidence correctness.
+
+Only metadata and classifications are written locally under the ignored
+`local-artifacts/corpus-audit` directory. No source content, extracted text, credentials,
+or audit output is committed. After this gate, the standing Phase 1B pipeline remains:
+Service Bus -> dedicated least-privilege worker -> page-preserving/table-aware extraction
+and Word rendering -> optional approved OCR -> chunk/embed -> versioned Search index ->
+proportional retrieval/generated-answer evaluation. New Azure resources, capacity changes,
+OCR usage, or material ingestion runs still require an estimate and explicit approval.
 

@@ -23,6 +23,13 @@
 # production
 /build
 
+# local corpus audit results (may contain confidential filenames/metadata)
+/local-artifacts/
+
+# python operator/test caches
+__pycache__/
+*.py[cod]
+
 # misc
 .DS_Store
 *.pem
