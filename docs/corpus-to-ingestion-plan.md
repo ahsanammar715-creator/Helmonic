@@ -8,19 +8,23 @@ Deadline basis: 1 October 2026 production target
 
 ## Executive Summary
 
-- **The deadline is more feasible than the headline 300 GB suggests.** The audited
-  collection contains 29,703 files/286.9 GB, but the PDF/Word RAG scope is 2,633
-  documents totaling 6.79 GB (2.37% of all bytes). Raw measurement, audio, model,
-  drawing, database, and other specialist formats must remain outside automatic RAG
-  ingestion unless separately designed and approved.
+- **Every approved original is now a capture-and-catalogue target.** The audited
+  collection contains 29,703 files/286.9 GB. All are represented in the private intake
+  manifest and will be preserved in Blob and catalogued before format-specific
+  processing. This does not mean feeding opaque measurement, audio, model, drawing, or
+  database bytes directly to the language model.
+- **The first answer-ready lane remains much smaller.** The PDF/Word scope is 2,633
+  documents totaling 6.79 GB (2.37% of all bytes). Raw and specialist formats remain
+  captured and discoverable, then gain dedicated interpreters only when their output can
+  be validated and cited.
 - **A large useful corpus can proceed without OCR.** After integrity checks, exact
   deduplication, and holding back unresolved IA-21/Cadna classifications, 2,064 unique
   documents (1,779 readable PDFs and 285 renderable Word files, approximately 5.53 GB)
   are technically eligible. Human owners still need to choose the highest-value order.
-- **Do not promise all documents by October 1.** The limiting factor is not storage or
-  embeddings; it is reliable conversion, version selection, permissions, and scaled
-  acoustic evaluation. A proven prioritized majority is safer than an unverified bulk
-  load.
+- **Do not equate capture with answer readiness.** The limiting factor is not storage;
+  it is reliable conversion, version selection, permissions, and scaled acoustic
+  evaluation. Capture/catalogue can cover the approved collection while Search exposure
+  advances only through tested batches.
 - **Build one permanent asynchronous ingestion path.** Approved manifests should flow
   through Service Bus to a least-privilege worker, quarantine/validation, page-preserving
   extraction or Word-to-PDF rendering, chunking, embeddings, a versioned Search index,
@@ -39,7 +43,7 @@ files cannot bypass review.
 
 | Planning population | Documents | Meaning |
 | --- | ---: | --- |
-| Audited files of every format | 29,703 | Discovery universe; not an ingestion target |
+| Audited files of every format | 29,703 | Capture-and-catalogue target; specialist formats are not embedded blindly |
 | PDF and Word files | 2,633 | Only formats in the October RAG scope |
 | Technically ready before exact dedupe | 2,361 | 2,055 readable PDFs plus 306 modern Word files awaiting render |
 | Technically ready after exact dedupe | 2,217 | One logical copy per known byte-identical group |
@@ -62,6 +66,31 @@ IA-02.2 contains 86.6% of PDF/Word documents. That concentration makes a folder-
 load a poor proxy for business value and reinforces the need for a consultant-approved
 priority manifest.
 
+## The full-corpus manifest accounts for everything approved
+
+`scripts/corpus_audit/build_full_ingestion_manifest.py` converts the authoritative audit
+into a private JSONL intake manifest without reopening or modifying the company share.
+It reconciles exactly to 29,703 files and 286,924,478,651 bytes. Every row is marked for
+original capture, receives an opaque source/blob identifier, and is assigned to one of
+the following processing families:
+
+- directly readable PDF or renderable Word candidates;
+- PDF/Word OCR, conversion, review, or repair;
+- text/table classification, including large measurement exports that must not be
+  mistaken for ordinary prose;
+- acoustic measurement, media, image, design/model, archive, email-future, and other
+  specialist catalogues.
+
+The manifest records 147 duplicate copies but preserves their originals and links them
+to a canonical identity. Three duplicate families crossing an ordinary folder and an
+unresolved IA-21/Cadna classification are held in full. The resulting first searchable
+canonical population is the same conservative 2,064-document set derived independently
+by the planning analysis.
+
+The manifest deliberately leaves every `permission_scope` unset. Before a row can enter
+Search, the owner must assign its permission scope. This allows full original capture
+without silently making every file visible to every Helmonic user.
+
 ## A staged route protects answer quality
 
 ### Stage 0 — approve the manifest and rules
@@ -76,7 +105,9 @@ Before any Azure write, obtain and record:
 5. Malware-scanning policy, controlled-source promotion authority, and retention rules.
 6. The consultant evaluation set already requested from Jim, Eoghan, and Glenn.
 
-The owner-approved manifest—not a recursive scan of the share—is the ingestion input.
+The reconciled full-corpus manifest—not a recursive scan of the share—is the intake
+input. An owner-approved, permission-scoped subset of that manifest is the searchable
+ingestion input.
 Every entry needs source identity, expected hash, approved title, business area/project,
 permission scope, version status, and selected/held reason.
 
@@ -177,8 +208,8 @@ owner selects its minimal scope, as required by the production-deadline brief.
 
 ## Decisions needed next
 
-1. Jim, Eoghan, and Glenn: identify the first 100 PDFs and confirm the 15–20 evaluation
-   answers/citations.
+1. Jim, Eoghan, and Glenn: confirm the first 100-PDF validation wave and the 15–20
+   evaluation answers/citations. The final target remains the complete approved corpus.
 2. Owner: approve the permanent worker identity/roles and choose the malware approach
    after receiving the cost estimate.
 3. Acoustic owner: classify IA-21 and the Cadna folder, and choose the canonical revision
@@ -200,4 +231,4 @@ The more specific owner file `helmoniccorpustoingestionplanprompt.md` is not cur
 available inside the local repository and cannot be read from `S:\Downloads` by the
 isolated agent. This plan therefore implements the accessible October production brief,
 D-023, and the completed audit evidence. Reconcile any additional requirement from that
-prompt before worker implementation begins.
+prompt before paid Azure execution begins.

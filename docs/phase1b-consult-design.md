@@ -340,6 +340,8 @@ unauthorized revision never receives traffic.
 | `scripts/corpus_audit/test_audit_corpus.py` | Synthetic end-to-end safety, exclusion, mapping, OCR-candidate, broken-file, and duplicate regression coverage |
 | `scripts/corpus_audit/build_ingestion_plan_analysis.py` | Reconciles the completed audit, derives conservative deduplicated/held ingestion populations, and fails the plan profile when source totals or safety checks disagree |
 | `scripts/corpus_audit/test_ingestion_plan_analysis.py` | Regression proof that a duplicate crossing an approved and unresolved classification remains held rather than bypassing governance through its second path |
+| `scripts/corpus_audit/build_full_ingestion_manifest.py` | Builds the ignored capture-all JSONL manifest for every audited approved original, using opaque Blob identities, canonical-copy links, format processing lanes, classification holds, and fail-closed permission scope |
+| `scripts/corpus_audit/test_full_ingestion_manifest.py` | Synthetic proof that all audited originals are retained, duplicate/category holds propagate, specialist formats are catalogued, books use the `B` namespace, and Search permission is never guessed |
 | `scripts/corpus_audit/README.md` | Corpus-audit operating instructions, report definitions, resume behavior, exclusions, and OCR-classification caveat |
 | `scripts/pst_audit/MetadataOnlyXstFile.cs` | Metadata-only XstReader extension with a strict message-property whitelist plus runtime guards proving no body or attachment payload was loaded |
 | `scripts/pst_audit/PstMetadataAudit.cs` | Read-only PST inventory engine for folder/message-header/recipient/date/size and attachment-name/type metadata, with local per-mailbox and combined reports |
@@ -724,6 +726,31 @@ capacity changes, material embedding/indexing calls, and any production resource
 cutover remain D-011 cost/approval gates. This decision authorizes only local planning
 and analysis. The source snapshot must be refreshed before materializing a manifest.
 
+### D-026: capture the complete approved corpus; expose it progressively
+
+The owner clarified that 2,064 documents are the first dependable searchable wave, not
+the final Helmonic boundary. Every one of the 29,703 audited approved files/286.9 GB is
+now an original-capture and metadata-catalogue target. Raw bytes are not automatically
+language-model evidence: PDFs/Word, OCR, text/tables, acoustic measurements, media,
+images, design models, archives, and future email material use separate processing
+lanes. Search exposure remains permission-first, canonical-versioned, relevance-tested,
+and staged outside the live index.
+
+The ignored local intake manifest reconciles every audited file/byte, marks every
+original for capture, holds three cross-category duplicate families, and reproduces the
+2,064 canonical first-search candidates. All 29,703 permission scopes intentionally
+remain unset until assigned; full capture must never become accidental universal Search
+access.
+
+Evidence namespaces are source-specific. Project documents use numbered `D` citations,
+standards use numbered `S` citations, emails use numbered `E` citations, and email
+attachments use numbered `A` citations. Approved books/reference uploads use display
+marker `[B]` without exposing the title in the ordinary answer, while retaining the true
+source identity in the private audit record. `[G]` remains visibly unverified model
+knowledge under D-022 and is never represented as retrieved company evidence. Future
+report generation and automation consume this same cited evidence layer only after the
+ingestion foundation is stable.
+
 ## Current status
 
 ### Live and working
@@ -885,10 +912,12 @@ and analysis. The source snapshot must be refreshed before materializing a manif
   to deduplication, Word-to-PDF render validation, human business priority, permission
   checks, and the standing batch-quality gate. Raw/proprietary measurement formats are
   not silently treated as RAG documents.
-- The D-025 local ingestion plan is complete and independently recalculable from the
-  audit outputs. It identifies a conservative 2,064-document starting pool, but no
-  priority manifest exists yet and no ingestion is authorized. The next human input is
-  the first 100-document ranking plus canonical-version, IA-21/Cadna, permission,
+- The D-025/D-026 local ingestion plan and private capture-all manifest are complete and
+  independently recalculable from the audit outputs. The manifest accounts for all
+  29,703 audited approved originals/286.9 GB across format lanes and identifies a
+  conservative 2,064-document first searchable population. All permission scopes remain
+  fail-closed, no Azure ingestion is authorized, and the next human input is the first
+  100-document confirmation plus canonical-version, IA-21/Cadna, permission,
   malware, retention, and promotion-authority decisions. The more specific file
   `helmoniccorpustoingestionplanprompt.md` remains unavailable to the isolated agent and
   must be reconciled if it adds requirements beyond the accessible October brief.
@@ -1034,6 +1063,7 @@ standing-resource change was made during local diagnosis.
 | 2026-09-04 | D-024 PST metadata-only inventory kickoff | Retained the owner-provided PST scope, selected pinned Ms-PL XstReader rather than Outlook profile attachment, and added a local read-only inventory for Glen, Owen, and optional Jim. The code whitelists message/recipient/attachment metadata, blocks known payload APIs at build time, asserts at runtime that body and attachment content remain unloaded, writes sensitive reports only beneath ignored local artifacts, and makes no Azure call. Compilation, executable self-test, and offline privacy-contract tests pass. The isolated agent could not authenticate to the company share, so the real inventory is pending a normal signed-in PowerShell run; no findings are inferred and third-party consent remains open. |
 | 2026-09-04 | PST launcher Windows PowerShell compatibility correction | The first normal-Windows launch stopped safely before opening a PST because Windows PowerShell 5.1 bound the build guard's string split differently from PowerShell 7 and falsely reported multiple class declarations. Replaced both declaration counts with version-stable exact regex counts and tested the build through `powershell.exe`; the privacy guard remains fail-closed and no source archive was touched by the failed launch. |
 | 2026-09-04 | D-025 corpus-to-ingestion plan | Reconciled the completed audit through eleven passing quality checks and produced a reproducible, executive-readable October plan. The 286.9 GB discovery universe narrows to 2,633 PDF/Word files/6.79 GB; exact deduplication and conservative IA-21/Cadna cross-category holds leave 2,064 technically eligible unique documents (1,779 PDFs, 285 Word render candidates). The plan uses a human-approved 100-PDF pilot, 250–400-document scale batches, validated Word-to-PDF conversion, deferred/targeted OCR, manifest/version/permission gates, and proportional acoustic evaluation. No Azure resource, standing identity, queue execution, index write, model call, upload, or cost occurred. |
+| 2026-09-04 | D-026 capture-all manifest kickoff | Expanded the final target from the first 2,064 searchable documents to every audited approved original. Added a deterministic private JSONL manifest that reconciles all 29,703 files/286.9 GB, marks every original for Blob capture, links 147 duplicate copies, propagates three cross-category duplicate holds, routes every format to a controlled processing lane, and leaves all permission scopes unset before Search. Four corpus tests pass. No company-share write, Azure call, resource, upload, model/embedding call, index change, traffic change, or cost occurred. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data

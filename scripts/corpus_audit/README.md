@@ -67,3 +67,20 @@ The analysis reconciles source totals and derives exact-deduplicated populations
 fails closed when audit totals disagree and holds any duplicate identity that appears
 in both an approved and unresolved classification. The JSON output remains local and
 ignored; the decision-ready interpretation is `docs/corpus-to-ingestion-plan.md`.
+
+## Build the private capture-all manifest
+
+Create the full intake manifest from the completed audit without reading or modifying
+the company share:
+
+```powershell
+python .\scripts\corpus_audit\build_full_ingestion_manifest.py `
+  --audit-dir .\local-artifacts\corpus-audit `
+  --output-dir .\local-artifacts\corpus-ingestion-manifest
+```
+
+The ignored output contains confidential relative paths. It accounts for every audited
+approved original, assigns an opaque Blob name and processing lane, preserves duplicate
+relationships, and leaves permission scope unset so no file can become searchable by
+accident. Capture/catalogue eligibility is not the same as permission to embed, index,
+or expose a source to Consult.
