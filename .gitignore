@@ -26,6 +26,9 @@
 # local corpus audit results (may contain confidential filenames/metadata)
 /local-artifacts/
 
+# pinned local-only audit toolchains; never commit third-party source or binaries
+/local-tools/
+
 # python operator/test caches
 __pycache__/
 *.py[cod]

@@ -2,7 +2,7 @@
 
 Status: Authoritative living reference for the active Phase 1A/1B branch
 
-Last reviewed: 31 August 2026
+Last reviewed: 4 September 2026
 
 Repository branch: `phase1a-consult-demo`
 
@@ -339,6 +339,12 @@ unauthorized revision never receives traffic.
 | `scripts/corpus_audit/run-corpus-audit.ps1` | Normal-Windows launcher for the mapped company share; fixes source/output boundaries and selects the bundled Python document runtime |
 | `scripts/corpus_audit/test_audit_corpus.py` | Synthetic end-to-end safety, exclusion, mapping, OCR-candidate, broken-file, and duplicate regression coverage |
 | `scripts/corpus_audit/README.md` | Corpus-audit operating instructions, report definitions, resume behavior, exclusions, and OCR-classification caveat |
+| `scripts/pst_audit/MetadataOnlyXstFile.cs` | Metadata-only XstReader extension with a strict message-property whitelist plus runtime guards proving no body or attachment payload was loaded |
+| `scripts/pst_audit/PstMetadataAudit.cs` | Read-only PST inventory engine for folder/message-header/recipient/date/size and attachment-name/type metadata, with local per-mailbox and combined reports |
+| `scripts/pst_audit/build-pst-audit.ps1` | Reproducible local build against pinned XstReader/Roslyn copies, including a build-time payload-API guard and self-test |
+| `scripts/pst_audit/run-pst-metadata-audit.ps1` | Normal-Windows launcher limited to Glen, Owen, and an optional Jim PST at the approved share root |
+| `scripts/pst_audit/test_pst_audit_contract.py` | Offline regression checks for forbidden payload calls, runtime guards, narrow PST discovery, and ignored local reports |
+| `scripts/pst_audit/README.md` | PST inventory privacy boundary, pinned parser choice, operating instructions, output definitions, and third-party-consent warning |
 | `scripts/validation/phase1b-bootstrap.cjs` | Temporary private-network validation job entrypoint for the idempotent Phase 1B migration plus isolated Blob container/Search index creation |
 | `scripts/validation/phase1b-validation-maintenance.cjs` | Private-environment audit, retrieval evaluation, and tightly scoped synthetic-fixture cleanup used during Phase 1B validation |
 | `scripts/validation/phase1b-postgres-owner-recovery.cjs` | One-purpose cleanup utility that transfers bootstrap-created PostgreSQL object ownership to the permanent Entra administrator before deleting a temporary bootstrap principal |
@@ -363,6 +369,7 @@ mechanism, not authorization to ingest.
 | --- | --- |
 | `docs/phase1b-consult-design.md` | This authoritative living reference |
 | `docs/hybrid-retrieval-prompt.md` | Owner-approved focused build specification retained for traceability; this living reference remains authoritative for current state |
+| `docs/helmonicpstmetadatainventoryprompt (1).md` | Owner-provided PST metadata-inventory scope retained verbatim for traceability |
 | `docs/phase1a-tuesday-runtime-exception.md` | Focused historical/root-runtime exception and mandatory exit gate |
 | `README.md` | Original product/frontend README; currently tracked for accuracy update |
 
@@ -668,6 +675,28 @@ business-value priority. A well-tested, high-value majority is preferred to a ru
 corpus. No Azure resource, index write, document upload, or OCR service is authorized by
 the inventory itself.
 
+### D-024: PST discovery is metadata-only and separate from document ingestion
+
+The Glen and Owen PST archives, plus Jim's archive when it is actually present, are a
+separate discovery track from D-023. The selected parser is the open-source XstReader
+C# library pinned to commit `3b7856c8b3d01bdf8aa13744e476d1ef7761b832` and used
+directly against each PST with read-only file access. Outlook automation was rejected
+because attaching a PST through Outlook changes the user's active profile; no profile
+or mailbox application is opened by this audit.
+
+The permitted field set is folder names/counts, message class, subject, sender,
+recipients, timestamps, PST/message declared sizes, and attachment count/name/type/
+declared size. Email bodies, HTML/RTF payloads, full property dumps, attachment content,
+exports, OCR, and Azure transfer are prohibited. Build-time forbidden-call checks and
+runtime body/attachment-content assertions fail closed if that boundary is crossed.
+Reports contain personal metadata and remain under ignored `local-artifacts/pst-audit`.
+
+Mailbox owners' awareness does not settle consent or another lawful basis for other
+people represented in the correspondence. That third-party question remains visibly
+open. This metadata inventory grants no authority for full body or attachment-content
+extraction, indexing, model processing, or ingestion. Jim's missing PST is a pending
+input, not an error and not a reason to delay Glen and Owen.
+
 ## Current status
 
 ### Live and working
@@ -829,6 +858,13 @@ the inventory itself.
   to deduplication, Word-to-PDF render validation, human business priority, permission
   checks, and the standing batch-quality gate. Raw/proprietary measurement formats are
   not silently treated as RAG documents.
+- The separate PST metadata-only audit utility is implemented and passes its local
+  compile/self-test and privacy-contract tests. The isolated Codex process cannot use
+  the signed-in Windows credentials for `S:\z_Helmonic_iAcoustics`, so the real Glen/
+  Owen run must be launched from the user's normal PowerShell session. Jim is processed
+  only if his PST is present. No inventory findings are claimed until those local
+  reports complete; no PST, Outlook profile, Azure service, or live application state
+  has been changed.
 - No live-web connector has been approved. The inline general-knowledge source contract
   is implemented locally behind `HELMONIC_GENERAL_CONTEXT_ENABLED=false`; no live
   revision, flag, Search-index, resource, or traffic change has been made for it.
@@ -961,6 +997,7 @@ standing-resource change was made during local diagnosis.
 | 2026-09-02 | `570514c` full zero-traffic hybrid/generated validation passed | CI, immutable ACR build, and Vercel Preview were green for the structured-table-first evidence fix. Healthy zero-traffic revision `--hyb570514c` used the exact immutable image, `consult-demo-v2`, hybrid and semantic retrieval, minimum replicas zero, and general context/uploads/folders disabled. All eight live cases passed: Harold's Cross and Premier Inn paraphrases returned the correct reports; the Wetherspoon comparison returned 66 dB versus 47 dB and the required 19 dB difference with no Premier Inn contamination; the 500 Hz table case returned 54 dB; the sound, France-population, and sourdough questions returned insufficient evidence with zero sources; and a disposable same-image zero-traffic revision with server-authoritative scope `unauthorized-evaluation-scope` returned no evidence for the in-corpus Premier Inn question, proving the permission pre-filter without exposing a caller-controlled test hook. The scope probe and template-restoration revision were deactivated, the stored next-revision template was restored to the authorized v2 configuration, both temporary Entra callbacks were removed, and failed pre-build ACR Quick Run attempts produced no repository or image. Live traffic remained 100% on `--p1bgpt55fin`/v1. No traffic or index cutover was made; that remains a separate approval. |
 | 2026-09-02 | Staged hybrid v2 live cutover completed | After a separate under-USD-0.10 approval, traffic moved from `--p1bgpt55fin`/`consult-demo-v1` to `--hyb570514c`/`consult-demo-v2` through independently verified 10%, 25%, 50%, and 100% stages. Each stage held for authenticated UI loads and Azure health/metrics checks. Sixty repeated authenticated page loads succeeded across the staged window; the 50% no-evidence query returned zero sources, and the 100% Wetherspoon 500 Hz query returned 54 dB with four server-verified page citations. The final observation recorded zero 5xx responses and no restarts; ordinary repeated loads remained sub-1.3 seconds apart from isolated scale/cold-routing samples that did not recur. The v1 revision remains active and Healthy at 0% for immediate rollback and is eligible for retirement after owner confirmation. No new resource or recurring cost was introduced. |
 | 2026-09-02 | D-023 full-corpus discovery gate implemented and completed | Added a read-only, resumable audit and Windows launcher for the approximately 300 GB mapped collection. It encodes the five owner-approved exclusions, IA-02.1/IA-02.2 mapping, validated reference/third-party treatment, Cadna raw/calculation classification flag, and unmapped IA-21 warning. Synthetic end-to-end tests passed, followed by an all-page normal-Windows run over 29,703 files/286.9 GB with zero scan errors and no source mutation. The corpus contains 2,308 PDFs and 325 Word files; 21 documents are broken/unreadable, none are encrypted, 197 are strong OCR candidates, 50 are partial OCR candidates, 134 exact duplicate groups contain 147 extra copies, and 332 possible filename-variant groups require review. No Azure call or cost occurred. |
+| 2026-09-04 | D-024 PST metadata-only inventory kickoff | Retained the owner-provided PST scope, selected pinned Ms-PL XstReader rather than Outlook profile attachment, and added a local read-only inventory for Glen, Owen, and optional Jim. The code whitelists message/recipient/attachment metadata, blocks known payload APIs at build time, asserts at runtime that body and attachment content remain unloaded, writes sensitive reports only beneath ignored local artifacts, and makes no Azure call. Compilation, executable self-test, and offline privacy-contract tests pass. The isolated agent could not authenticate to the company share, so the real inventory is pending a normal signed-in PowerShell run; no findings are inferred and third-party consent remains open. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
@@ -1784,6 +1821,7 @@ estimated at approximately USD 130-145 per month after conversion to PAYG.
 | --- | ---: | ---: | --- |
 | Local design, code, tests, documentation | USD 0 | USD 0 | Repository changes only |
 | Read-only 300 GB corpus inventory | USD 0 | USD 0 | Local/share reads only; no Azure call and no source mutation |
+| Read-only PST metadata inventory | USD 0 | USD 0 | Local metadata reports only; no body/attachment content, Outlook profile, source write, or Azure call |
 | PostgreSQL schema and persistence | None on existing server | USD 0.05 | Migration and Azure validation |
 | Additional Blob containers | None | Less than USD 0.01 at initial scale | Container creation and validation |
 | Additional Search indexes | None on existing Search service | Included with ingestion ceiling | Index creation and ingestion |
@@ -1909,4 +1947,26 @@ Service Bus -> dedicated least-privilege worker -> page-preserving/table-aware e
 and Word rendering -> optional approved OCR -> chunk/embed -> versioned Search index ->
 proportional retrieval/generated-answer evaluation. New Azure resources, capacity changes,
 OCR usage, or material ingestion runs still require an estimate and explicit approval.
+
+## 24. PST metadata-only discovery runbook
+
+This track does not reuse the PDF/Word extractor and does not attach archives to
+Outlook. Run `scripts/pst_audit/run-pst-metadata-audit.ps1 -Build` from a normal Windows
+PowerShell session that can open `S:\z_Helmonic_iAcoustics`. Default discovery is
+intentionally non-recursive and accepts exactly one `backup_glen*.pst`, exactly one
+`backup_owen*.pst`, and at most one optional `*jim*.pst` at the share root. Any ambiguity
+stops for an explicit path rather than guessing.
+
+The report gate requires per-mailbox and per-folder email counts, date ranges, message
+header/recipient metadata, attachment count/name/type metadata, declared volume, and
+reported parser/count discrepancies. PST physical size and metadata-declared message/
+attachment size are kept distinct because PST indexes and unused allocation prevent an
+exact folder-size allocation without reading more data. Jim's absence is recorded as
+pending while Glen and Owen proceed.
+
+All outputs remain local under ignored `local-artifacts/pst-audit`. They contain personal
+metadata and must not be committed or uploaded. Completion of this run allows sizing and
+selection only. It does not authorize body extraction, attachment opening, OCR, Azure
+ingestion, model inference, or any resolution of the still-open third-party consent/
+lawful-basis question.
 
