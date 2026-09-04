@@ -105,7 +105,20 @@ the normal signed-in Windows PowerShell session:
 The launcher verifies the audit size and timestamp, computes or confirms SHA-256 while
 the source is stable, copies each selected PDF under an opaque ID, verifies the staged
 copy, rechecks page count, extracts every readable page, preserves detected tables as
-atomic Markdown, and writes only to ignored `private-build`. The subsequent Azure job
+atomic Markdown, and writes only to ignored `private-build`. Each document runs in its
+own child process with a default ten-minute/2 GiB ceiling. A timeout, memory breach,
+reader disagreement, missing page, or unresolved second-reader failure quarantines that document
+and prevents an incomplete candidate payload. Successful documents are recorded in an
+atomic checkpoint and are hash-verified when resumed, so an interrupted batch does not
+restart from zero. Every PDF is read independently by pdfminer/pdfplumber and pypdf;
+recoverable stream warnings are accepted only when both reader passes open every audited
+page. Legitimate blank/drawing pages stay recorded rather than receiving invented text.
+The original is always authoritative;
+the pipeline never invents replacement text and does no OCR in this lane.
+The summary retains measured per-document elapsed time and peak worker memory so the
+next batch is sized from observed evidence rather than a round-number guess.
+
+The subsequent Azure job
 must explicitly select the standing ingestion UAMI, target an index beginning with
 `consult-candidate-`, and name the real live index separately so the contract can reject
 it. The candidate stays non-promotable until consultants supply the ranked sources and

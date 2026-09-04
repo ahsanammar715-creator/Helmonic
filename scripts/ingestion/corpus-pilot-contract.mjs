@@ -44,6 +44,21 @@ export function validateCorpusPilotPayload(payload) {
     ) {
       throw new Error(`Invalid corpus source contract for ${document.sourceId || "unknown"}`);
     }
+    const integrity = document.integrity;
+    if (
+      !["verified", "repair_verified"].includes(integrity?.outcome) ||
+      !Number.isInteger(integrity?.expectedPages) ||
+      integrity.expectedPages < 1 ||
+      integrity.pdfminerPages !== integrity.expectedPages ||
+      integrity.pypdfPages !== integrity.expectedPages ||
+      integrity.readablePages !== integrity.expectedPages ||
+      integrity.pageCountsMatch !== true ||
+      !Array.isArray(integrity.pypdfFailures) ||
+      integrity.pypdfFailures.length !== 0 ||
+      (integrity.outcome === "repair_verified" && integrity.recoveryApplied !== true)
+    ) {
+      throw new Error(`Two-reader integrity verification is incomplete for ${document.sourceId}`);
+    }
     sourceIds.add(document.sourceId);
     for (const chunk of document.chunks) {
       if (!chunk.chunkId || chunkIds.has(chunk.chunkId) || !chunk.content?.trim()) {

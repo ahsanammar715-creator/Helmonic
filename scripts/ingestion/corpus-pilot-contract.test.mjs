@@ -18,6 +18,17 @@ function payload() {
         sourceHash: "a".repeat(64),
         permissionScope: "iAcoustics",
         citationNamespace: "D",
+        integrity: {
+          outcome: "verified",
+          expectedPages: 1,
+          pdfminerPages: 1,
+          pypdfPages: 1,
+          readablePages: 1,
+          pageCountsMatch: true,
+          corruptionDetected: false,
+          recoveryApplied: false,
+          pypdfFailures: [],
+        },
         chunks: [
           {
             chunkId: `chunk-${index}`,
@@ -44,4 +55,13 @@ test("payload contract requires exactly 100 internal controlled documents", () =
   assert.equal(validateCorpusPilotPayload(valid).sourceIds.size, 100);
   valid.documents[0].permissionScope = "public";
   assert.throws(() => validateCorpusPilotPayload(valid), /Invalid corpus source contract/);
+});
+
+test("payload contract rejects a document without completed two-reader verification", () => {
+  const invalid = payload();
+  invalid.documents[0].integrity.readablePages = 0;
+  assert.throws(
+    () => validateCorpusPilotPayload(invalid),
+    /Two-reader integrity verification is incomplete/,
+  );
 });

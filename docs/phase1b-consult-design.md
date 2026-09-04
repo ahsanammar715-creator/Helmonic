@@ -346,6 +346,11 @@ unauthorized revision never receives traffic.
 | `scripts/corpus_audit/test_ingestion_plan_analysis.py` | Regression proof that a duplicate crossing an approved and unresolved classification remains held rather than bypassing governance through its second path |
 | `scripts/corpus_audit/build_full_ingestion_manifest.py` | Builds the ignored capture-all JSONL manifest for every audited approved original, using opaque Blob identities, canonical-copy links, format processing lanes, classification holds, and fail-closed permission scope |
 | `scripts/corpus_audit/test_full_ingestion_manifest.py` | Synthetic proof that all audited originals are retained, duplicate/category holds propagate, specialist formats are catalogued, books use the `B` namespace, and Search permission is never guessed |
+| `scripts/corpus_audit/build_corpus_pilot_payload.py` | Deterministic 100-PDF coordinator with one bounded child process per source, atomic per-source checkpoints, hash-verified resume, and fail-closed manual-review reporting |
+| `scripts/corpus_audit/corpus_document_worker.py` | Per-document copier/extractor enforcing the standard pdfminer/pdfplumber plus pypdf integrity decision, atomic table preservation, and quarantine without OCR or invented content |
+| `scripts/corpus_audit/diagnose_corpus_pilot_extraction.py` | Independent two-reader cross-check for the already-staged pilot, retaining opaque source IDs and completeness outcomes rather than document content |
+| `scripts/corpus_audit/prepare-corpus-pilot-context.ps1` | Normal-Windows private staging launcher that permits only a compatible checkpointed resume and packages the isolated candidate-ingestion context |
+| `scripts/corpus_audit/test_corpus_pilot_payload.py` | Offline selection and hardening tests covering exclusions, two-reader outcomes, worker timeout, worker memory termination, and checkpoint mismatch rejection |
 | `scripts/corpus_audit/README.md` | Corpus-audit operating instructions, report definitions, resume behavior, exclusions, and OCR-classification caveat |
 | `scripts/audio_audit/audit_audio_headers.py` | Read-only WAV container/header and neighbouring-format inventory; calculates duration/encoding aggregates without decoding, copying, transcribing, or uploading audio |
 | `scripts/audio_audit/run-audio-header-audit.ps1` | Normal-Windows launcher that reuses the authoritative corpus inventory and signed-in mapped-share access |
@@ -876,6 +881,27 @@ read the private audit outputs but the sandbox cannot open company-share file bo
 the source-preserving payload must be staged once from the normal signed-in PowerShell
 session before the approved Azure run can begin.
 
+### D-031: make bounded, resumable two-reader verification standing policy
+
+Document extraction now runs one source per child process with a default ten-minute and
+2 GiB working-set ceiling. Crossing either limit terminates only that document worker,
+marks the source for manual review, removes its partial staged copy, and prevents the
+candidate payload from being treated as complete. Each successful result is written
+atomically to a source-ID checkpoint and its staged SHA-256 is rechecked on resume, so a
+stopped batch resumes completed work without trusting a changed or incomplete artifact.
+The private summary records measured per-document elapsed time plus median, p95, and
+maximum peak memory; Azure ingestion retains its own embedding/Search totals so the next
+batch can be sized from the pilot's measured time, memory, and cost per document.
+
+Every PDF is verified by both pdfminer/pdfplumber and pypdf as part of the normal path,
+not only after a visible warning. Both reader passes must open every audited page; a
+legitimate blank, drawing, or image-only page is recorded rather than treated as invented text. A recoverable
+stream warning can be classified `repair_verified` only when those completeness checks
+pass; a page-count mismatch, unreadable page, unresolved second-reader failure, hash mismatch,
+timeout, or memory breach is quarantined. No OCR or invented replacement content is
+allowed. This policy applies to every future document batch. The Word lane remains
+excluded until its separate rendering-fidelity gate has passed.
+
 ## Current status
 
 ### Live and working
@@ -1048,9 +1074,14 @@ session before the approved Azure run can begin.
   independently recalculable from the audit outputs. The manifest accounts for all
   29,703 audited approved originals/286.9 GB across format lanes and identifies a
   conservative 2,064-document first searchable population. All permission scopes remain
-  fail-closed, no Azure ingestion is authorized, and the next human input is the first
-  100-document confirmation plus canonical-version, IA-21/Cadna, permission,
-  malware, retention, and promotion-authority decisions. The more specific file
+  fail-closed. The first 100-PDF candidate batch is explicitly approved under a roughly
+  USD 5 ceiling and has been staged locally as 100 documents/1,871 pages/2,631 chunks,
+  but no Blob, embedding, Search, image, job, or candidate-index write has started. Its
+  independent two-reader pass now covers all 100 documents and reconciles exactly 1,871
+  pages: 87 are directly verified and 13 are repair-verified after tolerant-reader
+  recovery or corrected trailing-page accounting. The bounded/checkpointed worker and
+  Azure fail-closed verification contract are locally tested. Canonical-version, IA-21/Cadna, permission,
+  malware, retention, and promotion-authority decisions remain pending. The more specific file
   `helmoniccorpustoingestionplanprompt.md` remains unavailable to the isolated agent and
   must be reconciled if it adds requirements beyond the accessible October brief.
 - The D-027 normal-Windows WAV header audit completed all 3,512 files with zero header
@@ -1222,6 +1253,9 @@ standing-resource change was made during local diagnosis.
 | 2026-09-04 | D-028 Azure audio-pilot cleanup completed | After explicit approval, assigned `Container Registry Repository Contributor` temporarily to the operator with Microsoft's repository-name ABAC condition restricted to `helmonic-consult-audio-pilot`. Deleted the repository, tag `7bda31e`, and manifest `sha256:25c86c5fff4b921874615286960897baf6c0a9511bbe686295da8558e0a9decc`, then revoked assignment `e78a15f3-d55b-4778-9706-bf197e9192b4` immediately. Independent checks returned repository not found and empty matches for the grant, disposable job, UAMI, and UAMI roles. Live traffic remained 100% on `--hyb570514c`; the twelve private Blob originals and catalog were deliberately retained as the successful pilot result. |
 | 2026-09-04 | D-029 standing ingestion identity proven | Created persistent North Europe UAMI `uami-helmonic-ingestion-001` with only `Storage Blob Data Contributor` on `sthelmonicdev001`, `Search Index Data Contributor` on `srch-helmonic-dev-001`, and `Cognitive Services OpenAI User` on `aif-helmonic-embed-dev-001`. Seven fail-closed local tests passed. The first ACR quick-build invocation selected the repository application Dockerfile rather than the staged proof Dockerfile and failed without an output image; rerunning from the six-file/60.6 KiB staged context selected the intended non-root proof image. Disposable execution `job-standing-worker-proof-001-6ei0h1e` explicitly selected the standing client ID and succeeded in 35 seconds after a synthetic Blob upload/read/delete, one 1,536-dimensional embedding, and isolated `consult-session-v1` Search write/query/delete; its terminal path verified both synthetic records absent. No real content was used. Deleted the job and ACR repository/tag/both manifests, revoked the repository-scoped cleanup grant, and independently confirmed all were absent. The standing UAMI and exactly three roles remain; the temporary-identity path remains as fallback. Live traffic stayed 100% on `--hyb570514c`; the 100-document batch was not started. |
 | 2026-09-04 | D-030 100-PDF batch path prepared; source staging pending | GitHub reported all `fa3c8c8` checks successful: CI/build-and-test, immutable ACR image build, Vercel Preview, and combined status. Added a deterministic nine-category selector, audited-source stability/hash/page checks, full readable-page extraction, atomic table preservation, a candidate-index-only standing-UAMI uploader, exact chunk/vector parity, six distributed hybrid probes, and positive/negative permission checks. Four new offline tests and targeted lint passed. Two sandbox attempts stopped on the first file with Windows access denied before any source was copied or any Azure call occurred; the partial private contexts were removed from the workspace. The same source-staging command must run once in normal signed-in PowerShell. No Azure index, Blob, embedding, Search write, job, image, cost, live configuration, or traffic change occurred. |
+| 2026-09-04 | D-030 private 100-PDF payload staged | The normal signed-in Windows run staged 100 canonical readable PDFs across nine categories into ignored private build storage: 254,787,552 bytes, 1,871 pages, 2,631 chunks, and 342 table pages, all with internal `iAcoustics` scope and `D` citations. A complex table temporarily drove extraction into several GiB of memory and one PDF emitted a decompression warning, so no Azure write followed and the batch remained non-promotable pending independent integrity verification plus reusable resource limits/checkpointing. Live traffic and `consult-demo-v2` were untouched. |
+| 2026-09-04 | D-031 bounded resumable two-reader policy implemented locally | Replaced the batch-wide unbounded extractor with a child process per document, default ten-minute/2 GiB working-set ceiling, atomic source-ID checkpoint, hash-verified resume, and fail-closed manual-review outcome. Every PDF now passes both pdfminer/pdfplumber and pypdf page/readability checks before it can enter a candidate payload; recoverable corruption is explicitly marked and incomplete evidence is quarantined without OCR or invented content. Ten Python tests cover selection/exclusions, verified/recovered/quarantined and legitimate-blank reader outcomes, forced timeout, forced memory termination, checkpoint identity/limit mismatch, hash-verified resume, a real synthetic PDF worker, and the legacy-staging annotation bridge; three Node contract tests prove the Azure path rejects missing verification. This was a $0 local change: no Azure write, index, Blob, embedding, job, revision, live configuration, or traffic change occurred. |
+| 2026-09-04 | D-031 100-PDF two-reader integrity gate passed | The independent pass rehashed and opened all 100 staged originals with pdfminer/pdfplumber and pypdf. All hashes matched and both readers agreed on 1,871 actual pages. Eighty-seven documents passed directly; thirteen were marked `repair_verified`: ten used the tolerant second-reader path for repairable metadata/xref defects and three corrected the old chunk-derived counter for trailing pages (including the one decompression-warning PDF). Two other documents contained legitimate non-text pages but were structurally complete. Zero documents require quarantine or replacement. The private payload now carries per-document integrity/page-count records and passes the fail-closed Azure payload contract. No Azure write or live change occurred. |
 | 2026-09-04 | First real PST metadata run completed with retained source-access failures | The normal-Windows run produced local ignored reports for Glen and Owen and retained 44,568 readable email items, 13,475 other items, and 141,518 attachment metadata entries. It is partial rather than final: Glen has 3,416 directory-not-found item failures plus five illegal-path and one network failure; Owen has 13,251 item failures because another process held `backup_owen.pst`. Jim's PST was absent. No email body, attachment payload, source write, Outlook profile mutation, Azure call, or cost occurred. The next run must use stable mapped-share access with both PST files closed elsewhere. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but

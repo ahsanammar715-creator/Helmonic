@@ -15,6 +15,7 @@
     "test:audio-pilot": "node --test --experimental-test-isolation=none scripts/audio_ingestion/audio-pilot-contract.test.mjs",
     "test:standing-worker-proof": "node --test --experimental-test-isolation=none scripts/ingestion/standing-worker-proof-contract.test.mjs",
     "test:corpus-pilot": "node --test --experimental-test-isolation=none scripts/ingestion/corpus-pilot-contract.test.mjs",
+    "test:corpus-hardening": "python -m unittest scripts/corpus_audit/test_corpus_pilot_payload.py",
     "verify:runtime": "node scripts/verify-runtime-hardening.mjs",
     "test:e2e": "playwright test"
   },

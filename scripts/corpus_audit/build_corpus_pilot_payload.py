@@ -1,21 +1,21 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import json
-import re
-import shutil
+import os
+import subprocess
+import sys
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
 
-import pdfplumber
-
-
 BATCH_ID = "corpus-pilot-100-v1"
 PERMISSION_SCOPE = "iAcoustics"
-MAX_CHARS = 4_500
-OVERLAP_CHARS = 300
+DEFAULT_DOCUMENT_TIMEOUT_SECONDS = 600
+DEFAULT_DOCUMENT_MEMORY_MIB = 2_048
 GROUP_QUOTAS = {
     "IA-02.2": 40,
     "IA-13": 15,
@@ -74,141 +74,209 @@ def digest(path: Path) -> str:
     return hasher.hexdigest()
 
 
-def compact(value: object) -> str:
-    return re.sub(r"\s+", " ", str(value or "")).strip()
+def atomic_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
 
 
-def useful_table(table: list[list[object]]) -> bool:
-    populated = [row for row in table if any(compact(cell) for cell in row)]
-    width = max((sum(bool(compact(cell)) for cell in row) for row in populated), default=0)
-    return len(populated) >= 2 and width >= 2
+def process_memory_bytes(process_id: int) -> int:
+    if os.name == "nt":
+        class ProcessMemoryCounters(ctypes.Structure):
+            _fields_ = [
+                ("cb", ctypes.c_ulong),
+                ("PageFaultCount", ctypes.c_ulong),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        process = ctypes.windll.kernel32.OpenProcess(0x0400 | 0x0010, False, process_id)
+        if not process:
+            return 0
+        try:
+            counters = ProcessMemoryCounters()
+            counters.cb = ctypes.sizeof(counters)
+            if ctypes.windll.psapi.GetProcessMemoryInfo(
+                process, ctypes.byref(counters), counters.cb
+            ):
+                return int(counters.WorkingSetSize)
+            return 0
+        finally:
+            ctypes.windll.kernel32.CloseHandle(process)
+    status = Path(f"/proc/{process_id}/status")
+    if status.exists():
+        for line in status.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) * 1024
+    return 0
 
 
-def table_markdown(table: list[list[object]], ordinal: int) -> str:
-    width = max(len(row) for row in table)
-    rows = [list(row) + [""] * (width - len(row)) for row in table]
-    header = [compact(cell).replace("|", "\\|") or f"Column {index + 1}" for index, cell in enumerate(rows[0])]
-    body = [[compact(cell).replace("|", "\\|") for cell in row] for row in rows[1:]]
-    lines = [
-        f"Table {ordinal}",
-        f"| {' | '.join(header)} |",
-        f"| {' | '.join('---' for _ in header)} |",
-    ]
-    lines.extend(f"| {' | '.join(row)} |" for row in body)
-    return "\n".join(lines)
+def run_limited_process(
+    command: list[str],
+    *,
+    timeout_seconds: float,
+    memory_bytes: int,
+    stdout_path: Path,
+    stderr_path: Path,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    peak_memory = 0
+    memory_measurement_seen = False
+    reason = "completed"
+    with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+        process = subprocess.Popen(command, stdout=stdout, stderr=stderr)
+        while process.poll() is None:
+            elapsed = time.monotonic() - started
+            current_memory = process_memory_bytes(process.pid)
+            memory_measurement_seen = memory_measurement_seen or current_memory > 0
+            peak_memory = max(peak_memory, current_memory)
+            if current_memory > memory_bytes:
+                reason = "memory_limit"
+                process.kill()
+                break
+            if elapsed > 5 and not memory_measurement_seen:
+                reason = "memory_monitor_unavailable"
+                process.kill()
+                break
+            if elapsed > timeout_seconds:
+                reason = "timeout"
+                process.kill()
+                break
+            time.sleep(0.1)
+        return_code = process.wait()
+    return {
+        "returnCode": return_code,
+        "reason": reason,
+        "elapsedSeconds": round(time.monotonic() - started, 3),
+        "peakMemoryBytes": peak_memory,
+    }
 
 
-def split_text(text: str) -> list[str]:
-    normalized = re.sub(r"[ \t]+", " ", text).strip()
-    if not normalized:
-        return []
-    chunks: list[str] = []
-    start = 0
-    while start < len(normalized):
-        end = min(start + MAX_CHARS, len(normalized))
-        if end < len(normalized):
-            boundary = max(normalized.rfind("\n", start, end), normalized.rfind(". ", start, end))
-            if boundary > start + MAX_CHARS // 2:
-                end = boundary + 1
-        chunk = normalized[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end >= len(normalized):
-            break
-        start = max(end - OVERLAP_CHARS, start + 1)
-    return chunks
+def checkpoint_identity(selected: list[dict[str, Any]], manifest: Path) -> str:
+    material = {
+        "batchId": BATCH_ID,
+        "manifestHash": digest(manifest),
+        "sourceIds": [row["source_id"] for row in selected],
+    }
+    return hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def payload_document(row: dict[str, Any], source_root: Path, originals: Path) -> tuple[dict[str, Any], dict[str, int]]:
-    source = source_root / Path(row["relative_path"])
-    if not source.is_file():
-        raise RuntimeError(f"Approved source is unavailable for {row['source_id']}")
-    stat_before = source.stat()
-    if stat_before.st_size != int(row["size_bytes"]) or stat_before.st_mtime_ns != int(row["modified_ns"]):
-        raise RuntimeError(f"Approved source changed after audit for {row['source_id']}")
-    source_hash = digest(source)
-    stat_after = source.stat()
-    if stat_after.st_size != stat_before.st_size or stat_after.st_mtime_ns != stat_before.st_mtime_ns:
-        raise RuntimeError(f"Approved source changed while hashing for {row['source_id']}")
-    if row.get("sha256") and source_hash != row["sha256"]:
-        raise RuntimeError(f"Approved source hash changed after audit for {row['source_id']}")
+def load_checkpoint(path: Path, identity: str, limits: dict[str, int]) -> dict[str, Any]:
+    if not path.exists():
+        return {"version": 1, "identity": identity, "limits": limits, "documents": {}}
+    checkpoint = json.loads(path.read_text(encoding="utf-8"))
+    if checkpoint.get("identity") != identity or checkpoint.get("limits") != limits:
+        raise RuntimeError("Existing checkpoint does not match the selected sources or processing limits")
+    return checkpoint
 
-    file_name = f"{row['source_id']}.pdf"
-    staged = originals / file_name
-    shutil.copyfile(source, staged)
-    if digest(staged) != source_hash:
-        raise RuntimeError(f"Staged copy hash mismatch for {row['source_id']}")
 
-    chunks: list[dict[str, Any]] = []
-    table_pages: set[int] = set()
-    with pdfplumber.open(staged) as pdf:
-        if len(pdf.pages) != int(row["page_count"]):
-            raise RuntimeError(f"Page-count drift for {row['source_id']}")
-        for page_number, page in enumerate(pdf.pages, start=1):
-            for ordinal, content in enumerate(split_text(page.extract_text() or ""), start=1):
-                chunk_id = f"{row['source_id']}-p{page_number:04d}-c{ordinal:03d}"
-                chunks.append(
-                    {
-                        "chunkId": chunk_id,
-                        "section": f"Page {page_number}",
-                        "pageNumber": page_number,
-                        "content": content,
-                        "contentHash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-                        "kind": "text",
-                        "contentFormat": "plain_text",
-                        "atomic": False,
-                    }
-                )
-            tables = [table for table in (page.extract_tables() or []) if useful_table(table)]
-            for ordinal, table in enumerate(tables, start=1):
-                content = table_markdown(table, ordinal)
-                chunk_id = f"{row['source_id']}-p{page_number:04d}-t{ordinal:03d}"
-                chunks.append(
-                    {
-                        "chunkId": chunk_id,
-                        "section": f"Page {page_number} table {ordinal}",
-                        "pageNumber": page_number,
-                        "content": content,
-                        "contentHash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-                        "kind": "table",
-                        "contentFormat": "markdown",
-                        "atomic": True,
-                    }
-                )
-                table_pages.add(page_number)
-    if not chunks:
-        raise RuntimeError(f"No extractable content for {row['source_id']}")
+def load_resumable_result(
+    existing: dict[str, Any] | None, result_path: Path, originals: Path
+) -> dict[str, Any] | None:
+    if not existing or existing.get("status") != "completed" or not result_path.exists():
+        return None
+    candidate = json.loads(result_path.read_text(encoding="utf-8"))
+    staged = originals / candidate["document"]["fileName"]
+    if not staged.is_file() or digest(staged) != candidate["document"]["sourceHash"]:
+        return None
+    return candidate
 
-    return (
-        {
-            "sourceId": row["source_id"],
-            "title": Path(row["relative_path"]).name,
-            "fileName": file_name,
-            "sourceHash": source_hash,
-            "permissionScope": PERMISSION_SCOPE,
-            "citationNamespace": "D",
-            "tablePageNumbers": sorted(table_pages),
-            "chunks": chunks,
-        },
-        {"pages": len(pdf.pages), "chunks": len(chunks), "tablePages": len(table_pages)},
+
+def percentile(values: list[float], fraction: float) -> float:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * fraction)))
+    return ordered[index]
+
+
+def process_document(
+    row: dict[str, Any],
+    *,
+    source_root: Path,
+    output: Path,
+    timeout_seconds: int,
+    memory_mib: int,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    work = output / "checkpoint-documents"
+    source_id = row["source_id"]
+    request_path = work / f"{source_id}.request.json"
+    result_path = work / f"{source_id}.result.json"
+    stdout_path = work / f"{source_id}.stdout.log"
+    stderr_path = work / f"{source_id}.stderr.log"
+    request = {
+        "row": row,
+        "sourceRoot": str(source_root),
+        "originals": str(output / "originals"),
+        "resultPath": str(result_path),
+    }
+    atomic_json(request_path, request)
+    worker = Path(__file__).with_name("corpus_document_worker.py")
+    execution = run_limited_process(
+        [sys.executable, str(worker), "--request", str(request_path)],
+        timeout_seconds=timeout_seconds,
+        memory_bytes=memory_mib * 1024 * 1024,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
     )
+    status = "completed" if execution["returnCode"] == 0 and result_path.exists() else "manual_review"
+    record = {"status": status, "execution": execution, "resultFile": result_path.name}
+    if status != "completed":
+        error = stderr_path.read_text(encoding="utf-8", errors="replace")[-2_000:]
+        record["error"] = error or execution["reason"]
+        return None, record
+    return json.loads(result_path.read_text(encoding="utf-8")), record
 
 
 def build(args: argparse.Namespace) -> dict[str, Any]:
     output = args.output_dir.resolve()
-    if output.exists():
-        raise RuntimeError(f"Output already exists: {output}")
-    output.mkdir(parents=True)
+    output.mkdir(parents=True, exist_ok=True)
     originals = output / "originals"
-    originals.mkdir()
+    originals.mkdir(exist_ok=True)
+    work = output / "checkpoint-documents"
+    work.mkdir(exist_ok=True)
 
-    selected = select_rows(read_jsonl(args.manifest.resolve()))
+    manifest = args.manifest.resolve()
+    selected = select_rows(read_jsonl(manifest))
+    limits = {
+        "timeoutSeconds": args.document_timeout_seconds,
+        "memoryMiB": args.document_memory_mib,
+    }
+    checkpoint_path = output / "checkpoint.json"
+    checkpoint = load_checkpoint(checkpoint_path, checkpoint_identity(selected, manifest), limits)
     documents: list[dict[str, Any]] = []
     totals = Counter()
+    manual_review: list[dict[str, Any]] = []
+    resumed_documents = 0
     for row in selected:
-        document, metrics = payload_document(row, args.source_root.resolve(), originals)
-        documents.append(document)
-        totals.update(metrics)
+        source_id = row["source_id"]
+        existing = checkpoint["documents"].get(source_id)
+        result_path = work / f"{source_id}.result.json"
+        result = load_resumable_result(existing, result_path, originals)
+        if result is not None:
+            resumed_documents += 1
+        if result is None:
+            result, record = process_document(
+                row,
+                source_root=args.source_root.resolve(),
+                output=output,
+                timeout_seconds=args.document_timeout_seconds,
+                memory_mib=args.document_memory_mib,
+            )
+            checkpoint["documents"][source_id] = record
+            atomic_json(checkpoint_path, checkpoint)
+        if result is None:
+            manual_review.append({"sourceId": source_id, **checkpoint["documents"][source_id]})
+            continue
+        documents.append(result["document"])
+        totals.update(result["metrics"])
 
     payload = {
         "batch": {
@@ -220,7 +288,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "extraction": {"version": 2, "tableStrategy": "atomic-markdown-or-key-value"},
         "documents": documents,
     }
-    (output / "payload.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    atomic_json(output / "payload.json", payload)
+    completed_executions = [
+        record["execution"]
+        for record in checkpoint["documents"].values()
+        if record.get("status") == "completed"
+    ]
+    elapsed = [float(execution["elapsedSeconds"]) for execution in completed_executions]
+    peak_memory = [int(execution["peakMemoryBytes"]) for execution in completed_executions]
     summary = {
         "batchId": BATCH_ID,
         "documentCount": len(documents),
@@ -230,9 +305,24 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "tablePages": totals["tablePages"],
         "permissionScope": PERMISSION_SCOPE,
         "groupCounts": dict(sorted(Counter(row["top_level"] for row in selected).items())),
+        "processingLimits": limits,
+        "resumedDocuments": resumed_documents,
+        "processingTelemetry": {
+            "measuredDocuments": len(completed_executions),
+            "totalElapsedSeconds": round(sum(elapsed), 3),
+            "medianElapsedSeconds": percentile(elapsed, 0.5),
+            "p95ElapsedSeconds": percentile(elapsed, 0.95),
+            "maxPeakMemoryBytes": max(peak_memory, default=0),
+        },
+        "manualReviewCount": len(manual_review),
+        "manualReview": manual_review,
         "promotionReady": False,
     }
-    (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    atomic_json(output / "summary.json", summary)
+    if manual_review:
+        raise RuntimeError(
+            f"{len(manual_review)} documents require manual review; candidate payload is incomplete"
+        )
     return summary
 
 
@@ -241,6 +331,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--document-timeout-seconds", type=int, default=DEFAULT_DOCUMENT_TIMEOUT_SECONDS
+    )
+    parser.add_argument("--document-memory-mib", type=int, default=DEFAULT_DOCUMENT_MEMORY_MIB)
     return parser.parse_args()
 
 

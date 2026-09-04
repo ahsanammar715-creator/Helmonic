@@ -42,6 +42,9 @@ jobs:
       - name: Validate corpus pilot policy
         run: npm run test:corpus-pilot
 
+      - name: Validate per-document corpus hardening
+        run: npm run test:corpus-hardening
+
       - name: Build
         run: npm run build
 
