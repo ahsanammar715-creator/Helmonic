@@ -873,6 +873,9 @@ page and detected table, and receive internal `iAcoustics` scope plus the `D` ci
 namespace.
 
 The job refuses live/rollback index names, requires the candidate schema to pre-exist,
+proves the candidate's vector dimension and permission filter through a document-level
+search probe permitted by `Search Index Data Contributor` (rather than reading the index
+definition with a service-administration role),
 re-verifies every staged original hash, embeds every chunk, uploads opaque Blob names,
 requires exact source/chunk/vector parity, and runs six distributed hybrid source probes
 plus positive and negative permission checks. These automated probes validate plumbing;
@@ -917,10 +920,16 @@ excluded until its separate rendering-fidelity gate has passed.
 - The prior hardened revision `--p1b69b6b7a` remains active at 0% as the immediate
   Target B rollback. The older root/port-80 revision and placeholder remain available;
   a rollback to `--ca72a0c` must restore ingress port 80 as well as its traffic weight.
-- Commit `fa3c8c8` passed GitHub CI, immutable ACR image build, and Vercel Preview. The
-  standing ingestion identity is ready. The isolated 100-PDF batch tooling is locally
-  tested, but no candidate index, Blob object, embedding, Search write, job, image, cost,
-  or live change has occurred because normal-Windows payload staging is pending.
+- Commit `1dad41d` passed GitHub CI, immutable ACR image build, and Vercel Preview. The
+  100-PDF private payload has passed its bounded two-reader gate and candidate index
+  `consult-candidate-pilot-100-v1` now exists. Its single-purpose schema job used a
+  temporary system identity and Search schema role; both were deleted and independently
+  confirmed absent. The first standing-identity execution stopped at its opening schema
+  lookup with HTTP 403 before any embedding, Blob, or Search document write because that
+  lookup required a deliberately absent service-administration role. The preflight now
+  proves the same candidate vector/filter contract through permitted document-data
+  operations; live `consult-demo-v2` and traffic remain unchanged while the corrected
+  private rerun is prepared.
 - Platform authentication is enabled and restricted to exactly Ammar Ahsan
   (`c34341a3-7783-44d7-8980-b6ea8111bc06`) and Jim Dunne
   (`84889a68-5ca1-40d6-860b-7654b6f100ce`).
@@ -1256,6 +1265,7 @@ standing-resource change was made during local diagnosis.
 | 2026-09-04 | D-030 private 100-PDF payload staged | The normal signed-in Windows run staged 100 canonical readable PDFs across nine categories into ignored private build storage: 254,787,552 bytes, 1,871 pages, 2,631 chunks, and 342 table pages, all with internal `iAcoustics` scope and `D` citations. A complex table temporarily drove extraction into several GiB of memory and one PDF emitted a decompression warning, so no Azure write followed and the batch remained non-promotable pending independent integrity verification plus reusable resource limits/checkpointing. Live traffic and `consult-demo-v2` were untouched. |
 | 2026-09-04 | D-031 bounded resumable two-reader policy implemented locally | Replaced the batch-wide unbounded extractor with a child process per document, default ten-minute/2 GiB working-set ceiling, atomic source-ID checkpoint, hash-verified resume, and fail-closed manual-review outcome. Every PDF now passes both pdfminer/pdfplumber and pypdf page/readability checks before it can enter a candidate payload; recoverable corruption is explicitly marked and incomplete evidence is quarantined without OCR or invented content. Ten Python tests cover selection/exclusions, verified/recovered/quarantined and legitimate-blank reader outcomes, forced timeout, forced memory termination, checkpoint identity/limit mismatch, hash-verified resume, a real synthetic PDF worker, and the legacy-staging annotation bridge; three Node contract tests prove the Azure path rejects missing verification. This was a $0 local change: no Azure write, index, Blob, embedding, job, revision, live configuration, or traffic change occurred. |
 | 2026-09-04 | D-031 100-PDF two-reader integrity gate passed | The independent pass rehashed and opened all 100 staged originals with pdfminer/pdfplumber and pypdf. All hashes matched and both readers agreed on 1,871 actual pages. Eighty-seven documents passed directly; thirteen were marked `repair_verified`: ten used the tolerant second-reader path for repairable metadata/xref defects and three corrected the old chunk-derived counter for trailing pages (including the one decompression-warning PDF). Two other documents contained legitimate non-text pages but were structurally complete. Zero documents require quarantine or replacement. The private payload now carries per-document integrity/page-count records and passes the fail-closed Azure payload contract. No Azure write or live change occurred. |
+| 2026-09-04 | D-032 candidate preflight aligned with standing least privilege | Created isolated index `consult-candidate-pilot-100-v1` through a single-purpose system identity holding temporary `Search Service Contributor`; its only successful request returned HTTP 201 for that exact candidate name. The role and job were then deleted and independently returned empty Azure listings. The first standing-UAMI ingestion execution failed closed on an index-definition GET with HTTP 403 before any embedding, Blob upload, or Search document write; its job was deleted and embedding capacity restored from 100 to 1 kTPM. Replaced that management/schema lookup with a candidate-only document search probe that exercises the 1,536-dimensional `content_vector` and filterable `permission_scope` fields using the standing identity's existing `Search Index Data Contributor` role. The standing UAMI remains at exactly three roles; live `consult-demo-v2`, its application setting, and 100% traffic on `--hyb570514c` were unchanged. |
 | 2026-09-04 | First real PST metadata run completed with retained source-access failures | The normal-Windows run produced local ignored reports for Glen and Owen and retained 44,568 readable email items, 13,475 other items, and 141,518 attachment metadata entries. It is partial rather than final: Glen has 3,416 directory-not-found item failures plus five illegal-path and one network failure; Owen has 13,251 item failures because another process held `backup_owen.pst`. Jim's PST was absent. No email body, attachment payload, source write, Outlook profile mutation, Azure call, or cost occurred. The next run must use stable mapped-share access with both PST files closed elsewhere. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but

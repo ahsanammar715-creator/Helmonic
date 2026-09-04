@@ -5,6 +5,7 @@ import { createUserAssignedManagedIdentityCredential } from "../managed-identity
 import {
   assertCandidateTarget,
   assertOriginalHash,
+  buildCandidateIndexProbe,
   EXPECTED_BATCH_ID,
   EXPECTED_DOCUMENT_COUNT,
   EXPECTED_PERMISSION_SCOPE,
@@ -100,18 +101,22 @@ async function searchRequest(accessToken, path, init = {}) {
 }
 
 async function validateCandidateIndex(accessToken) {
-  const response = await searchRequest(accessToken, `/indexes/${encodeURIComponent(searchIndex)}`);
+  const response = await searchRequest(
+    accessToken,
+    `/indexes/${encodeURIComponent(searchIndex)}/docs/search`,
+    {
+      method: "POST",
+      body: JSON.stringify(buildCandidateIndexProbe(embeddingDimensions)),
+    },
+  );
   if (response.status === 404) {
     throw new Error("Candidate index is missing; schema creation must use the separate deployment identity");
   }
-  if (!response.ok) throw new Error(`Candidate index lookup failed: ${response.status}`);
-  const schema = await response.json();
-  const vector = schema.fields?.find((field) => field.name === "content_vector");
-  if (vector?.dimensions !== embeddingDimensions || !vector?.vectorSearchProfile) {
-    throw new Error("Candidate index vector schema does not match the embedding contract");
+  if (!response.ok) {
+    throw new Error(
+      `Candidate index data-plane probe failed: ${response.status} ${(await response.text()).slice(0, 500)}`,
+    );
   }
-  const permission = schema.fields?.find((field) => field.name === "permission_scope");
-  if (!permission?.filterable) throw new Error("Candidate index permission scope is not filterable");
 }
 
 async function createEmbeddings(accessToken, inputs) {

@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   assertCandidateTarget,
+  buildCandidateIndexProbe,
   validateCorpusPilotPayload,
 } from "./corpus-pilot-contract.mjs";
 
@@ -48,6 +49,15 @@ test("candidate target cannot be a live or rollback index", () => {
   assert.throws(() => assertCandidateTarget("consult-demo-v2", "consult-demo-v2"));
   assert.throws(() => assertCandidateTarget("consult-demo-v1", "consult-demo-v2"));
   assert.doesNotThrow(() => assertCandidateTarget("consult-candidate-pilot-100-v1", "consult-demo-v2"));
+});
+
+test("candidate schema probe uses only document-data operations", () => {
+  const probe = buildCandidateIndexProbe(1536);
+  assert.equal(probe.filter, "permission_scope eq 'iAcoustics'");
+  assert.equal(probe.select, "chunk_id");
+  assert.equal(probe.vectorQueries[0].fields, "content_vector");
+  assert.equal(probe.vectorQueries[0].vector.length, 1536);
+  assert.throws(() => buildCandidateIndexProbe(0), /positive integer/);
 });
 
 test("payload contract requires exactly 100 internal controlled documents", () => {

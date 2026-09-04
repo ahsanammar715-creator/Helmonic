@@ -16,6 +16,28 @@ export function assertCandidateTarget(indexName, liveIndexName) {
   }
 }
 
+export function buildCandidateIndexProbe(dimensions) {
+  if (!Number.isSafeInteger(dimensions) || dimensions < 1) {
+    throw new Error("Candidate probe dimensions must be a positive integer");
+  }
+  const component = 1 / Math.sqrt(dimensions);
+  return {
+    search: "*",
+    filter: `permission_scope eq '${EXPECTED_PERMISSION_SCOPE}'`,
+    top: 1,
+    select: "chunk_id",
+    vectorFilterMode: "preFilter",
+    vectorQueries: [
+      {
+        kind: "vector",
+        vector: Array.from({ length: dimensions }, () => component),
+        fields: "content_vector",
+        k: 1,
+      },
+    ],
+  };
+}
+
 export function validateCorpusPilotPayload(payload) {
   if (payload?.batch?.id !== EXPECTED_BATCH_ID || payload?.batch?.promotionReady !== false) {
     throw new Error("Payload must declare the non-promotable corpus pilot batch");
