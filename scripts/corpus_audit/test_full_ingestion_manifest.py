@@ -70,6 +70,7 @@ class FullIngestionManifestTests(unittest.TestCase):
             self.assertEqual(by_path["IA-12/b.docx"]["processing_lane"], "word_render_extract_embed")
             self.assertEqual(by_path["IA-21/c.pdf"]["search_state"], "held")
             self.assertEqual(by_path["IA-02/raw.wav"]["processing_lane"], "media_catalog")
+            self.assertEqual(by_path["IA-02/raw.wav"]["citation_namespace"], "AU")
             self.assertEqual(by_path["Books/reference.pdf"]["citation_namespace"], "B")
             self.assertTrue(all(item["permission_scope"] is None for item in manifest))
         finally:

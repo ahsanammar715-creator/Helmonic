@@ -81,6 +81,12 @@ the following processing families:
 - acoustic measurement, media, image, design/model, archive, email-future, and other
   specialist catalogues.
 
+All 3,512 approved WAV originals are included in capture. They remain linked to their
+project/report/measurement context and may be surfaced as supporting evidence through
+timestamped `[AU#]` citations and controlled playback. They are not blindly transcribed,
+and an ordinary WAV cannot establish authoritative acoustic levels without its calibrated
+measurement record.
+
 The manifest records 147 duplicate copies but preserves their originals and links them
 to a canonical identity. Three duplicate families crossing an ordinary folder and an
 unresolved IA-21/Cadna classification are held in full. The resulting first searchable

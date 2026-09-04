@@ -46,6 +46,8 @@ def citation_namespace(row: dict[str, str]) -> str | None:
         return "B"
     if row["extension"] in EMAIL_EXTENSIONS:
         return "E"
+    if row["extension"] == ".wav":
+        return "AU"
     if row["kind"] in {"pdf", "word"}:
         return "D"
     return None
