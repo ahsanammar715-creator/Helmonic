@@ -335,6 +335,10 @@ unauthorized revision never receives traffic.
 | `scripts/evaluation/model-answer-policy.test.mjs` | Offline contract tests for document-only, blended document/general, general-only no-evidence, and honest uncertainty answers |
 | `scripts/ingestion/build-hybrid-payload.py` | Private-job payload builder that reads only retrievable v1 manifest fields and controlled Blob originals, requires the permission scope explicitly because v1 keeps it non-retrievable, preserves detected PDF tables as atomic Markdown, and retains v1 identifiers/page metadata for parity |
 | `scripts/ingestion/Dockerfile.hybrid` | Temporary non-root hybrid-validation image combining table-preserving extraction, the shared explicit-UAMI helper, the v2 uploader, and the eight-case private retrieval evaluation in one fail-closed job |
+| `scripts/ingestion/standing-worker-proof-contract.mjs` | Fail-closed synthetic-target contract restricting the standing-worker proof to the isolated session Blob container, session Search index, approved embedding dimensions, and an explicit UAMI client ID |
+| `scripts/ingestion/standing-worker-proof-contract.test.mjs` | Offline proof that the standing-worker validation cannot target the live controlled index, audio container, malformed proof IDs, or a non-1,536-dimensional embedding contract |
+| `scripts/ingestion/probe-standing-worker.mjs` | Disposable-job entrypoint that proves the persistent ingestion UAMI through synthetic Blob upload/read/delete, one embedding, and isolated Search write/query/delete with terminal cleanup checks |
+| `scripts/ingestion/Dockerfile.standing-worker-proof` | Minimal non-root validation image containing only the shared explicit-UAMI helper and standing-worker synthetic proof code |
 | `scripts/corpus_audit/audit_corpus.py` | Read-only, resumable inventory of the approximately 300 GB source collection: checklist mapping, format/integrity checks, page-level OCR triage, and exact/possible duplicate reporting without retaining extracted text |
 | `scripts/corpus_audit/run-corpus-audit.ps1` | Normal-Windows launcher for the mapped company share; fixes source/output boundaries and selects the bundled Python document runtime |
 | `scripts/corpus_audit/test_audit_corpus.py` | Synthetic end-to-end safety, exclusion, mapping, OCR-candidate, broken-file, and duplicate regression coverage |
@@ -814,6 +818,37 @@ confirmed absent. The retained Blob objects remain `pilot_only`, `iAcoustics`-sc
 `AU`-namespaced, and untranscribed; this pilot did not change Search, a model, an app
 revision, or live traffic.
 
+The future inline `[AU#, start-end]` player is sequenced with the next bounded audio
+batch, after the standing ingestion identity and without competing with the first
+100-document batch. A browser must not receive a private Blob URL or a broad SAS: the
+native HTML5 audio element will call a same-origin BFF endpoint that repeats the current
+user/project permission check and supports byte ranges. Native compatibility with the
+dominant WAV format-tag-17 material must be proven; incompatible files use controlled
+playback derivatives while originals remain authoritative. No player endpoint, playback
+derivative, transcription, or audio analysis is included in the identity proof.
+
+### D-029: prove a standing least-privilege ingestion identity before scaling
+
+The recurring document and audio pipeline now uses persistent UAMI
+`uami-helmonic-ingestion-001` instead of paying the identity-creation and propagation
+delay on every batch. It has exactly three current Azure data-plane assignments:
+`Storage Blob Data Contributor` on `sthelmonicdev001`, `Search Index Data Contributor`
+on `srch-helmonic-dev-001`, and `Cognitive Services OpenAI User` on
+`aif-helmonic-embed-dev-001`. It has no Owner, resource Contributor, Search service
+administration, model administration, Service Bus, or PostgreSQL role. Service Bus and
+database rights remain future resource-specific gates rather than guessed permissions.
+
+The identity was proven through a disposable job in the existing VNet-integrated
+environment. Using its client ID explicitly, the job uploaded, read back, hashed, and
+deleted one synthetic object in `consult-session-uploads`; requested one valid
+1,536-dimensional embedding; wrote, queried, and deleted one synthetic record in
+`consult-session-v1`; and used no real company content. The execution succeeded only
+after its cleanup checks passed. The disposable job and proof image repository were
+deleted, including both proof manifests, and the repository-scoped cleanup grant was
+revoked. The standing identity and its three roles deliberately remain. The established
+temporary-identity code path also remains available as a fallback until the first real
+batch proves the standing path under normal workload.
+
 ## Current status
 
 ### Live and working
@@ -963,8 +998,11 @@ revision, or live traffic.
   observed 20 kTPM capacity is historical inventory information only; it is not an
   approved or active pathway and must not be revisited unless its lifecycle becomes GA.
 - Phase 1B persistence/upload/general-context contracts are in source, and the migration
-  plus isolated session container/index are applied. The ingestion worker, sidebar tree
-  activation, live feature flags, and any traffic shift remain pending separate approval.
+  plus isolated session container/index are applied. The standing ingestion UAMI and its
+  three least-privilege roles are now independently proven with synthetic Blob,
+  embedding, and isolated Search operations. The durable queue worker, sidebar tree
+  activation, live feature flags, and any traffic shift remain pending separate approval;
+  the temporary-identity path remains available as fallback.
   Voice deployment is no longer account-tier-blocked, but Azure Speech resource creation
   remains pending a separate cost estimate and approval.
 - Azure Speech has not been provisioned.
@@ -993,11 +1031,11 @@ revision, or live traffic.
   the local filename classifier; headers still cannot prove speech content. Jim has now
   approved retaining the WAV originals in Helmonic as linked supporting evidence, using
   timestamped `AU` citations and controlled playback. The local manifest and design
-  reflect that decision. A deterministic pilot manifest now selects 12 representative
-  files totalling 8,485,614 bytes and covers every required source-group, duration,
-  format, channel, speech-hint, and companion category. No audio has yet been decoded,
-  copied, played, transcribed, uploaded, or sent to a model; the paid Azure capture
-  remains separately gated.
+  reflect that decision. The 12 representative files totalling 8,485,614 bytes were
+  uploaded into the private `consult-controlled-audio` pilot path and passed stored
+  length/hash plus authorized WAVE byte-range checks. They remain `pilot_only` and
+  untranscribed, and no audio was decoded, played, interpreted, indexed, or sent to a
+  model. The larger capture and inline-player work remain separately gated.
 - The separate PST metadata-only audit ran from the user's signed-in PowerShell session
   and produced partial Glen/Owen reports. It recorded 44,568 email items and 141,518
   attachment metadata entries across the readable portion, but the run is not an
@@ -1151,6 +1189,7 @@ standing-resource change was made during local diagnosis.
 | 2026-09-04 | D-028 private audio payload staged | The normal-Windows launcher copied the twelve selected WAVs into the ignored disposable build context: 8,485,614 bytes, twelve matching payload/file counts, and zero SHA-256 or size mismatches. Its first run failed only while formatting the final byte-count display because `Measure-Object` cannot read a property from the ordered dictionaries used there; the already-complete payload correctly blocked overwrite on the second run. The display now reuses the prevalidated byte total. No rerun is required, no source was modified, and no Azure call, upload, resource, live application, index, traffic, transcription, model, or cost change has yet occurred. |
 | 2026-09-04 | D-028 twelve-file private Azure audio pilot passed | A disposable 7.392 MiB ACR build context produced image `helmonic-consult-audio-pilot:7bda31e`; an initial two-second ACR run failed before build because the ABAC registry requires explicit caller authentication, and the corrected `[caller]` run succeeded. Temporary job execution `job-audio-pilot-001-69x5zho` ran for 37 seconds in the existing VNet-integrated Container Apps environment with the standing pull UAMI plus a dedicated data UAMI explicitly selected by client ID. The uploader reached its terminal success state only after all twelve WAVs and the private project-link catalog were stored in `consult-controlled-audio`, stored length/hash metadata matched, and authorized WAVE byte-range reads passed. The files remain `pilot_only`, `iAcoustics`-scoped, `AU`-namespaced, and untranscribed; no Search index, model, app revision, or traffic changed. Live traffic independently remained 100% on `--hyb570514c`. The job, data UAMI, and its only Blob role were deleted and independently absent. |
 | 2026-09-04 | D-028 Azure audio-pilot cleanup completed | After explicit approval, assigned `Container Registry Repository Contributor` temporarily to the operator with Microsoft's repository-name ABAC condition restricted to `helmonic-consult-audio-pilot`. Deleted the repository, tag `7bda31e`, and manifest `sha256:25c86c5fff4b921874615286960897baf6c0a9511bbe686295da8558e0a9decc`, then revoked assignment `e78a15f3-d55b-4778-9706-bf197e9192b4` immediately. Independent checks returned repository not found and empty matches for the grant, disposable job, UAMI, and UAMI roles. Live traffic remained 100% on `--hyb570514c`; the twelve private Blob originals and catalog were deliberately retained as the successful pilot result. |
+| 2026-09-04 | D-029 standing ingestion identity proven | Created persistent North Europe UAMI `uami-helmonic-ingestion-001` with only `Storage Blob Data Contributor` on `sthelmonicdev001`, `Search Index Data Contributor` on `srch-helmonic-dev-001`, and `Cognitive Services OpenAI User` on `aif-helmonic-embed-dev-001`. Seven fail-closed local tests passed. The first ACR quick-build invocation selected the repository application Dockerfile rather than the staged proof Dockerfile and failed without an output image; rerunning from the six-file/60.6 KiB staged context selected the intended non-root proof image. Disposable execution `job-standing-worker-proof-001-6ei0h1e` explicitly selected the standing client ID and succeeded in 35 seconds after a synthetic Blob upload/read/delete, one 1,536-dimensional embedding, and isolated `consult-session-v1` Search write/query/delete; its terminal path verified both synthetic records absent. No real content was used. Deleted the job and ACR repository/tag/both manifests, revoked the repository-scoped cleanup grant, and independently confirmed all were absent. The standing UAMI and exactly three roles remain; the temporary-identity path remains as fallback. Live traffic stayed 100% on `--hyb570514c`; the 100-document batch was not started. |
 | 2026-09-04 | First real PST metadata run completed with retained source-access failures | The normal-Windows run produced local ignored reports for Glen and Owen and retained 44,568 readable email items, 13,475 other items, and 141,518 attachment metadata entries. It is partial rather than final: Glen has 3,416 directory-not-found item failures plus five illegal-path and one network failure; Owen has 13,251 item failures because another process held `backup_owen.pst`. Jim's PST was absent. No email body, attachment payload, source write, Outlook profile mutation, Azure call, or cost occurred. The next run must use stable mapped-share access with both PST files closed elsewhere. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
@@ -1985,6 +2024,7 @@ estimated at approximately USD 130-145 per month after conversion to PAYG.
 | Semantic ranker for hybrid cutoff | No new fixed charge on existing Search Basic; its current free semantic plan includes the first 1,000 requests/month | Included in the USD 0.30 hybrid validation ceiling | v2 semantic configuration, evaluation, and live queries |
 | Initial 16-PDF hybrid ingestion validation | None fixed | USD 0.25 | Job execution, storage, Search transactions |
 | Container Apps ingestion job | No minimum while idle on consumption | Included above initially | New resource/configuration and executions |
+| Standing ingestion UAMI and three scoped role assignments | USD 0 fixed | USD 0.05 approved hard ceiling; synthetic proof completed | UAMI/roles retained; disposable job/data/image removed; temporary path retained as fallback |
 | Azure Speech S0 usage | Usage based | Approximately EUR 0.88/audio hour | Provision only after separate resource/cost approval |
 | Speech private endpoint | Approximately EUR/USD 7-8 monthly | Under EUR/USD 0.10 demo usage | Separate recurring-cost approval |
 | Curated general-source ingestion | None fixed on existing services | USD 0.25 per initial batch | Source approval and ingestion |

@@ -36,6 +36,9 @@ jobs:
       - name: Validate bounded audio pilot policy
         run: npm run test:audio-pilot
 
+      - name: Validate standing worker proof policy
+        run: npm run test:standing-worker-proof
+
       - name: Build
         run: npm run build
 
