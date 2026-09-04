@@ -51,3 +51,19 @@ local-artifacts/corpus-audit/
 alphanumeric characters. `partial_ocr_candidate` means 20-90% did. Those are conservative
 procurement/triage flags, not permission to ingest: plans, intentionally blank pages, and
 drawings still need a human spot-check.
+
+## Rebuild the ingestion-plan profile
+
+After an authoritative audit completes, reproduce the decision counts without reading
+the company share again:
+
+```powershell
+python .\scripts\corpus_audit\build_ingestion_plan_analysis.py `
+  --audit-dir .\local-artifacts\corpus-audit `
+  --output .\local-artifacts\corpus-ingestion-plan\analysis.json
+```
+
+The analysis reconciles source totals and derives exact-deduplicated populations. It
+fails closed when audit totals disagree and holds any duplicate identity that appears
+in both an approved and unresolved classification. The JSON output remains local and
+ignored; the decision-ready interpretation is `docs/corpus-to-ingestion-plan.md`.

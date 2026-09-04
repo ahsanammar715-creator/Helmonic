@@ -338,6 +338,8 @@ unauthorized revision never receives traffic.
 | `scripts/corpus_audit/audit_corpus.py` | Read-only, resumable inventory of the approximately 300 GB source collection: checklist mapping, format/integrity checks, page-level OCR triage, and exact/possible duplicate reporting without retaining extracted text |
 | `scripts/corpus_audit/run-corpus-audit.ps1` | Normal-Windows launcher for the mapped company share; fixes source/output boundaries and selects the bundled Python document runtime |
 | `scripts/corpus_audit/test_audit_corpus.py` | Synthetic end-to-end safety, exclusion, mapping, OCR-candidate, broken-file, and duplicate regression coverage |
+| `scripts/corpus_audit/build_ingestion_plan_analysis.py` | Reconciles the completed audit, derives conservative deduplicated/held ingestion populations, and fails the plan profile when source totals or safety checks disagree |
+| `scripts/corpus_audit/test_ingestion_plan_analysis.py` | Regression proof that a duplicate crossing an approved and unresolved classification remains held rather than bypassing governance through its second path |
 | `scripts/corpus_audit/README.md` | Corpus-audit operating instructions, report definitions, resume behavior, exclusions, and OCR-classification caveat |
 | `scripts/pst_audit/MetadataOnlyXstFile.cs` | Metadata-only XstReader extension with a strict message-property whitelist plus runtime guards proving no body or attachment payload was loaded |
 | `scripts/pst_audit/PstMetadataAudit.cs` | Read-only PST inventory engine for folder/message-header/recipient/date/size and attachment-name/type metadata, with local per-mailbox and combined reports |
@@ -370,6 +372,7 @@ mechanism, not authorization to ingest.
 | `docs/phase1b-consult-design.md` | This authoritative living reference |
 | `docs/hybrid-retrieval-prompt.md` | Owner-approved focused build specification retained for traceability; this living reference remains authoritative for current state |
 | `docs/helmonicpstmetadatainventoryprompt (1).md` | Owner-provided PST metadata-inventory scope retained verbatim for traceability |
+| `docs/corpus-to-ingestion-plan.md` | Audit-backed October plan for manifest approval, staged async ingestion, Word rendering, OCR triage, scaled evaluation, and production gates |
 | `docs/phase1a-tuesday-runtime-exception.md` | Focused historical/root-runtime exception and mandatory exit gate |
 | `README.md` | Original product/frontend README; currently tracked for accuracy update |
 
@@ -697,6 +700,30 @@ open. This metadata inventory grants no authority for full body or attachment-co
 extraction, indexing, model processing, or ingestion. Jim's missing PST is a pending
 input, not an error and not a reason to delay Glen and Owen.
 
+### D-025: scale the controlled corpus through approved manifests and quality gates
+
+The 2 September all-page audit is internally consistent enough for planning: all eleven
+reconciliation/safety checks pass. Although the full discovery collection is 29,703
+files/286.9 GB, the October PDF/Word scope is 2,633 documents/6.79 GB. After integrity
+checks and exact deduplication, 2,217 unique documents are technically ready; after
+holding unresolved IA-21/Cadna identities and three duplicates that cross those
+boundaries, the conservative starting pool is 2,064 unique documents: 1,779 readable
+PDFs and 285 Word render candidates.
+
+This count is technical eligibility, not business approval. Acoustic owners must rank
+the first 100-document pilot and supply/confirm evaluation answers. Ingestion consumes
+an owner-approved manifest rather than crawling the share. It then scales readable PDFs
+in 250–400-document candidate batches, adds Word only through validated PDF rendering,
+and holds broad OCR until human review establishes whether priority evidence needs it.
+Each batch remains outside live retrieval until source/hash/chunk/vector parity,
+permission filtering, citations, numeric/table accuracy, no-evidence behavior, and a
+proportional expert evaluation pass.
+
+The permanent Service Bus worker, standing least-privilege identity, malware policy,
+capacity changes, material embedding/indexing calls, and any production resource or
+cutover remain D-011 cost/approval gates. This decision authorizes only local planning
+and analysis. The source snapshot must be refreshed before materializing a manifest.
+
 ## Current status
 
 ### Live and working
@@ -858,6 +885,13 @@ input, not an error and not a reason to delay Glen and Owen.
   to deduplication, Word-to-PDF render validation, human business priority, permission
   checks, and the standing batch-quality gate. Raw/proprietary measurement formats are
   not silently treated as RAG documents.
+- The D-025 local ingestion plan is complete and independently recalculable from the
+  audit outputs. It identifies a conservative 2,064-document starting pool, but no
+  priority manifest exists yet and no ingestion is authorized. The next human input is
+  the first 100-document ranking plus canonical-version, IA-21/Cadna, permission,
+  malware, retention, and promotion-authority decisions. The more specific file
+  `helmoniccorpustoingestionplanprompt.md` remains unavailable to the isolated agent and
+  must be reconciled if it adds requirements beyond the accessible October brief.
 - The separate PST metadata-only audit utility is implemented and passes its local
   compile/self-test and privacy-contract tests. The isolated Codex process cannot use
   the signed-in Windows credentials for `S:\z_Helmonic_iAcoustics`, so the real Glen/
@@ -999,6 +1033,7 @@ standing-resource change was made during local diagnosis.
 | 2026-09-02 | D-023 full-corpus discovery gate implemented and completed | Added a read-only, resumable audit and Windows launcher for the approximately 300 GB mapped collection. It encodes the five owner-approved exclusions, IA-02.1/IA-02.2 mapping, validated reference/third-party treatment, Cadna raw/calculation classification flag, and unmapped IA-21 warning. Synthetic end-to-end tests passed, followed by an all-page normal-Windows run over 29,703 files/286.9 GB with zero scan errors and no source mutation. The corpus contains 2,308 PDFs and 325 Word files; 21 documents are broken/unreadable, none are encrypted, 197 are strong OCR candidates, 50 are partial OCR candidates, 134 exact duplicate groups contain 147 extra copies, and 332 possible filename-variant groups require review. No Azure call or cost occurred. |
 | 2026-09-04 | D-024 PST metadata-only inventory kickoff | Retained the owner-provided PST scope, selected pinned Ms-PL XstReader rather than Outlook profile attachment, and added a local read-only inventory for Glen, Owen, and optional Jim. The code whitelists message/recipient/attachment metadata, blocks known payload APIs at build time, asserts at runtime that body and attachment content remain unloaded, writes sensitive reports only beneath ignored local artifacts, and makes no Azure call. Compilation, executable self-test, and offline privacy-contract tests pass. The isolated agent could not authenticate to the company share, so the real inventory is pending a normal signed-in PowerShell run; no findings are inferred and third-party consent remains open. |
 | 2026-09-04 | PST launcher Windows PowerShell compatibility correction | The first normal-Windows launch stopped safely before opening a PST because Windows PowerShell 5.1 bound the build guard's string split differently from PowerShell 7 and falsely reported multiple class declarations. Replaced both declaration counts with version-stable exact regex counts and tested the build through `powershell.exe`; the privacy guard remains fail-closed and no source archive was touched by the failed launch. |
+| 2026-09-04 | D-025 corpus-to-ingestion plan | Reconciled the completed audit through eleven passing quality checks and produced a reproducible, executive-readable October plan. The 286.9 GB discovery universe narrows to 2,633 PDF/Word files/6.79 GB; exact deduplication and conservative IA-21/Cadna cross-category holds leave 2,064 technically eligible unique documents (1,779 PDFs, 285 Word render candidates). The plan uses a human-approved 100-PDF pilot, 250–400-document scale batches, validated Word-to-PDF conversion, deferred/targeted OCR, manifest/version/permission gates, and proportional acoustic evaluation. No Azure resource, standing identity, queue execution, index write, model call, upload, or cost occurred. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
