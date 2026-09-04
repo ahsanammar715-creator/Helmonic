@@ -42,7 +42,9 @@ Copy-Item -LiteralPath $XstReaderSource -Destination $sourceCopy -Recurse
 $xstFile = Join-Path $sourceCopy 'XstFile.cs'
 $xstSource = [IO.File]::ReadAllText($xstFile)
 $needle = 'public class XstFile'
-if (($xstSource.Split($needle).Count - 1) -ne 1) {
+# Windows PowerShell 5.1 can bind String.Split(string) as a character-array
+# split. Regex.Matches gives the same exact-substring count in both 5.1 and 7+.
+if ([regex]::Matches($xstSource, [regex]::Escape($needle)).Count -ne 1) {
     throw 'Pinned-source guard failed: expected exactly one XstFile class declaration.'
 }
 $xstSource = $xstSource.Replace($needle, 'public partial class XstFile')
@@ -51,7 +53,7 @@ $xstSource = $xstSource.Replace($needle, 'public partial class XstFile')
 $ndbFile = Join-Path $sourceCopy 'NDB.cs'
 $ndbSource = [IO.File]::ReadAllText($ndbFile)
 $ndbNeedle = 'private EbCryptMethod bCryptMethod;'
-if (($ndbSource.Split($ndbNeedle).Count - 1) -ne 1) {
+if ([regex]::Matches($ndbSource, [regex]::Escape($ndbNeedle)).Count -ne 1) {
     throw 'Pinned-source guard failed: expected exactly one NDB crypt-method field.'
 }
 $ndbSource = $ndbSource.Replace(
