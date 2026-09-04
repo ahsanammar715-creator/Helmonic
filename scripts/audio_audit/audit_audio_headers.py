@@ -17,7 +17,7 @@ MEASUREMENT_EXTENSIONS = {
     ".xl2", ".xl2r", ".xl3", ".xl3ms", ".xl3si", ".xlba", ".xldb",
 }
 SPEECH_HINT = re.compile(
-    r"(?:^|[^a-z])(voice|memo|meeting|dictat|interview|speech|conversation|spoken|note)(?:[^a-z]|$)",
+    r"voice[\W_]*note|voicenote|(?:^|[^a-z])(voice|memo|meeting|dictat|interview|speech|conversation|spoken)(?:[^a-z]|$)",
     re.IGNORECASE,
 )
 

@@ -6,10 +6,13 @@ import uuid
 import wave
 from pathlib import Path
 
-from audit_audio_headers import inspect, review_sample
+from audit_audio_headers import SPEECH_HINT, inspect, review_sample
 
 
 class AudioAuditTests(unittest.TestCase):
+    def test_compound_voice_note_name_is_detected(self):
+        self.assertIsNotNone(SPEECH_HINT.search("2026-06-30_RT60_000_VoiceNote"))
+
     def test_header_only_audit_routes_and_preserves_sources(self):
         test_root = Path(__file__).parents[2] / "local-artifacts" / "test-temp"
         test_root.mkdir(parents=True, exist_ok=True)
