@@ -39,6 +39,9 @@ jobs:
       - name: Validate standing worker proof policy
         run: npm run test:standing-worker-proof
 
+      - name: Validate corpus pilot policy
+        run: npm run test:corpus-pilot
+
       - name: Build
         run: npm run build
 

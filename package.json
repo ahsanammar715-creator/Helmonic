@@ -14,6 +14,7 @@
     "test:model-policy": "node --experimental-strip-types --test --experimental-test-isolation=none scripts/evaluation/model-answer-policy.test.mjs",
     "test:audio-pilot": "node --test --experimental-test-isolation=none scripts/audio_ingestion/audio-pilot-contract.test.mjs",
     "test:standing-worker-proof": "node --test --experimental-test-isolation=none scripts/ingestion/standing-worker-proof-contract.test.mjs",
+    "test:corpus-pilot": "node --test --experimental-test-isolation=none scripts/ingestion/corpus-pilot-contract.test.mjs",
     "verify:runtime": "node scripts/verify-runtime-hardening.mjs",
     "test:e2e": "playwright test"
   },

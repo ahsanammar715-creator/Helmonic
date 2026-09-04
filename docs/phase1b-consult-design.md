@@ -849,6 +849,33 @@ revoked. The standing identity and its three roles deliberately remain. The esta
 temporary-identity code path also remains available as a fallback until the first real
 batch proves the standing path under normal workload.
 
+### D-030: isolate the first 100-document standing-identity batch
+
+The first scaled document run targets candidate index `consult-candidate-pilot-100-v1`
+and Blob prefix `consult-sources/controlled-corpus/corpus-pilot-100-v1/`; neither is
+referenced by the live Container App. Its standing UAMI is selected explicitly by client
+ID and retains only the three D-029 roles. Index schema creation remains a separate
+operator action because the worker intentionally lacks Search service-administration
+permission.
+
+Until the acoustic consultants return their ranked sources and known-answer set, the
+batch is a non-promotable pipeline validation. Selection is deterministic and balanced
+across nine already-approved project/report categories: exactly 100 canonical,
+text-extractable PDFs, excluding books, OCR candidates, duplicate copies, Word rendering,
+broken files, and IA-21/Cadna holds. Every selected file must match its audit size and
+timestamp, remain stable while its capture SHA-256 is calculated, preserve every readable
+page and detected table, and receive internal `iAcoustics` scope plus the `D` citation
+namespace.
+
+The job refuses live/rollback index names, requires the candidate schema to pre-exist,
+re-verifies every staged original hash, embeds every chunk, uploads opaque Blob names,
+requires exact source/chunk/vector parity, and runs six distributed hybrid source probes
+plus positive and negative permission checks. These automated probes validate plumbing;
+they do not replace the pending 15–20 consultant-authored acoustic questions. Codex can
+read the private audit outputs but the sandbox cannot open company-share file bodies, so
+the source-preserving payload must be staged once from the normal signed-in PowerShell
+session before the approved Azure run can begin.
+
 ## Current status
 
 ### Live and working
@@ -864,6 +891,10 @@ batch proves the standing path under normal workload.
 - The prior hardened revision `--p1b69b6b7a` remains active at 0% as the immediate
   Target B rollback. The older root/port-80 revision and placeholder remain available;
   a rollback to `--ca72a0c` must restore ingress port 80 as well as its traffic weight.
+- Commit `fa3c8c8` passed GitHub CI, immutable ACR image build, and Vercel Preview. The
+  standing ingestion identity is ready. The isolated 100-PDF batch tooling is locally
+  tested, but no candidate index, Blob object, embedding, Search write, job, image, cost,
+  or live change has occurred because normal-Windows payload staging is pending.
 - Platform authentication is enabled and restricted to exactly Ammar Ahsan
   (`c34341a3-7783-44d7-8980-b6ea8111bc06`) and Jim Dunne
   (`84889a68-5ca1-40d6-860b-7654b6f100ce`).
@@ -1190,6 +1221,7 @@ standing-resource change was made during local diagnosis.
 | 2026-09-04 | D-028 twelve-file private Azure audio pilot passed | A disposable 7.392 MiB ACR build context produced image `helmonic-consult-audio-pilot:7bda31e`; an initial two-second ACR run failed before build because the ABAC registry requires explicit caller authentication, and the corrected `[caller]` run succeeded. Temporary job execution `job-audio-pilot-001-69x5zho` ran for 37 seconds in the existing VNet-integrated Container Apps environment with the standing pull UAMI plus a dedicated data UAMI explicitly selected by client ID. The uploader reached its terminal success state only after all twelve WAVs and the private project-link catalog were stored in `consult-controlled-audio`, stored length/hash metadata matched, and authorized WAVE byte-range reads passed. The files remain `pilot_only`, `iAcoustics`-scoped, `AU`-namespaced, and untranscribed; no Search index, model, app revision, or traffic changed. Live traffic independently remained 100% on `--hyb570514c`. The job, data UAMI, and its only Blob role were deleted and independently absent. |
 | 2026-09-04 | D-028 Azure audio-pilot cleanup completed | After explicit approval, assigned `Container Registry Repository Contributor` temporarily to the operator with Microsoft's repository-name ABAC condition restricted to `helmonic-consult-audio-pilot`. Deleted the repository, tag `7bda31e`, and manifest `sha256:25c86c5fff4b921874615286960897baf6c0a9511bbe686295da8558e0a9decc`, then revoked assignment `e78a15f3-d55b-4778-9706-bf197e9192b4` immediately. Independent checks returned repository not found and empty matches for the grant, disposable job, UAMI, and UAMI roles. Live traffic remained 100% on `--hyb570514c`; the twelve private Blob originals and catalog were deliberately retained as the successful pilot result. |
 | 2026-09-04 | D-029 standing ingestion identity proven | Created persistent North Europe UAMI `uami-helmonic-ingestion-001` with only `Storage Blob Data Contributor` on `sthelmonicdev001`, `Search Index Data Contributor` on `srch-helmonic-dev-001`, and `Cognitive Services OpenAI User` on `aif-helmonic-embed-dev-001`. Seven fail-closed local tests passed. The first ACR quick-build invocation selected the repository application Dockerfile rather than the staged proof Dockerfile and failed without an output image; rerunning from the six-file/60.6 KiB staged context selected the intended non-root proof image. Disposable execution `job-standing-worker-proof-001-6ei0h1e` explicitly selected the standing client ID and succeeded in 35 seconds after a synthetic Blob upload/read/delete, one 1,536-dimensional embedding, and isolated `consult-session-v1` Search write/query/delete; its terminal path verified both synthetic records absent. No real content was used. Deleted the job and ACR repository/tag/both manifests, revoked the repository-scoped cleanup grant, and independently confirmed all were absent. The standing UAMI and exactly three roles remain; the temporary-identity path remains as fallback. Live traffic stayed 100% on `--hyb570514c`; the 100-document batch was not started. |
+| 2026-09-04 | D-030 100-PDF batch path prepared; source staging pending | GitHub reported all `fa3c8c8` checks successful: CI/build-and-test, immutable ACR image build, Vercel Preview, and combined status. Added a deterministic nine-category selector, audited-source stability/hash/page checks, full readable-page extraction, atomic table preservation, a candidate-index-only standing-UAMI uploader, exact chunk/vector parity, six distributed hybrid probes, and positive/negative permission checks. Four new offline tests and targeted lint passed. Two sandbox attempts stopped on the first file with Windows access denied before any source was copied or any Azure call occurred; the partial private contexts were removed from the workspace. The same source-staging command must run once in normal signed-in PowerShell. No Azure index, Blob, embedding, Search write, job, image, cost, live configuration, or traffic change occurred. |
 | 2026-09-04 | First real PST metadata run completed with retained source-access failures | The normal-Windows run produced local ignored reports for Glen and Owen and retained 44,568 readable email items, 13,475 other items, and 141,518 attachment metadata entries. It is partial rather than final: Glen has 3,416 directory-not-found item failures plus five illegal-path and one network failure; Owen has 13,251 item failures because another process held `backup_owen.pst`. Jim's PST was absent. No email body, attachment payload, source write, Outlook profile mutation, Azure call, or cost occurred. The next run must use stable mapped-share access with both PST files closed elsewhere. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but

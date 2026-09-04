@@ -84,3 +84,29 @@ approved original, assigns an opaque Blob name and processing lane, preserves du
 relationships, and leaves permission scope unset so no file can become searchable by
 accident. Capture/catalogue eligibility is not the same as permission to embed, index,
 or expose a source to Consult.
+
+## Stage the isolated 100-PDF pipeline pilot
+
+The first real ingestion batch uses a deterministic, category-balanced sample of 100
+canonical, readable PDFs from the completed private manifest. It excludes approved
+books until the private `[B]` presentation path exists, plus all OCR, broken, duplicate,
+Word-render, IA-21/Cadna-hold, and non-document rows. This is a pipeline-validation
+sample, not a consultant-ranked or promotion-ready knowledge release.
+
+The Codex sandbox cannot open company-share file bodies. Run the staging step once from
+the normal signed-in Windows PowerShell session:
+
+```powershell
+& "C:\Users\Alessandro.Saccarola\Documents\Codex\2026-08-21\referenced-chatgpt-conversation-this-is-an\work\Helmonic-phase1a\scripts\corpus_audit\prepare-corpus-pilot-context.ps1" `
+  -SourceRoot "S:\z_Helmonic_iAcoustics" `
+  -OutputRoot "C:\Users\Alessandro.Saccarola\Documents\Codex\2026-08-21\referenced-chatgpt-conversation-this-is-an\work\Helmonic-phase1a\private-build\corpus-pilot-100-context"
+```
+
+The launcher verifies the audit size and timestamp, computes or confirms SHA-256 while
+the source is stable, copies each selected PDF under an opaque ID, verifies the staged
+copy, rechecks page count, extracts every readable page, preserves detected tables as
+atomic Markdown, and writes only to ignored `private-build`. The subsequent Azure job
+must explicitly select the standing ingestion UAMI, target an index beginning with
+`consult-candidate-`, and name the real live index separately so the contract can reject
+it. The candidate stays non-promotable until consultants supply the ranked sources and
+known-answer evaluation.
