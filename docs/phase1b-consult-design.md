@@ -343,6 +343,10 @@ unauthorized revision never receives traffic.
 | `scripts/corpus_audit/build_full_ingestion_manifest.py` | Builds the ignored capture-all JSONL manifest for every audited approved original, using opaque Blob identities, canonical-copy links, format processing lanes, classification holds, and fail-closed permission scope |
 | `scripts/corpus_audit/test_full_ingestion_manifest.py` | Synthetic proof that all audited originals are retained, duplicate/category holds propagate, specialist formats are catalogued, books use the `B` namespace, and Search permission is never guessed |
 | `scripts/corpus_audit/README.md` | Corpus-audit operating instructions, report definitions, resume behavior, exclusions, and OCR-classification caveat |
+| `scripts/audio_audit/audit_audio_headers.py` | Read-only WAV container/header and neighbouring-format inventory; calculates duration/encoding aggregates without decoding, copying, transcribing, or uploading audio |
+| `scripts/audio_audit/run-audio-header-audit.ps1` | Normal-Windows launcher that reuses the authoritative corpus inventory and signed-in mapped-share access |
+| `scripts/audio_audit/test_audio_audit.py` | Synthetic proof of header parsing, measurement-companion detection, duration calculation, and preservation of source size/timestamp |
+| `scripts/audio_audit/README.md` | Audio-audit privacy boundary, operating command, report definitions, and interpretation limits |
 | `scripts/pst_audit/MetadataOnlyXstFile.cs` | Metadata-only XstReader extension with a strict message-property whitelist plus runtime guards proving no body or attachment payload was loaded |
 | `scripts/pst_audit/PstMetadataAudit.cs` | Read-only PST inventory engine for folder/message-header/recipient/date/size and attachment-name/type metadata, with local per-mailbox and combined reports |
 | `scripts/pst_audit/build-pst-audit.ps1` | Reproducible local build against pinned XstReader/Roslyn copies, including a build-time payload-API guard and self-test |
@@ -751,6 +755,23 @@ knowledge under D-022 and is never represented as retrieved company evidence. Fu
 report generation and automation consume this same cited evidence layer only after the
 ingestion foundation is stable.
 
+### D-027: classify audio locally before assigning it an AI role
+
+The corpus contains 3,512 WAV files/204.0 decimal GB, concentrated in IA-02.2 and IA-06.
+Existing path metadata shows that most live beside acoustic measurement or text-export
+formats, while only two filenames contain a speech/voice hint. This supports—but does not
+prove—the hypothesis that the collection is predominantly environmental/measurement
+audio rather than meetings or dictated notes.
+
+Before transcription, acoustic feature extraction, or audio-model processing is costed,
+a read-only header audit records WAVE container, codec tag, channels, sample rate, bit
+depth, declared data length, duration, and neighbouring format signals. It creates a
+deterministic human-review list but never decodes or copies audio. Environmental audio
+remains preserved and project-linked supporting evidence; only confirmed spoken material
+becomes a transcription candidate. Future audio evidence uses timestamped `AU` citations,
+and exact acoustic values require the associated calibrated measurement record rather
+than inference from an ordinary WAV alone.
+
 ## Current status
 
 ### Live and working
@@ -921,6 +942,10 @@ ingestion foundation is stable.
   malware, retention, and promotion-authority decisions. The more specific file
   `helmoniccorpustoingestionplanprompt.md` remains unavailable to the isolated agent and
   must be reconciled if it adds requirements beyond the accessible October brief.
+- The D-027 WAV header-audit utility is code-complete and its synthetic preservation test
+  passes. The isolated process cannot authenticate to the company share, so the real
+  header run awaits the normal-Windows launcher. No audio content has been decoded,
+  copied, played, transcribed, uploaded, or sent to a model.
 - The separate PST metadata-only audit utility is implemented and passes its local
   compile/self-test and privacy-contract tests. The isolated Codex process cannot use
   the signed-in Windows credentials for `S:\z_Helmonic_iAcoustics`, so the real Glen/
@@ -1064,6 +1089,7 @@ standing-resource change was made during local diagnosis.
 | 2026-09-04 | PST launcher Windows PowerShell compatibility correction | The first normal-Windows launch stopped safely before opening a PST because Windows PowerShell 5.1 bound the build guard's string split differently from PowerShell 7 and falsely reported multiple class declarations. Replaced both declaration counts with version-stable exact regex counts and tested the build through `powershell.exe`; the privacy guard remains fail-closed and no source archive was touched by the failed launch. |
 | 2026-09-04 | D-025 corpus-to-ingestion plan | Reconciled the completed audit through eleven passing quality checks and produced a reproducible, executive-readable October plan. The 286.9 GB discovery universe narrows to 2,633 PDF/Word files/6.79 GB; exact deduplication and conservative IA-21/Cadna cross-category holds leave 2,064 technically eligible unique documents (1,779 PDFs, 285 Word render candidates). The plan uses a human-approved 100-PDF pilot, 250–400-document scale batches, validated Word-to-PDF conversion, deferred/targeted OCR, manifest/version/permission gates, and proportional acoustic evaluation. No Azure resource, standing identity, queue execution, index write, model call, upload, or cost occurred. |
 | 2026-09-04 | D-026 capture-all manifest kickoff | Expanded the final target from the first 2,064 searchable documents to every audited approved original. Added a deterministic private JSONL manifest that reconciles all 29,703 files/286.9 GB, marks every original for Blob capture, links 147 duplicate copies, propagates three cross-category duplicate holds, routes every format to a controlled processing lane, and leaves all permission scopes unset before Search. Four corpus tests pass. No company-share write, Azure call, resource, upload, model/embedding call, index change, traffic change, or cost occurred. |
+| 2026-09-04 | D-027 read-only audio classification utility | The existing audit shows 3,512 WAV files/204.0 decimal GB: 3,403 under IA-02.2 and 109 under IA-06; 224 of 399 WAV directories contain acoustic-measurement formats, 219 contain text exports, and only two filenames contain a voice/speech hint. Added a normal-Windows header-only audit and deterministic review sampler that records duration/format/companion aggregates without decoding, copying, playing, transcribing, uploading, or modifying audio. The synthetic source-preservation test and PowerShell parse check pass. The real share run is pending user launch; no Azure call or cost occurred. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
 did not all have corresponding source commits because they were configuration/data
