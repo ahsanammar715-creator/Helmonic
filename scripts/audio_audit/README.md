@@ -45,3 +45,11 @@ hash, private Blob copy, metadata/project linkage, authorized byte-range playbac
 timestamped `AU` citation before any larger batch. Format tag 17 is marked as requiring
 a controlled playback derivative because browser-native support must not be assumed.
 The pilot performs no transcription or model processing and cannot promote itself.
+
+Run `prepare-audio-pilot-payload.ps1` from the same normal Windows session to hash and
+stage only those selected originals. It creates the ignored
+`private-build/audio-pilot-context/` directory containing a self-contained disposable
+build context. The repository-level Docker context excludes every `private-build`
+payload, preventing an ordinary application build from accidentally transmitting the
+recordings. The private context is used only for the separately approved temporary ACR
+build and is deleted after the Azure job completes.

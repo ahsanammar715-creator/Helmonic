@@ -33,6 +33,9 @@ jobs:
       - name: Validate model answer policy
         run: npm run test:model-policy
 
+      - name: Validate bounded audio pilot policy
+        run: npm run test:audio-pilot
+
       - name: Build
         run: npm run build
 

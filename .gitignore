@@ -29,6 +29,9 @@
 # pinned local-only audit toolchains; never commit third-party source or binaries
 /local-tools/
 
+# private ingestion payloads; originals must never enter Git history
+/private-build/
+
 # python operator/test caches
 __pycache__/
 *.py[cod]
