@@ -942,10 +942,14 @@ than inference from an ordinary WAV alone.
   malware, retention, and promotion-authority decisions. The more specific file
   `helmoniccorpustoingestionplanprompt.md` remains unavailable to the isolated agent and
   must be reconciled if it adds requirements beyond the accessible October brief.
-- The D-027 WAV header-audit utility is code-complete and its synthetic preservation test
-  passes. The isolated process cannot authenticate to the company share, so the real
-  header run awaits the normal-Windows launcher. No audio content has been decoded,
-  copied, played, transcribed, uploaded, or sent to a model.
+- The D-027 normal-Windows WAV header audit completed all 3,512 files with zero header
+  errors and proved source size/timestamps unchanged. The collection represents about
+  4,565.7 hours/190.2 days: median duration two minutes, 90th percentile one hour, and
+  99th percentile twelve hours. Most files are mono 24 kHz 4-bit format-tag-17 audio and
+  1,253 have acoustic-measurement companions, strongly supporting a monitoring-audio
+  interpretation. Two tiny compound-name `VoiceNote` files were identified after fixing
+  the local filename classifier; headers still cannot prove speech content. No audio was
+  decoded, copied, played, transcribed, uploaded, or sent to a model.
 - The separate PST metadata-only audit ran from the user's signed-in PowerShell session
   and produced partial Glen/Owen reports. It recorded 44,568 email items and 141,518
   attachment metadata entries across the readable portion, but the run is not an
@@ -1092,6 +1096,7 @@ standing-resource change was made during local diagnosis.
 | 2026-09-04 | D-025 corpus-to-ingestion plan | Reconciled the completed audit through eleven passing quality checks and produced a reproducible, executive-readable October plan. The 286.9 GB discovery universe narrows to 2,633 PDF/Word files/6.79 GB; exact deduplication and conservative IA-21/Cadna cross-category holds leave 2,064 technically eligible unique documents (1,779 PDFs, 285 Word render candidates). The plan uses a human-approved 100-PDF pilot, 250–400-document scale batches, validated Word-to-PDF conversion, deferred/targeted OCR, manifest/version/permission gates, and proportional acoustic evaluation. No Azure resource, standing identity, queue execution, index write, model call, upload, or cost occurred. |
 | 2026-09-04 | D-026 capture-all manifest kickoff | Expanded the final target from the first 2,064 searchable documents to every audited approved original. Added a deterministic private JSONL manifest that reconciles all 29,703 files/286.9 GB, marks every original for Blob capture, links 147 duplicate copies, propagates three cross-category duplicate holds, routes every format to a controlled processing lane, and leaves all permission scopes unset before Search. Four corpus tests pass. No company-share write, Azure call, resource, upload, model/embedding call, index change, traffic change, or cost occurred. |
 | 2026-09-04 | D-027 read-only audio classification utility | The existing audit shows 3,512 WAV files/204.0 decimal GB: 3,403 under IA-02.2 and 109 under IA-06; 224 of 399 WAV directories contain acoustic-measurement formats, 219 contain text exports, and only two filenames contain a voice/speech hint. Added a normal-Windows header-only audit and deterministic review sampler that records duration/format/companion aggregates without decoding, copying, playing, transcribing, uploading, or modifying audio. The synthetic source-preservation test and PowerShell parse check pass. The real share run is pending user launch; no Azure call or cost occurred. |
+| 2026-09-04 | D-027 real WAV header audit completed | The normal-Windows run inspected all 3,512 expected WAV headers with zero errors and no source mutation. It measured 4,565.7 hours/190.2 days of audio; the median file is two minutes, p90 one hour, and p99 twelve hours. The dominant signature is mono 24 kHz 4-bit format-tag-17 audio (3,143 files), and 1,253 WAVs have acoustic-measurement companions, supporting the hypothesis that this is predominantly monitoring evidence rather than speech. Two tiny compound-name `VoiceNote` files initially escaped the display counter; the detector and regression test were corrected, and both files share the dominant measurement-audio signature. No content was decoded, copied, played, transcribed, uploaded, or sent to Azure; cost remained USD 0. |
 | 2026-09-04 | First real PST metadata run completed with retained source-access failures | The normal-Windows run produced local ignored reports for Glen and Owen and retained 44,568 readable email items, 13,475 other items, and 141,518 attachment metadata entries. It is partial rather than final: Glen has 3,416 directory-not-found item failures plus five illegal-path and one network failure; Owen has 13,251 item failures because another process held `backup_owen.pst`. Jim's PST was absent. No email body, attachment payload, source write, Outlook profile mutation, Azure call, or cost occurred. The next run must use stable mapped-share access with both PST files closed elsewhere. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but
