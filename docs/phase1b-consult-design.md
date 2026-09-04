@@ -789,6 +789,15 @@ or model processing remain separate D-011 cost and implementation gates. This de
 changes the target architecture and local manifest only; it does not authorize an Azure
 upload or live application change.
 
+Delivery is staged for the production timeline. A deterministic 12-file pilot, capped
+at 512 MiB, must cover both source groups, the observed format tags and duration bands,
+multichannel recordings, filename speech hints, and the available measurement/PDF/text
+companion cases. It remains `pilot_only` until source hashes, private Blob retention,
+project linkage, authorized byte-range playback, and timestamped `AU` citations pass.
+Format-tag-17 recordings require a controlled playback derivative unless compatibility
+is independently proven. Bulk batches require a separate approval after this gate; the
+pilot performs no transcription or model processing.
+
 ## Current status
 
 ### Live and working
@@ -968,8 +977,11 @@ upload or live application change.
   the local filename classifier; headers still cannot prove speech content. Jim has now
   approved retaining the WAV originals in Helmonic as linked supporting evidence, using
   timestamped `AU` citations and controlled playback. The local manifest and design
-  reflect that decision, but no audio has yet been decoded, copied, played, transcribed,
-  uploaded, or sent to a model; the paid Azure capture remains separately gated.
+  reflect that decision. A deterministic pilot manifest now selects 12 representative
+  files totalling 8,485,614 bytes and covers every required source-group, duration,
+  format, channel, speech-hint, and companion category. No audio has yet been decoded,
+  copied, played, transcribed, uploaded, or sent to a model; the paid Azure capture
+  remains separately gated.
 - The separate PST metadata-only audit ran from the user's signed-in PowerShell session
   and produced partial Glen/Owen reports. It recorded 44,568 email items and 141,518
   attachment metadata entries across the readable portion, but the run is not an
@@ -1118,6 +1130,7 @@ standing-resource change was made during local diagnosis.
 | 2026-09-04 | D-027 read-only audio classification utility | The existing audit shows 3,512 WAV files/204.0 decimal GB: 3,403 under IA-02.2 and 109 under IA-06; 224 of 399 WAV directories contain acoustic-measurement formats, 219 contain text exports, and only two filenames contain a voice/speech hint. Added a normal-Windows header-only audit and deterministic review sampler that records duration/format/companion aggregates without decoding, copying, playing, transcribing, uploading, or modifying audio. The synthetic source-preservation test and PowerShell parse check pass. The real share run is pending user launch; no Azure call or cost occurred. |
 | 2026-09-04 | D-027 real WAV header audit completed | The normal-Windows run inspected all 3,512 expected WAV headers with zero errors and no source mutation. It measured 4,565.7 hours/190.2 days of audio; the median file is two minutes, p90 one hour, and p99 twelve hours. The dominant signature is mono 24 kHz 4-bit format-tag-17 audio (3,143 files), and 1,253 WAVs have acoustic-measurement companions, supporting the hypothesis that this is predominantly monitoring evidence rather than speech. Two tiny compound-name `VoiceNote` files initially escaped the display counter; the detector and regression test were corrected, and both files share the dominant measurement-audio signature. No content was decoded, copied, played, transcribed, uploaded, or sent to Azure; cost remained USD 0. |
 | 2026-09-04 | D-028 audio evidence decision | Jim confirmed that approved WAV recordings should be retained inside Helmonic for project reference. The capture-all manifest now assigns all WAVs the `AU` citation namespace; the design requires project/report/measurement linkage, exact timestamp citations, and controlled playback while prohibiting unsupported level claims and broad automatic transcription. This local decision made no Azure upload, resource, model, live application, index, traffic, or cost change. |
+| 2026-09-04 | D-028 bounded audio pilot prepared | Added and tested a deterministic 12-file WAV pilot selector with a 512 MiB ceiling and fail-closed `pilot_only` state. The real private output totals only 8,485,614 bytes while covering IA-02.2/IA-06, all three observed format tags, short/medium/long durations, multichannel audio, compound voice-note names, and measurement/PDF/text companions. Format-tag-17 files require a controlled playback derivative. No source, Azure, live application, index, traffic, transcription, model, or cost change occurred. |
 | 2026-09-04 | First real PST metadata run completed with retained source-access failures | The normal-Windows run produced local ignored reports for Glen and Owen and retained 44,568 readable email items, 13,475 other items, and 141,518 attachment metadata entries. It is partial rather than final: Glen has 3,416 directory-not-found item failures plus five illegal-path and one network failure; Owen has 13,251 item failures because another process held `backup_owen.pst`. Jim's PST was absent. No email body, attachment payload, source write, Outlook profile mutation, Azure call, or cost occurred. The next run must use stable mapped-share access with both PST files closed elsewhere. |
 
 Azure operational changes after `ca72a0c` were performed under explicit approvals but

@@ -87,6 +87,13 @@ timestamped `[AU#]` citations and controlled playback. They are not blindly tran
 and an ordinary WAV cannot establish authoritative acoustic levels without its calibrated
 measurement record.
 
+Audio capture uses a promotion gate rather than a single bulk upload. The first Azure
+attempt is a deterministic 12-file/512-MiB-maximum pilot spanning both audio source
+groups, observed encodings, duration bands, multichannel recordings, filename speech
+hints, and measurement/PDF/text companions. It must pass hash, private-storage,
+project-linkage, authorized range-playback, and timestamp-citation checks before larger
+batches are separately approved. The pilot does not transcribe or call a model.
+
 The manifest records 147 duplicate copies but preserves their originals and links them
 to a canonical identity. Three duplicate families crossing an ordinary folder and an
 unresolved IA-21/Cadna classification are held in full. The resulting first searchable

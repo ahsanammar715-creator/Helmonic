@@ -22,3 +22,26 @@ Ignored reports are written to `local-artifacts/audio-audit/`:
 
 Headers and filenames cannot prove speech content. The review list exists specifically
 to prevent environmental monitoring audio from being sent blindly to speech-to-text.
+
+## Bounded ingestion pilot
+
+Jim subsequently confirmed that the approved WAV originals should be retained as
+reference evidence. Before any bulk capture, build a deterministic twelve-file pilot
+that covers both source groups, short/medium/long durations, the three observed format
+tags, multichannel audio, the two compound-name voice-note candidates, and available
+measurement/PDF/text companions. It is capped at 512 MiB and does not decode or upload
+audio:
+
+```powershell
+python scripts/audio_audit/build_audio_pilot_manifest.py `
+  --audio-inventory local-artifacts/audio-audit/audio-headers.csv `
+  --full-manifest local-artifacts/corpus-ingestion-manifest/full-ingestion-manifest.jsonl `
+  --output-dir local-artifacts/audio-ingestion-pilot `
+  --permission-scope iAcoustics
+```
+
+The ignored output remains `pilot_only`. An approved Azure pilot must verify the source
+hash, private Blob copy, metadata/project linkage, authorized byte-range playback, and
+timestamped `AU` citation before any larger batch. Format tag 17 is marked as requiring
+a controlled playback derivative because browser-native support must not be assumed.
+The pilot performs no transcription or model processing and cannot promote itself.
