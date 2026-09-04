@@ -112,7 +112,7 @@ Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\audio_ingestion\Docke
 [pscustomobject]@{
   PilotId = $payload.pilot_id
   Documents = $documents.Count
-  Bytes = ($documents | Measure-Object -Property size_bytes -Sum).Sum
+  Bytes = $declaredBytes
   SourceModified = $false
   PrivateBuildContext = $outputPath
 }
