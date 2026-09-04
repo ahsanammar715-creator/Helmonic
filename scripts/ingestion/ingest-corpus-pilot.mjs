@@ -6,6 +6,7 @@ import {
   assertCandidateTarget,
   assertOriginalHash,
   buildCandidateIndexProbe,
+  buildOriginalBlobMetadata,
   EXPECTED_BATCH_ID,
   EXPECTED_DOCUMENT_COUNT,
   EXPECTED_PERMISSION_SCOPE,
@@ -77,13 +78,26 @@ async function uploadOriginal(accessToken, document) {
     headers: {
       "x-ms-blob-type": "BlockBlob",
       "Content-Type": "application/pdf",
-      "x-ms-meta-source-id": document.sourceId,
-      "x-ms-meta-source-sha256": document.sourceHash,
-      "x-ms-meta-permission-scope": document.permissionScope,
+      "If-None-Match": "*",
+      ...buildOriginalBlobMetadata(document),
     },
     body: bytes,
   });
-  if (!response.ok) throw new Error(`Blob upload failed for ${document.sourceId}: ${response.status}`);
+  if (!response.ok && response.status !== 412) {
+    throw new Error(
+      `Blob upload failed for ${document.sourceId}: ${response.status} ${(await response.text()).slice(0, 500)}`,
+    );
+  }
+  const head = await storageRequest(url, accessToken, { method: "HEAD" });
+  if (!head.ok) throw new Error(`Blob verification failed for ${document.sourceId}: ${head.status}`);
+  if (
+    Number(head.headers.get("content-length")) !== bytes.length ||
+    head.headers.get("x-ms-meta-sourceid") !== document.sourceId ||
+    head.headers.get("x-ms-meta-sourcesha256") !== document.sourceHash ||
+    head.headers.get("x-ms-meta-permissionscope") !== document.permissionScope
+  ) {
+    throw new Error(`Stored Blob metadata mismatch for ${document.sourceId}`);
+  }
   return url;
 }
 
@@ -259,12 +273,12 @@ async function main() {
   ]);
   await validateCandidateIndex(searchToken);
 
-  const chunks = payload.documents.flatMap((document) => document.chunks);
-  const vectors = await embedChunks(embeddingToken, chunks);
   const sourceUris = new Map();
   for (const document of payload.documents) {
     sourceUris.set(document.sourceId, await uploadOriginal(storageToken, document));
   }
+  const chunks = payload.documents.flatMap((document) => document.chunks);
+  const vectors = await embedChunks(embeddingToken, chunks);
   const ingestedAt = new Date().toISOString();
   const searchDocuments = payload.documents.flatMap((document) =>
     document.chunks.map((chunk) => ({

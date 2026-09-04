@@ -38,6 +38,21 @@ export function buildCandidateIndexProbe(dimensions) {
   };
 }
 
+export function buildOriginalBlobMetadata(document) {
+  if (
+    !document?.sourceId ||
+    !/^[a-f0-9]{64}$/.test(document.sourceHash || "") ||
+    document.permissionScope !== EXPECTED_PERMISSION_SCOPE
+  ) {
+    throw new Error("Original Blob metadata requires a valid controlled document");
+  }
+  return {
+    "x-ms-meta-sourceid": document.sourceId,
+    "x-ms-meta-sourcesha256": document.sourceHash,
+    "x-ms-meta-permissionscope": document.permissionScope,
+  };
+}
+
 export function validateCorpusPilotPayload(payload) {
   if (payload?.batch?.id !== EXPECTED_BATCH_ID || payload?.batch?.promotionReady !== false) {
     throw new Error("Payload must declare the non-promotable corpus pilot batch");

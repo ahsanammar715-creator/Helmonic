@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   assertCandidateTarget,
   buildCandidateIndexProbe,
+  buildOriginalBlobMetadata,
   validateCorpusPilotPayload,
 } from "./corpus-pilot-contract.mjs";
 
@@ -58,6 +59,22 @@ test("candidate schema probe uses only document-data operations", () => {
   assert.equal(probe.vectorQueries[0].fields, "content_vector");
   assert.equal(probe.vectorQueries[0].vector.length, 1536);
   assert.throws(() => buildCandidateIndexProbe(0), /positive integer/);
+});
+
+test("original Blob metadata uses Azure-safe names", () => {
+  const metadata = buildOriginalBlobMetadata({
+    sourceId: "src-001",
+    sourceHash: "a".repeat(64),
+    permissionScope: "iAcoustics",
+  });
+  assert.deepEqual(metadata, {
+    "x-ms-meta-sourceid": "src-001",
+    "x-ms-meta-sourcesha256": "a".repeat(64),
+    "x-ms-meta-permissionscope": "iAcoustics",
+  });
+  assert.ok(
+    Object.keys(metadata).every((name) => /^x-ms-meta-[a-z][a-z0-9_]*$/i.test(name)),
+  );
 });
 
 test("payload contract requires exactly 100 internal controlled documents", () => {
