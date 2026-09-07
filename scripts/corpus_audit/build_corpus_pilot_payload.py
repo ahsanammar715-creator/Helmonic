@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -16,6 +17,8 @@ BATCH_ID = "corpus-pilot-100-v1"
 PERMISSION_SCOPE = "iAcoustics"
 DEFAULT_DOCUMENT_TIMEOUT_SECONDS = 600
 DEFAULT_DOCUMENT_MEMORY_MIB = 2_048
+DEFAULT_WORKERS = 1
+DEFAULT_FREE_MEMORY_RESERVE_MIB = 2_048
 GROUP_QUOTAS = {
     "IA-02.2": 40,
     "IA-13": 15,
@@ -41,28 +44,72 @@ def eligible(row: dict[str, Any]) -> bool:
         and row.get("extension") == ".pdf"
         and row.get("integrity_status") == "ok"
         and row.get("ocr_status") == "text_extractable"
-        and row.get("top_level") in GROUP_QUOTAS
     )
 
 
-def stable_selection_key(row: dict[str, Any]) -> tuple[str, str]:
-    material = f"{BATCH_ID}\0{row['source_id']}\0{row.get('sha256') or 'capture-hash-required'}".encode("utf-8")
+def stable_selection_key(row: dict[str, Any], batch_id: str = BATCH_ID) -> tuple[str, str]:
+    material = f"{batch_id}\0{row['source_id']}\0{row.get('sha256') or 'capture-hash-required'}".encode("utf-8")
     return hashlib.sha256(material).hexdigest(), row["source_id"]
 
 
-def select_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    candidates = [row for row in rows if eligible(row)]
+def balanced_quotas(candidates: list[dict[str, Any]], document_count: int) -> dict[str, int]:
+    available = Counter(row["top_level"] for row in candidates)
+    if document_count < 1 or document_count > sum(available.values()):
+        raise RuntimeError(
+            f"Requested {document_count} documents but only {sum(available.values())} are eligible"
+        )
+    exact = {
+        group: document_count * count / sum(available.values())
+        for group, count in available.items()
+    }
+    quotas = {group: min(available[group], int(value)) for group, value in exact.items()}
+    remaining = document_count - sum(quotas.values())
+    order = sorted(
+        available,
+        key=lambda group: (-(exact[group] - int(exact[group])), group.casefold()),
+    )
+    while remaining:
+        progressed = False
+        for group in order:
+            if quotas[group] < available[group]:
+                quotas[group] += 1
+                remaining -= 1
+                progressed = True
+                if remaining == 0:
+                    break
+        if not progressed:
+            raise RuntimeError("Could not allocate the requested balanced document count")
+    return quotas
+
+
+def select_rows(
+    rows: Iterable[dict[str, Any]],
+    *,
+    batch_id: str = BATCH_ID,
+    document_count: int = 100,
+    excluded_source_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    excluded = excluded_source_ids or set()
+    candidates = [
+        row for row in rows if eligible(row) and row.get("source_id") not in excluded
+    ]
+    if batch_id == BATCH_ID and document_count == 100 and not excluded:
+        quotas = GROUP_QUOTAS
+    else:
+        quotas = balanced_quotas(candidates, document_count)
     selected: list[dict[str, Any]] = []
-    for group, quota in GROUP_QUOTAS.items():
+    for group, quota in quotas.items():
         group_rows = sorted(
             (row for row in candidates if row["top_level"] == group),
-            key=stable_selection_key,
+            key=lambda row: stable_selection_key(row, batch_id),
         )
         if len(group_rows) < quota:
             raise RuntimeError(f"{group} has {len(group_rows)} eligible PDFs; {quota} required")
         selected.extend(group_rows[:quota])
-    if len(selected) != 100 or len({row["source_id"] for row in selected}) != 100:
-        raise RuntimeError("The corpus pilot selection must contain exactly 100 unique sources")
+    if len(selected) != document_count or len({row["source_id"] for row in selected}) != document_count:
+        raise RuntimeError(
+            f"The corpus batch selection must contain exactly {document_count} unique sources"
+        )
     return sorted(selected, key=lambda row: row["source_id"])
 
 
@@ -118,6 +165,31 @@ def process_memory_bytes(process_id: int) -> int:
     return 0
 
 
+def available_memory_bytes() -> int:
+    if os.name == "nt":
+        class MemoryStatusEx(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        status = MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(status)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            raise RuntimeError("System free-memory check is unavailable")
+        return int(status.ullAvailPhys)
+    page_size = os.sysconf("SC_PAGE_SIZE")
+    available_pages = os.sysconf("SC_AVPHYS_PAGES")
+    return int(page_size * available_pages)
+
+
 def run_limited_process(
     command: list[str],
     *,
@@ -159,9 +231,9 @@ def run_limited_process(
     }
 
 
-def checkpoint_identity(selected: list[dict[str, Any]], manifest: Path) -> str:
+def checkpoint_identity(selected: list[dict[str, Any]], manifest: Path, batch_id: str = BATCH_ID) -> str:
     material = {
-        "batchId": BATCH_ID,
+        "batchId": batch_id,
         "manifestHash": digest(manifest),
         "sourceIds": [row["source_id"] for row in selected],
     }
@@ -235,6 +307,112 @@ def process_document(
     return json.loads(result_path.read_text(encoding="utf-8")), record
 
 
+def process_selected_documents(
+    selected: list[dict[str, Any]],
+    *,
+    source_root: Path,
+    output: Path,
+    timeout_seconds: int,
+    memory_mib: int,
+    workers: int,
+    free_memory_reserve_mib: int,
+    checkpoint: dict[str, Any],
+    checkpoint_path: Path,
+) -> tuple[dict[str, dict[str, Any]], int]:
+    if workers < 1 or workers > 2:
+        raise RuntimeError("Document workers must be between one and two")
+    originals = output / "originals"
+    work = output / "checkpoint-documents"
+    results: dict[str, dict[str, Any]] = {}
+    resumed_documents = 0
+    pending: list[dict[str, Any]] = []
+    for row in selected:
+        source_id = row["source_id"]
+        existing = checkpoint["documents"].get(source_id)
+        result = load_resumable_result(existing, work / f"{source_id}.result.json", originals)
+        if result is not None:
+            resumed_documents += 1
+            results[source_id] = result
+        else:
+            pending.append(row)
+
+    completed_count = resumed_documents
+    manual_review_count = 0
+    atomic_json(
+        output / "progress.json",
+        {
+            "status": "running",
+            "selectedDocuments": len(selected),
+            "completedDocuments": completed_count,
+            "manualReviewDocuments": manual_review_count,
+            "pendingDocuments": len(pending),
+            "workers": workers,
+        },
+    )
+
+    memory_bytes = memory_mib * 1024 * 1024
+    reserve_bytes = free_memory_reserve_mib * 1024 * 1024
+    active: dict[Future[tuple[dict[str, Any] | None, dict[str, Any]]], dict[str, Any]] = {}
+    next_row = 0
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="corpus-parent") as executor:
+        while next_row < len(pending) or active:
+            while next_row < len(pending) and len(active) < workers:
+                required = reserve_bytes + memory_bytes * (len(active) + 1)
+                free = available_memory_bytes()
+                if free < required:
+                    if active:
+                        break
+                    raise RuntimeError(
+                        "Insufficient free memory to start a bounded document worker: "
+                        f"{free // (1024 * 1024)} MiB available, "
+                        f"{required // (1024 * 1024)} MiB required"
+                    )
+                row = pending[next_row]
+                next_row += 1
+                future = executor.submit(
+                    process_document,
+                    row,
+                    source_root=source_root,
+                    output=output,
+                    timeout_seconds=timeout_seconds,
+                    memory_mib=memory_mib,
+                )
+                active[future] = row
+            if not active:
+                continue
+            completed, _ = wait(active, return_when=FIRST_COMPLETED)
+            for future in completed:
+                row = active.pop(future)
+                source_id = row["source_id"]
+                result, record = future.result()
+                checkpoint["documents"][source_id] = record
+                atomic_json(checkpoint_path, checkpoint)
+                if result is not None:
+                    results[source_id] = result
+                    completed_count += 1
+                else:
+                    manual_review_count += 1
+                atomic_json(
+                    output / "progress.json",
+                    {
+                        "status": "running",
+                        "selectedDocuments": len(selected),
+                        "completedDocuments": completed_count,
+                        "manualReviewDocuments": manual_review_count,
+                        "pendingDocuments": len(pending) - next_row + len(active),
+                        "workers": workers,
+                        "lastSourceId": source_id,
+                    },
+                )
+                if (completed_count + manual_review_count) % 10 == 0:
+                    print(
+                        f"Processed {completed_count + manual_review_count}/{len(selected)} "
+                        f"({manual_review_count} manual review)",
+                        flush=True,
+                    )
+    return results, resumed_documents
+
+
 def build(args: argparse.Namespace) -> dict[str, Any]:
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -244,34 +422,47 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     work.mkdir(exist_ok=True)
 
     manifest = args.manifest.resolve()
-    selected = select_rows(read_jsonl(manifest))
+    excluded_source_ids: set[str] = set()
+    for excluded_payload in args.exclude_payload:
+        excluded = json.loads(excluded_payload.resolve().read_text(encoding="utf-8"))
+        excluded_source_ids.update(
+            document["sourceId"] for document in excluded.get("documents", [])
+        )
+    selected = select_rows(
+        read_jsonl(manifest),
+        batch_id=args.batch_id,
+        document_count=args.document_count,
+        excluded_source_ids=excluded_source_ids,
+    )
     limits = {
         "timeoutSeconds": args.document_timeout_seconds,
         "memoryMiB": args.document_memory_mib,
+        "workers": args.workers,
+        "freeMemoryReserveMiB": args.free_memory_reserve_mib,
     }
     checkpoint_path = output / "checkpoint.json"
-    checkpoint = load_checkpoint(checkpoint_path, checkpoint_identity(selected, manifest), limits)
+    checkpoint = load_checkpoint(
+        checkpoint_path,
+        checkpoint_identity(selected, manifest, args.batch_id),
+        limits,
+    )
+    results, resumed_documents = process_selected_documents(
+        selected,
+        source_root=args.source_root.resolve(),
+        output=output,
+        timeout_seconds=args.document_timeout_seconds,
+        memory_mib=args.document_memory_mib,
+        workers=args.workers,
+        free_memory_reserve_mib=args.free_memory_reserve_mib,
+        checkpoint=checkpoint,
+        checkpoint_path=checkpoint_path,
+    )
     documents: list[dict[str, Any]] = []
     totals = Counter()
     manual_review: list[dict[str, Any]] = []
-    resumed_documents = 0
     for row in selected:
         source_id = row["source_id"]
-        existing = checkpoint["documents"].get(source_id)
-        result_path = work / f"{source_id}.result.json"
-        result = load_resumable_result(existing, result_path, originals)
-        if result is not None:
-            resumed_documents += 1
-        if result is None:
-            result, record = process_document(
-                row,
-                source_root=args.source_root.resolve(),
-                output=output,
-                timeout_seconds=args.document_timeout_seconds,
-                memory_mib=args.document_memory_mib,
-            )
-            checkpoint["documents"][source_id] = record
-            atomic_json(checkpoint_path, checkpoint)
+        result = results.get(source_id)
         if result is None:
             manual_review.append({"sourceId": source_id, **checkpoint["documents"][source_id]})
             continue
@@ -280,7 +471,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     payload = {
         "batch": {
-            "id": BATCH_ID,
+            "id": args.batch_id,
             "selection": "deterministic-category-balanced-pipeline-validation",
             "promotionReady": False,
             "promotionBlocker": "consultant-ranked sources and known-answer evaluation are pending",
@@ -297,7 +488,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     elapsed = [float(execution["elapsedSeconds"]) for execution in completed_executions]
     peak_memory = [int(execution["peakMemoryBytes"]) for execution in completed_executions]
     summary = {
-        "batchId": BATCH_ID,
+        "batchId": args.batch_id,
         "documentCount": len(documents),
         "bytes": sum(int(row["size_bytes"]) for row in selected),
         "pages": totals["pages"],
@@ -320,21 +511,52 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     }
     atomic_json(output / "summary.json", summary)
     if manual_review:
+        atomic_json(
+            output / "progress.json",
+            {
+                "status": "manual_review",
+                "selectedDocuments": len(selected),
+                "completedDocuments": len(documents),
+                "manualReviewDocuments": len(manual_review),
+                "pendingDocuments": 0,
+                "workers": args.workers,
+            },
+        )
         raise RuntimeError(
             f"{len(manual_review)} documents require manual review; candidate payload is incomplete"
         )
+    atomic_json(
+        output / "progress.json",
+        {
+            "status": "complete",
+            "selectedDocuments": len(selected),
+            "completedDocuments": len(documents),
+            "manualReviewDocuments": 0,
+            "pendingDocuments": 0,
+            "workers": args.workers,
+        },
+    )
     return summary
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build the private 100-PDF corpus pilot payload")
+    parser = argparse.ArgumentParser(description="Build a private bounded PDF corpus payload")
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--batch-id", default=BATCH_ID)
+    parser.add_argument("--document-count", type=int, default=100)
+    parser.add_argument("--exclude-payload", type=Path, action="append", default=[])
     parser.add_argument(
         "--document-timeout-seconds", type=int, default=DEFAULT_DOCUMENT_TIMEOUT_SECONDS
     )
     parser.add_argument("--document-memory-mib", type=int, default=DEFAULT_DOCUMENT_MEMORY_MIB)
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
+    parser.add_argument(
+        "--free-memory-reserve-mib",
+        type=int,
+        default=DEFAULT_FREE_MEMORY_RESERVE_MIB,
+    )
     return parser.parse_args()
 
 

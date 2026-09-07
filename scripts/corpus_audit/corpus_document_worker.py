@@ -204,7 +204,7 @@ def extract_with_two_readers(staged: Path, row: dict[str, Any]) -> tuple[dict[st
         "fileName": staged.name,
         "sourceHash": digest(staged),
         "permissionScope": "iAcoustics",
-        "citationNamespace": "D",
+        "citationNamespace": row.get("citation_namespace", "D"),
         "tablePageNumbers": sorted(table_pages),
         "pageCount": integrity["expectedPages"],
         "integrity": integrity,

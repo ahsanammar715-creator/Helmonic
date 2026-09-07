@@ -2,10 +2,13 @@ import importlib.util
 import json
 import shutil
 import sys
+import threading
+import time
 import unittest
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 
 MODULE_PATH = Path(__file__).with_name("build_corpus_pilot_payload.py")
@@ -57,6 +60,36 @@ class CorpusPilotSelectionTests(unittest.TestCase):
             "ocr_status": "ocr_candidate",
         }
         self.assertFalse(MODULE.eligible(row))
+
+    def test_large_batch_selection_is_balanced_and_excludes_completed_sources(self):
+        rows = []
+        for group, count in {"large": 12, "small": 4}.items():
+            for index in range(count):
+                rows.append(
+                    {
+                        "source_id": f"src-{group}-{index}",
+                        "sha256": f"{index + 1:064x}"[-64:],
+                        "top_level": group,
+                        "search_state": "candidate",
+                        "is_canonical": True,
+                        "processing_lane": "pdf_extract_embed",
+                        "extension": ".pdf",
+                        "integrity_status": "ok",
+                        "ocr_status": "text_extractable",
+                    }
+                )
+        selected = MODULE.select_rows(
+            rows,
+            batch_id="corpus-batch-12-v1",
+            document_count=12,
+            excluded_source_ids={"src-large-0"},
+        )
+        self.assertEqual(len(selected), 12)
+        self.assertNotIn("src-large-0", {row["source_id"] for row in selected})
+        self.assertEqual(
+            dict(sorted(MODULE.Counter(row["top_level"] for row in selected).items())),
+            {"large": 9, "small": 3},
+        )
 
 
 class CorpusPilotHardeningTests(unittest.TestCase):
@@ -178,6 +211,79 @@ class CorpusPilotHardeningTests(unittest.TestCase):
         self.assertEqual(MODULE.percentile([1.0, 2.0, 3.0, 4.0, 5.0], 0.5), 3.0)
         self.assertEqual(MODULE.percentile([1.0, 2.0, 3.0, 4.0, 5.0], 0.95), 5.0)
 
+    def test_two_workers_are_bounded_and_checkpointed_by_parent(self):
+        with self.temporary_directory() as directory:
+            root = Path(directory)
+            (root / "originals").mkdir()
+            (root / "checkpoint-documents").mkdir()
+            checkpoint = {"documents": {}}
+            active = 0
+            maximum_active = 0
+            guard = threading.Lock()
+
+            def fake_process(row, **_kwargs):
+                nonlocal active, maximum_active
+                with guard:
+                    active += 1
+                    maximum_active = max(maximum_active, active)
+                time.sleep(0.15)
+                with guard:
+                    active -= 1
+                return (
+                    {"document": {"sourceId": row["source_id"]}, "metrics": {}},
+                    {
+                        "status": "completed",
+                        "execution": {
+                            "returnCode": 0,
+                            "reason": "completed",
+                            "elapsedSeconds": 0.15,
+                            "peakMemoryBytes": 1,
+                        },
+                        "resultFile": f"{row['source_id']}.result.json",
+                    },
+                )
+
+            rows = [{"source_id": f"src-{index}"} for index in range(4)]
+            with (
+                patch.object(MODULE, "process_document", side_effect=fake_process),
+                patch.object(MODULE, "available_memory_bytes", return_value=16 * 1024**3),
+            ):
+                results, resumed = MODULE.process_selected_documents(
+                    rows,
+                    source_root=root,
+                    output=root,
+                    timeout_seconds=600,
+                    memory_mib=2048,
+                    workers=2,
+                    free_memory_reserve_mib=2048,
+                    checkpoint=checkpoint,
+                    checkpoint_path=root / "checkpoint.json",
+                )
+            self.assertEqual(resumed, 0)
+            self.assertEqual(maximum_active, 2)
+            self.assertEqual(set(results), {"src-0", "src-1", "src-2", "src-3"})
+            saved = json.loads((root / "checkpoint.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(saved["documents"]), 4)
+
+    def test_free_memory_gate_fails_before_starting_a_worker(self):
+        with self.temporary_directory() as directory:
+            root = Path(directory)
+            (root / "originals").mkdir()
+            (root / "checkpoint-documents").mkdir()
+            with patch.object(MODULE, "available_memory_bytes", return_value=1024**3):
+                with self.assertRaisesRegex(RuntimeError, "Insufficient free memory"):
+                    MODULE.process_selected_documents(
+                        [{"source_id": "src-low-memory"}],
+                        source_root=root,
+                        output=root,
+                        timeout_seconds=600,
+                        memory_mib=2048,
+                        workers=2,
+                        free_memory_reserve_mib=2048,
+                        checkpoint={"documents": {}},
+                        checkpoint_path=root / "checkpoint.json",
+                    )
+
     def test_checkpoint_resume_reuses_only_hash_verified_completed_output(self):
         with self.temporary_directory() as directory:
             root = Path(directory)
@@ -240,6 +346,57 @@ class CorpusPilotHardeningTests(unittest.TestCase):
             self.assertIsNotNone(result)
             self.assertEqual(result["document"]["integrity"]["outcome"], "verified")
             self.assertEqual(result["metrics"]["pages"], 1)
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("reportlab")
+        and importlib.util.find_spec("pdfplumber")
+        and importlib.util.find_spec("pypdf"),
+        "local document libraries are not installed",
+    )
+    def test_two_real_pdf_workers_complete_concurrently(self):
+        from reportlab.pdfgen.canvas import Canvas
+
+        with self.temporary_directory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source_root.mkdir()
+            output = root / "output"
+            (output / "originals").mkdir(parents=True)
+            (output / "checkpoint-documents").mkdir()
+            rows = []
+            for index in range(2):
+                source = source_root / f"sample-{index}.pdf"
+                canvas = Canvas(str(source))
+                canvas.drawString(72, 720, f"Verified parallel evidence {index}")
+                canvas.save()
+                stat = source.stat()
+                rows.append(
+                    {
+                        "source_id": f"src-parallel-{index}",
+                        "relative_path": source.name,
+                        "size_bytes": stat.st_size,
+                        "modified_ns": stat.st_mtime_ns,
+                        "sha256": MODULE.digest(source),
+                        "page_count": 1,
+                        "citation_namespace": "D",
+                    }
+                )
+            with patch.object(MODULE, "available_memory_bytes", return_value=16 * 1024**3):
+                results, _ = MODULE.process_selected_documents(
+                    rows,
+                    source_root=source_root,
+                    output=output,
+                    timeout_seconds=30,
+                    memory_mib=512,
+                    workers=2,
+                    free_memory_reserve_mib=512,
+                    checkpoint={"documents": {}},
+                    checkpoint_path=output / "checkpoint.json",
+                )
+            self.assertEqual(set(results), {"src-parallel-0", "src-parallel-1"})
+            self.assertTrue(
+                all(result["document"]["integrity"]["outcome"] == "verified" for result in results.values())
+            )
 
     @unittest.skipUnless(
         importlib.util.find_spec("pdfplumber") and importlib.util.find_spec("pypdf"),

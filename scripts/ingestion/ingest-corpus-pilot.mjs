@@ -28,6 +28,8 @@ const embeddingApiVersion = process.env.AZURE_OPENAI_EMBEDDING_API_VERSION || "2
 const embeddingDimensions = positiveInteger("AZURE_OPENAI_EMBEDDING_DIMENSIONS", 1536);
 const embeddingBatchSize = positiveInteger("HELMONIC_EMBEDDING_BATCH_SIZE", 16);
 const semanticConfiguration = process.env.AZURE_SEARCH_SEMANTIC_CONFIGURATION || "consult-semantic-v2";
+const citationNamespaceFieldEnabled =
+  process.env.HELMONIC_CITATION_NAMESPACE_FIELD_ENABLED === "true";
 const credential = createUserAssignedManagedIdentityCredential();
 
 function required(name) {
@@ -94,7 +96,8 @@ async function uploadOriginal(accessToken, document) {
     Number(head.headers.get("content-length")) !== bytes.length ||
     head.headers.get("x-ms-meta-sourceid") !== document.sourceId ||
     head.headers.get("x-ms-meta-sourcesha256") !== document.sourceHash ||
-    head.headers.get("x-ms-meta-permissionscope") !== document.permissionScope
+    head.headers.get("x-ms-meta-permissionscope") !== document.permissionScope ||
+    head.headers.get("x-ms-meta-citationnamespace") !== document.citationNamespace
   ) {
     throw new Error(`Stored Blob metadata mismatch for ${document.sourceId}`);
   }
@@ -239,7 +242,9 @@ async function hybridQuery(searchToken, embeddingToken, question, permissionScop
 }
 
 async function validateQueries(searchToken, embeddingToken, documents) {
-  const distributed = [0, 16, 33, 50, 67, 84];
+  const distributed = [0, 0.17, 0.34, 0.51, 0.68, 0.85].map((fraction) =>
+    Math.floor((documents.length - 1) * fraction),
+  );
   const cases = [];
   for (const index of distributed) {
     const document = documents[index];
@@ -295,6 +300,9 @@ async function main() {
       permission_scope: document.permissionScope,
       content_hash: chunk.contentHash,
       ingested_at: ingestedAt,
+      ...(citationNamespaceFieldEnabled
+        ? { citation_namespace: document.citationNamespace }
+        : {}),
     })),
   );
   await uploadSearchDocuments(searchToken, searchDocuments);

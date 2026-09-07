@@ -66,11 +66,13 @@ test("original Blob metadata uses Azure-safe names", () => {
     sourceId: "src-001",
     sourceHash: "a".repeat(64),
     permissionScope: "iAcoustics",
+    citationNamespace: "D",
   });
   assert.deepEqual(metadata, {
     "x-ms-meta-sourceid": "src-001",
     "x-ms-meta-sourcesha256": "a".repeat(64),
     "x-ms-meta-permissionscope": "iAcoustics",
+    "x-ms-meta-citationnamespace": "D",
   });
   assert.ok(
     Object.keys(metadata).every((name) => /^x-ms-meta-[a-z][a-z0-9_]*$/i.test(name)),
@@ -81,6 +83,14 @@ test("payload contract requires exactly 100 internal controlled documents", () =
   const valid = payload();
   assert.equal(validateCorpusPilotPayload(valid).sourceIds.size, 100);
   valid.documents[0].permissionScope = "public";
+  assert.throws(() => validateCorpusPilotPayload(valid), /Invalid corpus source contract/);
+});
+
+test("payload contract retains the approved book citation namespace", () => {
+  const valid = payload();
+  valid.documents[0].citationNamespace = "B";
+  assert.equal(validateCorpusPilotPayload(valid).sourceIds.size, 100);
+  valid.documents[0].citationNamespace = "G";
   assert.throws(() => validateCorpusPilotPayload(valid), /Invalid corpus source contract/);
 });
 

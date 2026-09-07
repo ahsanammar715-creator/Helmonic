@@ -2,7 +2,13 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$SourceRoot,
     [Parameter(Mandatory = $true)]
-    [string]$OutputRoot
+    [string]$OutputRoot,
+    [string]$BatchId = 'corpus-pilot-100-v1',
+    [int]$DocumentCount = 100,
+    [string[]]$ExcludePayload = @(),
+    [ValidateRange(1, 2)]
+    [int]$Workers = 1,
+    [int]$FreeMemoryReserveMiB = 2048
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,10 +38,20 @@ Copy-Item -LiteralPath (Join-Path $repo 'scripts\corpus_audit\corpus_document_wo
 }
 Copy-Item -LiteralPath (Join-Path $repo 'scripts\ingestion\Dockerfile.corpus-pilot') -Destination (Join-Path $output 'Dockerfile')
 
-& $python (Join-Path $repo 'scripts\corpus_audit\build_corpus_pilot_payload.py') `
-    --manifest $manifest `
-    --source-root $SourceRoot `
-    --output-dir (Join-Path $output 'payload')
+$arguments = @(
+    (Join-Path $repo 'scripts\corpus_audit\build_corpus_pilot_payload.py'),
+    '--manifest', $manifest,
+    '--source-root', $SourceRoot,
+    '--output-dir', (Join-Path $output 'payload'),
+    '--batch-id', $BatchId,
+    '--document-count', $DocumentCount,
+    '--workers', $Workers,
+    '--free-memory-reserve-mib', $FreeMemoryReserveMiB
+)
+foreach ($path in $ExcludePayload) {
+    $arguments += @('--exclude-payload', $path)
+}
+& $python @arguments
 if ($LASTEXITCODE -ne 0) { throw "Corpus pilot payload build failed with $LASTEXITCODE" }
 
 Write-Output "Built private corpus-pilot context: $output"

@@ -2,10 +2,21 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export const EXPECTED_BATCH_ID = "corpus-pilot-100-v1";
-export const EXPECTED_DOCUMENT_COUNT = 100;
+export const EXPECTED_BATCH_ID =
+  process.env.HELMONIC_INGESTION_EXPECTED_BATCH_ID || "corpus-pilot-100-v1";
+export const EXPECTED_DOCUMENT_COUNT = Number.parseInt(
+  process.env.HELMONIC_INGESTION_EXPECTED_DOCUMENT_COUNT || "100",
+  10,
+);
 export const EXPECTED_PERMISSION_SCOPE = "iAcoustics";
 export const CANDIDATE_INDEX_PREFIX = "consult-candidate-";
+
+if (!/^corpus-[a-z0-9-]+$/.test(EXPECTED_BATCH_ID)) {
+  throw new Error("Expected corpus batch ID is invalid");
+}
+if (!Number.isSafeInteger(EXPECTED_DOCUMENT_COUNT) || EXPECTED_DOCUMENT_COUNT < 1) {
+  throw new Error("Expected corpus document count must be positive");
+}
 
 export function assertCandidateTarget(indexName, liveIndexName) {
   if (!indexName.startsWith(CANDIDATE_INDEX_PREFIX)) {
@@ -42,7 +53,8 @@ export function buildOriginalBlobMetadata(document) {
   if (
     !document?.sourceId ||
     !/^[a-f0-9]{64}$/.test(document.sourceHash || "") ||
-    document.permissionScope !== EXPECTED_PERMISSION_SCOPE
+    document.permissionScope !== EXPECTED_PERMISSION_SCOPE ||
+    !["D", "B"].includes(document.citationNamespace)
   ) {
     throw new Error("Original Blob metadata requires a valid controlled document");
   }
@@ -50,6 +62,7 @@ export function buildOriginalBlobMetadata(document) {
     "x-ms-meta-sourceid": document.sourceId,
     "x-ms-meta-sourcesha256": document.sourceHash,
     "x-ms-meta-permissionscope": document.permissionScope,
+    "x-ms-meta-citationnamespace": document.citationNamespace,
   };
 }
 
@@ -74,7 +87,7 @@ export function validateCorpusPilotPayload(payload) {
     }
     if (
       document.permissionScope !== EXPECTED_PERMISSION_SCOPE ||
-      document.citationNamespace !== "D" ||
+      !["D", "B"].includes(document.citationNamespace) ||
       !/^[a-f0-9]{64}$/.test(document.sourceHash || "") ||
       !Array.isArray(document.chunks) ||
       document.chunks.length === 0
