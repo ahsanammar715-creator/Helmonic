@@ -34,16 +34,16 @@ try {
         throw "The 1,200-document local extraction exited with code $LASTEXITCODE"
     }
     $run = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
-    $run.status = 'local_extraction_complete'
-    $run.completedUtc = [DateTime]::UtcNow.ToString('o')
+    $run | Add-Member -NotePropertyName status -NotePropertyValue 'local_extraction_complete' -Force
+    $run | Add-Member -NotePropertyName completedUtc -NotePropertyValue ([DateTime]::UtcNow.ToString('o')) -Force
     $run | ConvertTo-Json | Set-Content -LiteralPath $state -Encoding UTF8
     Write-Output 'The 1,200-document local extraction and two-reader gate completed.'
 }
 catch {
     $run = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
-    $run.status = 'local_extraction_failed'
-    $run.failedUtc = [DateTime]::UtcNow.ToString('o')
-    $run.error = $_.Exception.Message
+    $run | Add-Member -NotePropertyName status -NotePropertyValue 'local_extraction_failed' -Force
+    $run | Add-Member -NotePropertyName failedUtc -NotePropertyValue ([DateTime]::UtcNow.ToString('o')) -Force
+    $run | Add-Member -NotePropertyName error -NotePropertyValue $_.Exception.Message -Force
     $run | ConvertTo-Json | Set-Content -LiteralPath $state -Encoding UTF8
     throw
 }

@@ -94,6 +94,19 @@ test("payload contract retains the approved book citation namespace", () => {
   assert.throws(() => validateCorpusPilotPayload(valid), /Invalid corpus source contract/);
 });
 
+test("payload contract accounts honestly for quarantined documents without backfill", () => {
+  const valid = payload();
+  valid.batch.attemptedDocumentCount = 100;
+  valid.batch.quarantineCount = 1;
+  valid.documents.pop();
+  assert.equal(validateCorpusPilotPayload(valid).sourceIds.size, 99);
+  valid.batch.quarantineCount = 0;
+  assert.throws(
+    () => validateCorpusPilotPayload(valid),
+    /account for all 100 attempted documents/,
+  );
+});
+
 test("payload contract rejects a document without completed two-reader verification", () => {
   const invalid = payload();
   invalid.documents[0].integrity.readablePages = 0;

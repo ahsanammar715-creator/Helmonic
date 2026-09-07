@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 import uuid
+from argparse import Namespace
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -283,6 +284,92 @@ class CorpusPilotHardeningTests(unittest.TestCase):
                         checkpoint={"documents": {}},
                         checkpoint_path=root / "checkpoint.json",
                     )
+
+    def test_quarantined_document_is_reported_without_backfill(self):
+        with self.temporary_directory() as directory:
+            root = Path(directory)
+            manifest = root / "manifest.jsonl"
+            rows = [
+                {
+                    "source_id": f"src-{index}",
+                    "sha256": f"{index + 1:064x}"[-64:],
+                    "top_level": "IA-02.2",
+                    "search_state": "candidate",
+                    "is_canonical": True,
+                    "processing_lane": "pdf_extract_embed",
+                    "extension": ".pdf",
+                    "integrity_status": "ok",
+                    "ocr_status": "text_extractable",
+                    "size_bytes": 10,
+                }
+                for index in range(3)
+            ]
+            manifest.write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+            primary = MODULE.select_rows(
+                rows,
+                batch_id="corpus-batch-replacement-v1",
+                document_count=2,
+            )
+            failed_source = primary[0]["source_id"]
+
+            def fake_process(row, **_kwargs):
+                completed = row["source_id"] != failed_source
+                record = {
+                    "status": "completed" if completed else "manual_review",
+                    "execution": {
+                        "returnCode": 0 if completed else 1,
+                        "reason": "completed" if completed else "reader_failure",
+                        "elapsedSeconds": 0.01,
+                        "peakMemoryBytes": 1,
+                    },
+                    "resultFile": f"{row['source_id']}.result.json",
+                }
+                if not completed:
+                    record["error"] = "synthetic reader failure"
+                    return None, record
+                return (
+                    {
+                        "document": {
+                            "sourceId": row["source_id"],
+                            "fileName": f"{row['source_id']}.pdf",
+                            "sourceHash": row["sha256"],
+                            "permissionScope": "iAcoustics",
+                            "citationNamespace": "D",
+                            "integrity": {"outcome": "verified"},
+                            "chunks": [{"chunkId": f"chunk-{row['source_id']}"}],
+                        },
+                        "metrics": {"pages": 1, "chunks": 1},
+                    },
+                    record,
+                )
+
+            args = Namespace(
+                output_dir=root / "output",
+                manifest=manifest,
+                source_root=root,
+                batch_id="corpus-batch-replacement-v1",
+                document_count=2,
+                exclude_payload=[],
+                document_timeout_seconds=600,
+                document_memory_mib=2048,
+                workers=2,
+                free_memory_reserve_mib=2048,
+            )
+            with (
+                patch.object(MODULE, "process_document", side_effect=fake_process),
+                patch.object(MODULE, "available_memory_bytes", return_value=16 * 1024**3),
+            ):
+                summary = MODULE.build(args)
+            self.assertEqual(summary["attemptedDocumentCount"], 2)
+            self.assertEqual(summary["documentCount"], 1)
+            self.assertEqual(summary["manualReviewCount"], 1)
+            payload = json.loads((root / "output" / "payload.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["batch"]["attemptedDocumentCount"], 2)
+            self.assertEqual(payload["batch"]["quarantineCount"], 1)
+            self.assertNotIn(failed_source, {item["sourceId"] for item in payload["documents"]})
 
     def test_checkpoint_resume_reuses_only_hash_verified_completed_output(self):
         with self.temporary_directory() as directory:

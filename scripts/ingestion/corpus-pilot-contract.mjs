@@ -76,8 +76,20 @@ export function validateCorpusPilotPayload(payload) {
   ) {
     throw new Error("Corpus pilot requires extraction v2 and atomic table preservation");
   }
-  if (!Array.isArray(payload.documents) || payload.documents.length !== EXPECTED_DOCUMENT_COUNT) {
-    throw new Error(`Corpus pilot requires exactly ${EXPECTED_DOCUMENT_COUNT} documents`);
+  const attemptedDocumentCount =
+    payload?.batch?.attemptedDocumentCount ?? EXPECTED_DOCUMENT_COUNT;
+  const quarantineCount = payload?.batch?.quarantineCount ?? 0;
+  if (
+    attemptedDocumentCount !== EXPECTED_DOCUMENT_COUNT ||
+    !Number.isSafeInteger(quarantineCount) ||
+    quarantineCount < 0 ||
+    !Array.isArray(payload.documents) ||
+    payload.documents.length < 1 ||
+    payload.documents.length !== EXPECTED_DOCUMENT_COUNT - quarantineCount
+  ) {
+    throw new Error(
+      `Corpus batch must account for all ${EXPECTED_DOCUMENT_COUNT} attempted documents`,
+    );
   }
   const sourceIds = new Set();
   const chunkIds = new Set();

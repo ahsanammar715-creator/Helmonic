@@ -428,12 +428,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         excluded_source_ids.update(
             document["sourceId"] for document in excluded.get("documents", [])
         )
+    manifest_rows = read_jsonl(manifest)
     selected = select_rows(
-        read_jsonl(manifest),
+        manifest_rows,
         batch_id=args.batch_id,
         document_count=args.document_count,
         excluded_source_ids=excluded_source_ids,
     )
+    attempted_rows = selected
     limits = {
         "timeoutSeconds": args.document_timeout_seconds,
         "memoryMiB": args.document_memory_mib,
@@ -457,22 +459,26 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
     )
+    quarantined_rows = [row for row in selected if row["source_id"] not in results]
+    selected = [row for row in selected if row["source_id"] in results]
     documents: list[dict[str, Any]] = []
     totals = Counter()
     manual_review: list[dict[str, Any]] = []
     for row in selected:
         source_id = row["source_id"]
         result = results.get(source_id)
-        if result is None:
-            manual_review.append({"sourceId": source_id, **checkpoint["documents"][source_id]})
-            continue
         documents.append(result["document"])
         totals.update(result["metrics"])
+    for row in quarantined_rows:
+        source_id = row["source_id"]
+        manual_review.append({"sourceId": source_id, **checkpoint["documents"][source_id]})
 
     payload = {
         "batch": {
             "id": args.batch_id,
             "selection": "deterministic-category-balanced-pipeline-validation",
+            "attemptedDocumentCount": args.document_count,
+            "quarantineCount": len(manual_review),
             "promotionReady": False,
             "promotionBlocker": "consultant-ranked sources and known-answer evaluation are pending",
         },
@@ -489,12 +495,17 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     peak_memory = [int(execution["peakMemoryBytes"]) for execution in completed_executions]
     summary = {
         "batchId": args.batch_id,
+        "attemptedDocumentCount": args.document_count,
         "documentCount": len(documents),
+        "attemptedBytes": sum(int(row["size_bytes"]) for row in attempted_rows),
         "bytes": sum(int(row["size_bytes"]) for row in selected),
         "pages": totals["pages"],
         "chunks": totals["chunks"],
         "tablePages": totals["tablePages"],
         "permissionScope": PERMISSION_SCOPE,
+        "attemptedGroupCounts": dict(
+            sorted(Counter(row["top_level"] for row in attempted_rows).items())
+        ),
         "groupCounts": dict(sorted(Counter(row["top_level"] for row in selected).items())),
         "processingLimits": limits,
         "resumedDocuments": resumed_documents,
@@ -507,31 +518,22 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         },
         "manualReviewCount": len(manual_review),
         "manualReview": manual_review,
+        "verifiedDirectCount": sum(
+            document["integrity"]["outcome"] == "verified" for document in documents
+        ),
+        "repairVerifiedCount": sum(
+            document["integrity"]["outcome"] == "repair_verified" for document in documents
+        ),
         "promotionReady": False,
     }
     atomic_json(output / "summary.json", summary)
-    if manual_review:
-        atomic_json(
-            output / "progress.json",
-            {
-                "status": "manual_review",
-                "selectedDocuments": len(selected),
-                "completedDocuments": len(documents),
-                "manualReviewDocuments": len(manual_review),
-                "pendingDocuments": 0,
-                "workers": args.workers,
-            },
-        )
-        raise RuntimeError(
-            f"{len(manual_review)} documents require manual review; candidate payload is incomplete"
-        )
     atomic_json(
         output / "progress.json",
         {
-            "status": "complete",
-            "selectedDocuments": len(selected),
+            "status": "complete_with_quarantine" if manual_review else "complete",
+            "selectedDocuments": args.document_count,
             "completedDocuments": len(documents),
-            "manualReviewDocuments": 0,
+            "manualReviewDocuments": len(manual_review),
             "pendingDocuments": 0,
             "workers": args.workers,
         },

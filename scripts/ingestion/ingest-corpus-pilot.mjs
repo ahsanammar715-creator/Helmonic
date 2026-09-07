@@ -318,7 +318,15 @@ async function main() {
     status: "complete",
     batchId: EXPECTED_BATCH_ID,
     index: searchIndex,
-    documentCount: EXPECTED_DOCUMENT_COUNT,
+    attemptedDocumentCount: EXPECTED_DOCUMENT_COUNT,
+    documentCount: payload.documents.length,
+    quarantineCount: payload.batch.quarantineCount ?? 0,
+    verifiedDirectCount: payload.documents.filter(
+      (document) => document.integrity.outcome === "verified",
+    ).length,
+    repairVerifiedCount: payload.documents.filter(
+      (document) => document.integrity.outcome === "repair_verified",
+    ).length,
     chunkCount: searchDocuments.length,
     embeddingCount: vectors.size,
     embeddingDimensions,
