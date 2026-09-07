@@ -318,6 +318,7 @@ def process_selected_documents(
     free_memory_reserve_mib: int,
     checkpoint: dict[str, Any],
     checkpoint_path: Path,
+    memory_wait_seconds: int = 0,
 ) -> tuple[dict[str, dict[str, Any]], int]:
     if workers < 1 or workers > 2:
         raise RuntimeError("Document workers must be between one and two")
@@ -354,6 +355,7 @@ def process_selected_documents(
     reserve_bytes = free_memory_reserve_mib * 1024 * 1024
     active: dict[Future[tuple[dict[str, Any] | None, dict[str, Any]]], dict[str, Any]] = {}
     next_row = 0
+    memory_wait_started: float | None = None
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="corpus-parent") as executor:
         while next_row < len(pending) or active:
             while next_row < len(pending) and len(active) < workers:
@@ -362,6 +364,31 @@ def process_selected_documents(
                 if free < required:
                     if active:
                         break
+                    if memory_wait_started is None:
+                        memory_wait_started = time.monotonic()
+                    remaining_wait = memory_wait_seconds - (time.monotonic() - memory_wait_started)
+                    if memory_wait_seconds > 0 and remaining_wait > 0:
+                        atomic_json(
+                            output / "progress.json",
+                            {
+                                "status": "waiting_for_memory",
+                                "selectedDocuments": len(selected),
+                                "completedDocuments": completed_count,
+                                "manualReviewDocuments": manual_review_count,
+                                "pendingDocuments": len(pending) - next_row,
+                                "workers": workers,
+                                "availableMemoryMiB": free // (1024 * 1024),
+                                "requiredMemoryMiB": required // (1024 * 1024),
+                            },
+                        )
+                        print(
+                            "Waiting for enough free memory to start the bounded document worker: "
+                            f"{free // (1024 * 1024)} MiB available, "
+                            f"{required // (1024 * 1024)} MiB required",
+                            flush=True,
+                        )
+                        time.sleep(min(30.0, remaining_wait))
+                        continue
                     raise RuntimeError(
                         "Insufficient free memory to start a bounded document worker: "
                         f"{free // (1024 * 1024)} MiB available, "
@@ -369,6 +396,18 @@ def process_selected_documents(
                     )
                 row = pending[next_row]
                 next_row += 1
+                memory_wait_started = None
+                atomic_json(
+                    output / "progress.json",
+                    {
+                        "status": "running",
+                        "selectedDocuments": len(selected),
+                        "completedDocuments": completed_count,
+                        "manualReviewDocuments": manual_review_count,
+                        "pendingDocuments": len(pending) - next_row,
+                        "workers": workers,
+                    },
+                )
                 future = executor.submit(
                     process_document,
                     row,
@@ -441,6 +480,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "memoryMiB": args.document_memory_mib,
         "workers": args.workers,
         "freeMemoryReserveMiB": args.free_memory_reserve_mib,
+        "memoryWaitSeconds": getattr(args, "memory_wait_seconds", 0),
     }
     checkpoint_path = output / "checkpoint.json"
     checkpoint = load_checkpoint(
@@ -458,6 +498,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         free_memory_reserve_mib=args.free_memory_reserve_mib,
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
+        memory_wait_seconds=getattr(args, "memory_wait_seconds", 0),
     )
     quarantined_rows = [row for row in selected if row["source_id"] not in results]
     selected = [row for row in selected if row["source_id"] in results]
@@ -559,6 +600,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_FREE_MEMORY_RESERVE_MIB,
     )
+    parser.add_argument("--memory-wait-seconds", type=int, default=0)
     return parser.parse_args()
 
 

@@ -285,6 +285,50 @@ class CorpusPilotHardeningTests(unittest.TestCase):
                         checkpoint_path=root / "checkpoint.json",
                     )
 
+    def test_free_memory_gate_can_wait_then_start_a_worker(self):
+        with self.temporary_directory() as directory:
+            root = Path(directory)
+            (root / "originals").mkdir()
+            (root / "checkpoint-documents").mkdir()
+
+            def fake_process(row, **_kwargs):
+                return (
+                    {"document": {"sourceId": row["source_id"]}, "metrics": {}},
+                    {
+                        "status": "completed",
+                        "execution": {
+                            "returnCode": 0,
+                            "reason": "completed",
+                            "elapsedSeconds": 0.01,
+                            "peakMemoryBytes": 1,
+                        },
+                        "resultFile": f"{row['source_id']}.result.json",
+                    },
+                )
+
+            with (
+                patch.object(MODULE, "process_document", side_effect=fake_process),
+                patch.object(
+                    MODULE,
+                    "available_memory_bytes",
+                    side_effect=[1024**3, 16 * 1024**3],
+                ),
+                patch.object(MODULE.time, "sleep"),
+            ):
+                results, _ = MODULE.process_selected_documents(
+                    [{"source_id": "src-wait-memory"}],
+                    source_root=root,
+                    output=root,
+                    timeout_seconds=600,
+                    memory_mib=2048,
+                    workers=1,
+                    free_memory_reserve_mib=2048,
+                    checkpoint={"documents": {}},
+                    checkpoint_path=root / "checkpoint.json",
+                    memory_wait_seconds=60,
+                )
+            self.assertEqual(set(results), {"src-wait-memory"})
+
     def test_quarantined_document_is_reported_without_backfill(self):
         with self.temporary_directory() as directory:
             root = Path(directory)

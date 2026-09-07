@@ -8,7 +8,8 @@ param(
     [string[]]$ExcludePayload = @(),
     [ValidateRange(1, 2)]
     [int]$Workers = 1,
-    [int]$FreeMemoryReserveMiB = 2048
+    [int]$FreeMemoryReserveMiB = 2048,
+    [int]$MemoryWaitSeconds = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,7 +47,8 @@ $arguments = @(
     '--batch-id', $BatchId,
     '--document-count', $DocumentCount,
     '--workers', $Workers,
-    '--free-memory-reserve-mib', $FreeMemoryReserveMiB
+    '--free-memory-reserve-mib', $FreeMemoryReserveMiB,
+    '--memory-wait-seconds', $MemoryWaitSeconds
 )
 foreach ($path in $ExcludePayload) {
     $arguments += @('--exclude-payload', $path)

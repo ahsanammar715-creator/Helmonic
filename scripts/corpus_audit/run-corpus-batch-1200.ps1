@@ -1,9 +1,21 @@
+param(
+    [ValidateRange(1, 1200)]
+    [int]$DocumentCount = 1200,
+    [ValidateRange(1, 2)]
+    [int]$Workers = 2,
+    [ValidateRange(512, 4096)]
+    [int]$FreeMemoryReserveMiB = 2048,
+    [ValidateRange(0, 115200)]
+    [int]$MemoryWaitSeconds = 0
+)
+
 $ErrorActionPreference = 'Stop'
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$output = Join-Path $repo 'private-build\corpus-batch-1200-context'
+$batchId = "corpus-batch-$DocumentCount-v1"
+$output = Join-Path $repo "private-build\corpus-batch-$DocumentCount-context"
 $pilotPayload = Join-Path $repo 'private-build\corpus-pilot-100-context\payload\payload.json'
-$state = Join-Path $repo 'local-artifacts\corpus-batch-1200-run-state.json'
+$state = Join-Path $repo "local-artifacts\corpus-batch-$DocumentCount-run-state.json"
 
 function Remove-AbandonedPreflightContext {
     param([Parameter(Mandatory = $true)][string]$ContextPath)
@@ -12,7 +24,7 @@ function Remove-AbandonedPreflightContext {
         return
     }
 
-    $expectedPath = [IO.Path]::GetFullPath((Join-Path $repo 'private-build\corpus-batch-1200-context'))
+    $expectedPath = [IO.Path]::GetFullPath((Join-Path $repo "private-build\corpus-batch-$DocumentCount-context"))
     $actualPath = [IO.Path]::GetFullPath($ContextPath)
     if (-not $actualPath.Equals($expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing preflight cleanup outside the exact disposable batch context: $actualPath"
@@ -76,33 +88,34 @@ Remove-AbandonedPreflightContext -ContextPath $output
 
 @{
     status = 'local_extraction_running'
-    batchId = 'corpus-batch-1200-v1'
-    documentCount = 1200
+    batchId = $batchId
+    documentCount = $DocumentCount
     startedUtc = [DateTime]::UtcNow.ToString('o')
     wallClockCeilingHours = 32
-    workers = 2
+    workers = $Workers
     perDocumentMemoryMiB = 2048
     perDocumentTimeoutSeconds = 600
-    freeMemoryReserveMiB = 2048
+    freeMemoryReserveMiB = $FreeMemoryReserveMiB
 } | ConvertTo-Json | Set-Content -LiteralPath $state -Encoding UTF8
 
 try {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'prepare-corpus-pilot-context.ps1') `
         -SourceRoot 'S:\z_Helmonic_iAcoustics' `
         -OutputRoot $output `
-        -BatchId 'corpus-batch-1200-v1' `
-        -DocumentCount 1200 `
+        -BatchId $batchId `
+        -DocumentCount $DocumentCount `
         -ExcludePayload $pilotPayload `
-        -Workers 2 `
-        -FreeMemoryReserveMiB 2048
+        -Workers $Workers `
+        -FreeMemoryReserveMiB $FreeMemoryReserveMiB `
+        -MemoryWaitSeconds $MemoryWaitSeconds
     if ($LASTEXITCODE -ne 0) {
-        throw "The 1,200-document local extraction exited with code $LASTEXITCODE"
+        throw "The $DocumentCount-document local extraction exited with code $LASTEXITCODE"
     }
     $run = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
     $run | Add-Member -NotePropertyName status -NotePropertyValue 'local_extraction_complete' -Force
     $run | Add-Member -NotePropertyName completedUtc -NotePropertyValue ([DateTime]::UtcNow.ToString('o')) -Force
     $run | ConvertTo-Json | Set-Content -LiteralPath $state -Encoding UTF8
-    Write-Output 'The 1,200-document local extraction and two-reader gate completed.'
+    Write-Output "The $DocumentCount-document local extraction and two-reader gate completed."
 }
 catch {
     $run = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
