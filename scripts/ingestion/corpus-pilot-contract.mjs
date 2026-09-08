@@ -10,6 +10,7 @@ export const EXPECTED_DOCUMENT_COUNT = Number.parseInt(
 );
 export const EXPECTED_PERMISSION_SCOPE = "iAcoustics";
 export const CANDIDATE_INDEX_PREFIX = "consult-candidate-";
+export const MAX_EMBEDDING_INPUT_BYTES = 7_000;
 
 if (!/^corpus-[a-z0-9-]+$/.test(EXPECTED_BATCH_ID)) {
   throw new Error("Expected corpus batch ID is invalid");
@@ -64,6 +65,82 @@ export function buildOriginalBlobMetadata(document) {
     "x-ms-meta-permissionscope": document.permissionScope,
     "x-ms-meta-citationnamespace": document.citationNamespace,
   };
+}
+
+export function splitEmbeddingInput(content, maxBytes = MAX_EMBEDDING_INPUT_BYTES) {
+  if (typeof content !== "string" || !content.length) {
+    throw new Error("Embedding input must be a non-empty string");
+  }
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 256) {
+    throw new Error("Embedding input byte limit must be an integer of at least 256");
+  }
+  if (Buffer.byteLength(content, "utf8") <= maxBytes) return [content];
+
+  const parts = [];
+  let start = 0;
+  while (start < content.length) {
+    let low = start + 1;
+    let high = content.length;
+    let end = low;
+    while (low <= high) {
+      const candidate = Math.floor((low + high) / 2);
+      if (Buffer.byteLength(content.slice(start, candidate), "utf8") <= maxBytes) {
+        end = candidate;
+        low = candidate + 1;
+      } else {
+        high = candidate - 1;
+      }
+    }
+    if (
+      end < content.length &&
+      /[\uD800-\uDBFF]/.test(content[end - 1]) &&
+      /[\uDC00-\uDFFF]/.test(content[end])
+    ) {
+      end -= 1;
+    }
+    if (end < content.length) {
+      const whitespace = content.slice(start, end).search(/\s+\S*$/);
+      if (whitespace >= Math.floor((end - start) / 2)) end = start + whitespace + 1;
+    }
+    const part = content.slice(start, end);
+    if (!part || Buffer.byteLength(part, "utf8") > maxBytes) {
+      throw new Error("Could not safely partition an oversized embedding input");
+    }
+    parts.push(part);
+    start = end;
+  }
+  if (parts.join("") !== content) throw new Error("Embedding input partition lost content");
+  return parts;
+}
+
+export function combineEmbeddingSegments(segments) {
+  if (!Array.isArray(segments) || !segments.length) {
+    throw new Error("At least one embedding segment is required");
+  }
+  const dimensions = segments[0]?.embedding?.length;
+  if (!Number.isSafeInteger(dimensions) || dimensions < 1) {
+    throw new Error("Embedding segments require non-empty vectors");
+  }
+  const combined = Array.from({ length: dimensions }, () => 0);
+  let totalWeight = 0;
+  for (const segment of segments) {
+    if (
+      !Array.isArray(segment.embedding) ||
+      segment.embedding.length !== dimensions ||
+      !Number.isFinite(segment.weight) ||
+      segment.weight <= 0
+    ) {
+      throw new Error("Embedding segments must have matching vectors and positive weights");
+    }
+    totalWeight += segment.weight;
+    segment.embedding.forEach((value, index) => {
+      combined[index] += value * segment.weight;
+    });
+  }
+  const averaged = combined.map((value) => value / totalWeight);
+  const norm = Math.sqrt(averaged.reduce((sum, value) => sum + value * value, 0));
+  if (!Number.isFinite(norm) || norm === 0) throw new Error("Combined embedding has zero magnitude");
+  return averaged.map((value) => value / norm);
 }
 
 export function validateCorpusPilotPayload(payload) {

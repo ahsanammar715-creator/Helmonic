@@ -6,10 +6,12 @@ import {
   assertCandidateTarget,
   assertOriginalHash,
   buildCandidateIndexProbe,
+  combineEmbeddingSegments,
   buildOriginalBlobMetadata,
   EXPECTED_BATCH_ID,
   EXPECTED_DOCUMENT_COUNT,
   EXPECTED_PERMISSION_SCOPE,
+  splitEmbeddingInput,
   validateCorpusPilotPayload,
 } from "./corpus-pilot-contract.mjs";
 import { waitForManifestParity } from "./index-parity.mjs";
@@ -168,14 +170,38 @@ async function createEmbeddings(accessToken, inputs) {
 }
 
 async function embedChunks(accessToken, chunks) {
+  const segments = chunks.flatMap((chunk) =>
+    splitEmbeddingInput(chunk.content).map((content, index, parts) => ({
+      chunkId: chunk.chunkId,
+      content,
+      partIndex: index,
+      partCount: parts.length,
+      weight: Buffer.byteLength(content, "utf8"),
+    })),
+  );
+  const embeddedSegments = new Map();
+  for (let offset = 0; offset < segments.length; offset += embeddingBatchSize) {
+    const batch = segments.slice(offset, offset + embeddingBatchSize);
+    const embeddings = await createEmbeddings(accessToken, batch.map((segment) => segment.content));
+    batch.forEach((segment, index) => {
+      const values = embeddedSegments.get(segment.chunkId) || [];
+      values.push({ embedding: embeddings[index], weight: segment.weight, partIndex: segment.partIndex });
+      embeddedSegments.set(segment.chunkId, values);
+    });
+  }
   const vectors = new Map();
-  for (let offset = 0; offset < chunks.length; offset += embeddingBatchSize) {
-    const batch = chunks.slice(offset, offset + embeddingBatchSize);
-    const embeddings = await createEmbeddings(accessToken, batch.map((chunk) => chunk.content));
-    batch.forEach((chunk, index) => vectors.set(chunk.chunkId, embeddings[index]));
+  for (const chunk of chunks) {
+    const values = (embeddedSegments.get(chunk.chunkId) || []).sort(
+      (left, right) => left.partIndex - right.partIndex,
+    );
+    vectors.set(chunk.chunkId, combineEmbeddingSegments(values));
   }
   if (vectors.size !== chunks.length) throw new Error("At least one corpus chunk has no vector");
-  return vectors;
+  return {
+    vectors,
+    embeddingInputCount: segments.length,
+    segmentedChunkCount: new Set(segments.filter((segment) => segment.partCount > 1).map((segment) => segment.chunkId)).size,
+  };
 }
 
 async function uploadSearchDocuments(accessToken, documents) {
@@ -283,7 +309,10 @@ async function main() {
     sourceUris.set(document.sourceId, await uploadOriginal(storageToken, document));
   }
   const chunks = payload.documents.flatMap((document) => document.chunks);
-  const vectors = await embedChunks(embeddingToken, chunks);
+  const { vectors, embeddingInputCount, segmentedChunkCount } = await embedChunks(
+    embeddingToken,
+    chunks,
+  );
   const ingestedAt = new Date().toISOString();
   const searchDocuments = payload.documents.flatMap((document) =>
     document.chunks.map((chunk) => ({
@@ -329,6 +358,8 @@ async function main() {
     ).length,
     chunkCount: searchDocuments.length,
     embeddingCount: vectors.size,
+    embeddingInputCount,
+    segmentedChunkCount,
     embeddingDimensions,
     permissionScope: EXPECTED_PERMISSION_SCOPE,
     queryCases: cases,

@@ -6,6 +6,8 @@ import {
   assertCandidateTarget,
   buildCandidateIndexProbe,
   buildOriginalBlobMetadata,
+  combineEmbeddingSegments,
+  splitEmbeddingInput,
   validateCorpusPilotPayload,
 } from "./corpus-pilot-contract.mjs";
 
@@ -77,6 +79,24 @@ test("original Blob metadata uses Azure-safe names", () => {
   assert.ok(
     Object.keys(metadata).every((name) => /^x-ms-meta-[a-z][a-z0-9_]*$/i.test(name)),
   );
+});
+
+test("oversized embedding inputs are losslessly split under the byte ceiling", () => {
+  const content = `${"evidence row | value 😀\n".repeat(700)}終`;
+  const parts = splitEmbeddingInput(content, 7000);
+  assert.ok(parts.length > 1);
+  assert.equal(parts.join(""), content);
+  assert.ok(parts.every((part) => Buffer.byteLength(part, "utf8") <= 7000));
+});
+
+test("embedding segments combine into one normalized vector", () => {
+  const combined = combineEmbeddingSegments([
+    { embedding: [1, 0], weight: 3 },
+    { embedding: [0, 1], weight: 1 },
+  ]);
+  assert.equal(combined.length, 2);
+  assert.ok(Math.abs(Math.hypot(...combined) - 1) < 1e-12);
+  assert.ok(combined[0] > combined[1]);
 });
 
 test("payload contract requires exactly 100 internal controlled documents", () => {
