@@ -11,6 +11,7 @@ import {
   EXPECTED_BATCH_ID,
   EXPECTED_DOCUMENT_COUNT,
   EXPECTED_PERMISSION_SCOPE,
+  isSafeExistingBlobResponse,
   splitEmbeddingInput,
   validateCorpusPilotPayload,
 } from "./corpus-pilot-contract.mjs";
@@ -87,7 +88,10 @@ async function uploadOriginal(accessToken, document) {
     },
     body: bytes,
   });
-  if (!response.ok && response.status !== 412) {
+  if (
+    !response.ok &&
+    !isSafeExistingBlobResponse(response.status, response.headers.get("x-ms-error-code"))
+  ) {
     throw new Error(
       `Blob upload failed for ${document.sourceId}: ${response.status} ${(await response.text()).slice(0, 500)}`,
     );

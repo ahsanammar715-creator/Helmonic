@@ -67,6 +67,10 @@ export function buildOriginalBlobMetadata(document) {
   };
 }
 
+export function isSafeExistingBlobResponse(status, errorCode) {
+  return status === 412 || (status === 409 && errorCode === "BlobAlreadyExists");
+}
+
 export function splitEmbeddingInput(content, maxBytes = MAX_EMBEDDING_INPUT_BYTES) {
   if (typeof content !== "string" || !content.length) {
     throw new Error("Embedding input must be a non-empty string");

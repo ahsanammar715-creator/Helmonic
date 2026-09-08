@@ -7,6 +7,7 @@ import {
   buildCandidateIndexProbe,
   buildOriginalBlobMetadata,
   combineEmbeddingSegments,
+  isSafeExistingBlobResponse,
   splitEmbeddingInput,
   validateCorpusPilotPayload,
 } from "./corpus-pilot-contract.mjs";
@@ -79,6 +80,13 @@ test("original Blob metadata uses Azure-safe names", () => {
   assert.ok(
     Object.keys(metadata).every((name) => /^x-ms-meta-[a-z][a-z0-9_]*$/i.test(name)),
   );
+});
+
+test("existing Blob reuse accepts only the proven Azure conflict responses", () => {
+  assert.equal(isSafeExistingBlobResponse(412, null), true);
+  assert.equal(isSafeExistingBlobResponse(409, "BlobAlreadyExists"), true);
+  assert.equal(isSafeExistingBlobResponse(409, "LeaseIdMissing"), false);
+  assert.equal(isSafeExistingBlobResponse(403, "AuthorizationFailure"), false);
 });
 
 test("oversized embedding inputs are losslessly split under the byte ceiling", () => {
