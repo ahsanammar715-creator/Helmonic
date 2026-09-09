@@ -165,7 +165,7 @@ def process_memory_bytes(process_id: int) -> int:
     return 0
 
 
-def available_memory_bytes() -> int:
+def memory_availability_bytes() -> tuple[int, int]:
     if os.name == "nt":
         class MemoryStatusEx(ctypes.Structure):
             _fields_ = [
@@ -184,10 +184,19 @@ def available_memory_bytes() -> int:
         status.dwLength = ctypes.sizeof(status)
         if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
             raise RuntimeError("System free-memory check is unavailable")
-        return int(status.ullAvailPhys)
+        return int(status.ullAvailPhys), int(status.ullAvailPageFile)
     page_size = os.sysconf("SC_PAGE_SIZE")
     available_pages = os.sysconf("SC_AVPHYS_PAGES")
-    return int(page_size * available_pages)
+    available = int(page_size * available_pages)
+    return available, available
+
+
+def available_memory_bytes() -> int:
+    return memory_availability_bytes()[0]
+
+
+def available_commit_bytes() -> int:
+    return memory_availability_bytes()[1]
 
 
 def run_limited_process(
@@ -319,6 +328,10 @@ def process_selected_documents(
     checkpoint: dict[str, Any],
     checkpoint_path: Path,
     memory_wait_seconds: int = 0,
+    retry_memory_source_ids: set[str] | None = None,
+    retry_memory_mib: int = 4_096,
+    retry_physical_floor_mib: int = 3_072,
+    retry_commit_floor_mib: int = 5_120,
 ) -> tuple[dict[str, dict[str, Any]], int]:
     if workers < 1 or workers > 2:
         raise RuntimeError("Document workers must be between one and two")
@@ -351,17 +364,43 @@ def process_selected_documents(
         },
     )
 
+    retry_memory_sources = retry_memory_source_ids or set()
     memory_bytes = memory_mib * 1024 * 1024
     reserve_bytes = free_memory_reserve_mib * 1024 * 1024
-    active: dict[Future[tuple[dict[str, Any] | None, dict[str, Any]]], dict[str, Any]] = {}
+    retry_physical_floor_bytes = retry_physical_floor_mib * 1024 * 1024
+    retry_commit_floor_bytes = retry_commit_floor_mib * 1024 * 1024
+    active: dict[
+        Future[tuple[dict[str, Any] | None, dict[str, Any]]], tuple[dict[str, Any], int, bool]
+    ] = {}
     next_row = 0
     memory_wait_started: float | None = None
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="corpus-parent") as executor:
         while next_row < len(pending) or active:
             while next_row < len(pending) and len(active) < workers:
-                required = reserve_bytes + memory_bytes * (len(active) + 1)
+                row = pending[next_row]
+                source_id = row["source_id"]
+                is_retry_memory = source_id in retry_memory_sources
+                if is_retry_memory and active:
+                    break
+                if active and any(active_retry for _, _, active_retry in active.values()):
+                    break
+                row_memory_mib = retry_memory_mib if is_retry_memory else memory_mib
+                row_memory_bytes = row_memory_mib * 1024 * 1024
+                active_memory_bytes = sum(
+                    active_memory_mib * 1024 * 1024
+                    for _, active_memory_mib, _ in active.values()
+                )
+                required = (
+                    retry_physical_floor_bytes
+                    if is_retry_memory
+                    else reserve_bytes + active_memory_bytes + row_memory_bytes
+                )
                 free = available_memory_bytes()
-                if free < required:
+                commit_available = available_commit_bytes() if is_retry_memory else 0
+                memory_gate_blocked = free < required or (
+                    is_retry_memory and commit_available < retry_commit_floor_bytes
+                )
+                if memory_gate_blocked:
                     if active:
                         break
                     if memory_wait_started is None:
@@ -379,12 +418,25 @@ def process_selected_documents(
                                 "workers": workers,
                                 "availableMemoryMiB": free // (1024 * 1024),
                                 "requiredMemoryMiB": required // (1024 * 1024),
+                                "availableCommitMiB": commit_available // (1024 * 1024),
+                                "requiredCommitMiB": (
+                                    retry_commit_floor_mib if is_retry_memory else 0
+                                ),
+                                "memoryGateMode": (
+                                    "pagefile_aware_exclusive" if is_retry_memory else "physical"
+                                ),
                             },
                         )
                         print(
                             "Waiting for enough free memory to start the bounded document worker: "
                             f"{free // (1024 * 1024)} MiB available, "
-                            f"{required // (1024 * 1024)} MiB required",
+                            f"{required // (1024 * 1024)} MiB required"
+                            + (
+                                f", {commit_available // (1024 * 1024)} MiB commit available, "
+                                f"{retry_commit_floor_mib} MiB required"
+                                if is_retry_memory
+                                else ""
+                            ),
                             flush=True,
                         )
                         time.sleep(min(30.0, remaining_wait))
@@ -393,8 +445,13 @@ def process_selected_documents(
                         "Insufficient free memory to start a bounded document worker: "
                         f"{free // (1024 * 1024)} MiB available, "
                         f"{required // (1024 * 1024)} MiB required"
+                        + (
+                            f", {commit_available // (1024 * 1024)} MiB commit available, "
+                            f"{retry_commit_floor_mib} MiB required"
+                            if is_retry_memory
+                            else ""
+                        )
                     )
-                row = pending[next_row]
                 next_row += 1
                 memory_wait_started = None
                 atomic_json(
@@ -406,6 +463,10 @@ def process_selected_documents(
                         "manualReviewDocuments": manual_review_count,
                         "pendingDocuments": len(pending) - next_row,
                         "workers": workers,
+                        "documentMemoryMiB": row_memory_mib,
+                        "memoryGateMode": (
+                            "pagefile_aware_exclusive" if is_retry_memory else "physical"
+                        ),
                     },
                 )
                 future = executor.submit(
@@ -414,16 +475,20 @@ def process_selected_documents(
                     source_root=source_root,
                     output=output,
                     timeout_seconds=timeout_seconds,
-                    memory_mib=memory_mib,
+                    memory_mib=row_memory_mib,
                 )
-                active[future] = row
+                active[future] = (row, row_memory_mib, is_retry_memory)
             if not active:
                 continue
             completed, _ = wait(active, return_when=FIRST_COMPLETED)
             for future in completed:
-                row = active.pop(future)
+                row, row_memory_mib, is_retry_memory = active.pop(future)
                 source_id = row["source_id"]
                 result, record = future.result()
+                record["memoryLimitMiB"] = row_memory_mib
+                record["memoryGateMode"] = (
+                    "pagefile_aware_exclusive" if is_retry_memory else "physical"
+                )
                 checkpoint["documents"][source_id] = record
                 atomic_json(checkpoint_path, checkpoint)
                 if result is not None:
@@ -467,13 +532,35 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         excluded_source_ids.update(
             document["sourceId"] for document in excluded.get("documents", [])
         )
+    retry_source_ids: set[str] = set()
+    retry_memory_source_ids: set[str] = set()
+    for retry_summary_path in getattr(args, "retry_summary", []):
+        retry_summary = json.loads(retry_summary_path.resolve().read_text(encoding="utf-8"))
+        for item in retry_summary.get("manualReview", []):
+            source_id = item["sourceId"]
+            retry_source_ids.add(source_id)
+            if item.get("execution", {}).get("reason") == "memory_limit":
+                retry_memory_source_ids.add(source_id)
+    excluded_source_ids.update(retry_source_ids)
     manifest_rows = read_jsonl(manifest)
-    selected = select_rows(
+    primary_selected = select_rows(
         manifest_rows,
         batch_id=args.batch_id,
         document_count=args.document_count,
         excluded_source_ids=excluded_source_ids,
     )
+    manifest_by_source_id = {row["source_id"]: row for row in manifest_rows}
+    missing_retry_sources = sorted(retry_source_ids - manifest_by_source_id.keys())
+    if missing_retry_sources:
+        raise RuntimeError(
+            "Retry sources are absent from the ingestion manifest: "
+            + ", ".join(missing_retry_sources)
+        )
+    retry_rows = sorted(
+        (manifest_by_source_id[source_id] for source_id in retry_source_ids),
+        key=lambda row: row["source_id"],
+    )
+    selected = primary_selected + retry_rows
     attempted_rows = selected
     limits = {
         "timeoutSeconds": args.document_timeout_seconds,
@@ -481,6 +568,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "workers": args.workers,
         "freeMemoryReserveMiB": args.free_memory_reserve_mib,
         "memoryWaitSeconds": getattr(args, "memory_wait_seconds", 0),
+        "retryMemoryMiB": getattr(args, "retry_memory_mib", 4_096),
+        "retryPhysicalFloorMiB": getattr(args, "retry_physical_floor_mib", 3_072),
+        "retryCommitFloorMiB": getattr(args, "retry_commit_floor_mib", 5_120),
+        "retrySourceCount": len(retry_source_ids),
+        "retryMemorySourceCount": len(retry_memory_source_ids),
     }
     checkpoint_path = output / "checkpoint.json"
     checkpoint = load_checkpoint(
@@ -499,6 +591,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         checkpoint=checkpoint,
         checkpoint_path=checkpoint_path,
         memory_wait_seconds=getattr(args, "memory_wait_seconds", 0),
+        retry_memory_source_ids=retry_memory_source_ids,
+        retry_memory_mib=getattr(args, "retry_memory_mib", 4_096),
+        retry_physical_floor_mib=getattr(args, "retry_physical_floor_mib", 3_072),
+        retry_commit_floor_mib=getattr(args, "retry_commit_floor_mib", 5_120),
     )
     quarantined_rows = [row for row in selected if row["source_id"] not in results]
     selected = [row for row in selected if row["source_id"] in results]
@@ -518,7 +614,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "batch": {
             "id": args.batch_id,
             "selection": "deterministic-category-balanced-pipeline-validation",
-            "attemptedDocumentCount": args.document_count,
+            "primaryDocumentCount": len(primary_selected),
+            "retryDocumentCount": len(retry_rows),
+            "attemptedDocumentCount": len(attempted_rows),
             "quarantineCount": len(manual_review),
             "promotionReady": False,
             "promotionBlocker": "consultant-ranked sources and known-answer evaluation are pending",
@@ -536,7 +634,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     peak_memory = [int(execution["peakMemoryBytes"]) for execution in completed_executions]
     summary = {
         "batchId": args.batch_id,
-        "attemptedDocumentCount": args.document_count,
+        "primaryDocumentCount": len(primary_selected),
+        "retryDocumentCount": len(retry_rows),
+        "retryMemoryDocumentCount": len(retry_memory_source_ids),
+        "attemptedDocumentCount": len(attempted_rows),
         "documentCount": len(documents),
         "attemptedBytes": sum(int(row["size_bytes"]) for row in attempted_rows),
         "bytes": sum(int(row["size_bytes"]) for row in selected),
@@ -572,7 +673,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         output / "progress.json",
         {
             "status": "complete_with_quarantine" if manual_review else "complete",
-            "selectedDocuments": args.document_count,
+            "selectedDocuments": len(attempted_rows),
             "completedDocuments": len(documents),
             "manualReviewDocuments": len(manual_review),
             "pendingDocuments": 0,
@@ -590,6 +691,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-id", default=BATCH_ID)
     parser.add_argument("--document-count", type=int, default=100)
     parser.add_argument("--exclude-payload", type=Path, action="append", default=[])
+    parser.add_argument("--retry-summary", type=Path, action="append", default=[])
     parser.add_argument(
         "--document-timeout-seconds", type=int, default=DEFAULT_DOCUMENT_TIMEOUT_SECONDS
     )
@@ -601,6 +703,9 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_FREE_MEMORY_RESERVE_MIB,
     )
     parser.add_argument("--memory-wait-seconds", type=int, default=0)
+    parser.add_argument("--retry-memory-mib", type=int, default=4_096)
+    parser.add_argument("--retry-physical-floor-mib", type=int, default=3_072)
+    parser.add_argument("--retry-commit-floor-mib", type=int, default=5_120)
     return parser.parse_args()
 
 

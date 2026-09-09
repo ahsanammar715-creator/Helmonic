@@ -6,10 +6,14 @@ param(
     [string]$BatchId = 'corpus-pilot-100-v1',
     [int]$DocumentCount = 100,
     [string[]]$ExcludePayload = @(),
+    [string[]]$RetrySummary = @(),
     [ValidateRange(1, 2)]
     [int]$Workers = 1,
     [int]$FreeMemoryReserveMiB = 2048,
-    [int]$MemoryWaitSeconds = 0
+    [int]$MemoryWaitSeconds = 0,
+    [int]$RetryMemoryMiB = 4096,
+    [int]$RetryPhysicalFloorMiB = 3072,
+    [int]$RetryCommitFloorMiB = 5120
 )
 
 $ErrorActionPreference = 'Stop'
@@ -48,10 +52,16 @@ $arguments = @(
     '--document-count', $DocumentCount,
     '--workers', $Workers,
     '--free-memory-reserve-mib', $FreeMemoryReserveMiB,
-    '--memory-wait-seconds', $MemoryWaitSeconds
+    '--memory-wait-seconds', $MemoryWaitSeconds,
+    '--retry-memory-mib', $RetryMemoryMiB,
+    '--retry-physical-floor-mib', $RetryPhysicalFloorMiB,
+    '--retry-commit-floor-mib', $RetryCommitFloorMiB
 )
 foreach ($path in $ExcludePayload) {
     $arguments += @('--exclude-payload', $path)
+}
+foreach ($path in $RetrySummary) {
+    $arguments += @('--retry-summary', $path)
 }
 & $python @arguments
 if ($LASTEXITCODE -ne 0) { throw "Corpus pilot payload build failed with $LASTEXITCODE" }

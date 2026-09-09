@@ -1,21 +1,34 @@
 param(
     [ValidateRange(1, 1200)]
     [int]$DocumentCount = 1200,
+    [ValidateRange(0, 1217)]
+    [int]$AttemptCount = 0,
     [ValidateRange(1, 2)]
     [int]$Workers = 2,
     [ValidateRange(512, 4096)]
     [int]$FreeMemoryReserveMiB = 2048,
     [ValidateRange(0, 115200)]
-    [int]$MemoryWaitSeconds = 0
+    [int]$MemoryWaitSeconds = 0,
+    [string[]]$AdditionalExcludePayload = @(),
+    [string[]]$RetrySummary = @(),
+    [ValidateRange(2048, 4096)]
+    [int]$RetryMemoryMiB = 4096,
+    [ValidateRange(2048, 4096)]
+    [int]$RetryPhysicalFloorMiB = 3072,
+    [ValidateRange(4096, 16384)]
+    [int]$RetryCommitFloorMiB = 5120,
+    [ValidateRange(1, 32)]
+    [int]$WallClockCeilingHours = 32
 )
 
 $ErrorActionPreference = 'Stop'
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$batchId = "corpus-batch-$DocumentCount-v1"
-$output = Join-Path $repo "private-build\corpus-batch-$DocumentCount-context"
+if ($AttemptCount -eq 0) { $AttemptCount = $DocumentCount }
+$batchId = "corpus-batch-$AttemptCount-v1"
+$output = Join-Path $repo "private-build\corpus-batch-$AttemptCount-context"
 $pilotPayload = Join-Path $repo 'private-build\corpus-pilot-100-context\payload\payload.json'
-$state = Join-Path $repo "local-artifacts\corpus-batch-$DocumentCount-run-state.json"
+$state = Join-Path $repo "local-artifacts\corpus-batch-$AttemptCount-run-state.json"
 
 function Remove-AbandonedPreflightContext {
     param([Parameter(Mandatory = $true)][string]$ContextPath)
@@ -24,7 +37,7 @@ function Remove-AbandonedPreflightContext {
         return
     }
 
-    $expectedPath = [IO.Path]::GetFullPath((Join-Path $repo "private-build\corpus-batch-$DocumentCount-context"))
+    $expectedPath = [IO.Path]::GetFullPath((Join-Path $repo "private-build\corpus-batch-$AttemptCount-context"))
     $actualPath = [IO.Path]::GetFullPath($ContextPath)
     if (-not $actualPath.Equals($expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing preflight cleanup outside the exact disposable batch context: $actualPath"
@@ -89,33 +102,42 @@ Remove-AbandonedPreflightContext -ContextPath $output
 @{
     status = 'local_extraction_running'
     batchId = $batchId
-    documentCount = $DocumentCount
+    primaryDocumentCount = $DocumentCount
+    attemptCount = $AttemptCount
     startedUtc = [DateTime]::UtcNow.ToString('o')
-    wallClockCeilingHours = 32
+    wallClockCeilingHours = $WallClockCeilingHours
     workers = $Workers
     perDocumentMemoryMiB = 2048
+    retryDocumentMemoryMiB = $RetryMemoryMiB
+    retryPhysicalFloorMiB = $RetryPhysicalFloorMiB
+    retryCommitFloorMiB = $RetryCommitFloorMiB
     perDocumentTimeoutSeconds = 600
     freeMemoryReserveMiB = $FreeMemoryReserveMiB
 } | ConvertTo-Json | Set-Content -LiteralPath $state -Encoding UTF8
 
 try {
+    $excludePayloads = @($pilotPayload) + @($AdditionalExcludePayload)
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'prepare-corpus-pilot-context.ps1') `
         -SourceRoot 'S:\z_Helmonic_iAcoustics' `
         -OutputRoot $output `
         -BatchId $batchId `
         -DocumentCount $DocumentCount `
-        -ExcludePayload $pilotPayload `
+        -ExcludePayload $excludePayloads `
+        -RetrySummary $RetrySummary `
         -Workers $Workers `
         -FreeMemoryReserveMiB $FreeMemoryReserveMiB `
-        -MemoryWaitSeconds $MemoryWaitSeconds
+        -MemoryWaitSeconds $MemoryWaitSeconds `
+        -RetryMemoryMiB $RetryMemoryMiB `
+        -RetryPhysicalFloorMiB $RetryPhysicalFloorMiB `
+        -RetryCommitFloorMiB $RetryCommitFloorMiB
     if ($LASTEXITCODE -ne 0) {
-        throw "The $DocumentCount-document local extraction exited with code $LASTEXITCODE"
+        throw "The $AttemptCount-attempt local extraction exited with code $LASTEXITCODE"
     }
     $run = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
     $run | Add-Member -NotePropertyName status -NotePropertyValue 'local_extraction_complete' -Force
     $run | Add-Member -NotePropertyName completedUtc -NotePropertyValue ([DateTime]::UtcNow.ToString('o')) -Force
     $run | ConvertTo-Json | Set-Content -LiteralPath $state -Encoding UTF8
-    Write-Output "The $DocumentCount-document local extraction and two-reader gate completed."
+    Write-Output "The $AttemptCount-attempt local extraction and two-reader gate completed."
 }
 catch {
     $run = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json

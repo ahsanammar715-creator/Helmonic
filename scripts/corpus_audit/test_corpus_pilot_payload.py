@@ -329,6 +329,96 @@ class CorpusPilotHardeningTests(unittest.TestCase):
                 )
             self.assertEqual(set(results), {"src-wait-memory"})
 
+    def test_retry_memory_document_runs_exclusively_with_4_gib_cap(self):
+        with self.temporary_directory() as directory:
+            root = Path(directory)
+            (root / "originals").mkdir()
+            (root / "checkpoint-documents").mkdir()
+            active = 0
+            maximum_active_for_retry = 0
+            observed_limits = {}
+            guard = threading.Lock()
+
+            def fake_process(row, **kwargs):
+                nonlocal active, maximum_active_for_retry
+                with guard:
+                    active += 1
+                    if row["source_id"] == "src-retry":
+                        maximum_active_for_retry = max(maximum_active_for_retry, active)
+                    observed_limits[row["source_id"]] = kwargs["memory_mib"]
+                time.sleep(0.05)
+                with guard:
+                    active -= 1
+                return (
+                    {"document": {"sourceId": row["source_id"]}, "metrics": {}},
+                    {
+                        "status": "completed",
+                        "execution": {
+                            "returnCode": 0,
+                            "reason": "completed",
+                            "elapsedSeconds": 0.05,
+                            "peakMemoryBytes": 1,
+                        },
+                        "resultFile": f"{row['source_id']}.result.json",
+                    },
+                )
+
+            rows = [
+                {"source_id": "src-normal-1"},
+                {"source_id": "src-normal-2"},
+                {"source_id": "src-retry"},
+            ]
+            with (
+                patch.object(MODULE, "process_document", side_effect=fake_process),
+                patch.object(MODULE, "available_memory_bytes", return_value=16 * 1024**3),
+                patch.object(MODULE, "available_commit_bytes", return_value=16 * 1024**3),
+            ):
+                MODULE.process_selected_documents(
+                    rows,
+                    source_root=root,
+                    output=root,
+                    timeout_seconds=600,
+                    memory_mib=2048,
+                    workers=2,
+                    free_memory_reserve_mib=1024,
+                    checkpoint={"documents": {}},
+                    checkpoint_path=root / "checkpoint.json",
+                    retry_memory_source_ids={"src-retry"},
+                    retry_memory_mib=4096,
+                    retry_physical_floor_mib=3072,
+                    retry_commit_floor_mib=5120,
+                )
+            self.assertEqual(maximum_active_for_retry, 1)
+            self.assertEqual(observed_limits["src-normal-1"], 2048)
+            self.assertEqual(observed_limits["src-normal-2"], 2048)
+            self.assertEqual(observed_limits["src-retry"], 4096)
+
+    def test_retry_memory_gate_requires_physical_and_commit_floors(self):
+        with self.temporary_directory() as directory:
+            root = Path(directory)
+            (root / "originals").mkdir()
+            (root / "checkpoint-documents").mkdir()
+            with (
+                patch.object(MODULE, "available_memory_bytes", return_value=4 * 1024**3),
+                patch.object(MODULE, "available_commit_bytes", return_value=4 * 1024**3),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "commit available"):
+                    MODULE.process_selected_documents(
+                        [{"source_id": "src-retry"}],
+                        source_root=root,
+                        output=root,
+                        timeout_seconds=600,
+                        memory_mib=2048,
+                        workers=1,
+                        free_memory_reserve_mib=1024,
+                        checkpoint={"documents": {}},
+                        checkpoint_path=root / "checkpoint.json",
+                        retry_memory_source_ids={"src-retry"},
+                        retry_memory_mib=4096,
+                        retry_physical_floor_mib=3072,
+                        retry_commit_floor_mib=5120,
+                    )
+
     def test_quarantined_document_is_reported_without_backfill(self):
         with self.temporary_directory() as directory:
             root = Path(directory)
