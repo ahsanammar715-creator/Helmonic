@@ -1,0 +1,14 @@
+FROM node:22.22.2-bookworm-slim
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
+
+COPY --chown=node:node scripts/managed-identity.mjs ./scripts/managed-identity.mjs
+COPY --chown=node:node scripts/evaluation/candidate-ranking-diagnostic-contract.mjs ./scripts/evaluation/candidate-ranking-diagnostic-contract.mjs
+COPY --chown=node:node scripts/evaluation/diagnose-candidate-ranking.mjs ./scripts/evaluation/diagnose-candidate-ranking.mjs
+
+USER node
+CMD ["node", "scripts/evaluation/diagnose-candidate-ranking.mjs"]
