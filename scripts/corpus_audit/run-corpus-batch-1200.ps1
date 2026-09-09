@@ -117,22 +117,21 @@ Remove-AbandonedPreflightContext -ContextPath $output
 
 try {
     $excludePayloads = @($pilotPayload) + @($AdditionalExcludePayload)
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'prepare-corpus-pilot-context.ps1') `
-        -SourceRoot 'S:\z_Helmonic_iAcoustics' `
-        -OutputRoot $output `
-        -BatchId $batchId `
-        -DocumentCount $DocumentCount `
-        -ExcludePayload $excludePayloads `
-        -RetrySummary $RetrySummary `
-        -Workers $Workers `
-        -FreeMemoryReserveMiB $FreeMemoryReserveMiB `
-        -MemoryWaitSeconds $MemoryWaitSeconds `
-        -RetryMemoryMiB $RetryMemoryMiB `
-        -RetryPhysicalFloorMiB $RetryPhysicalFloorMiB `
-        -RetryCommitFloorMiB $RetryCommitFloorMiB
-    if ($LASTEXITCODE -ne 0) {
-        throw "The $AttemptCount-attempt local extraction exited with code $LASTEXITCODE"
+    $prepareParameters = @{
+        SourceRoot = 'S:\z_Helmonic_iAcoustics'
+        OutputRoot = $output
+        BatchId = $batchId
+        DocumentCount = $DocumentCount
+        ExcludePayload = $excludePayloads
+        RetrySummary = @($RetrySummary)
+        Workers = $Workers
+        FreeMemoryReserveMiB = $FreeMemoryReserveMiB
+        MemoryWaitSeconds = $MemoryWaitSeconds
+        RetryMemoryMiB = $RetryMemoryMiB
+        RetryPhysicalFloorMiB = $RetryPhysicalFloorMiB
+        RetryCommitFloorMiB = $RetryCommitFloorMiB
     }
+    & (Join-Path $PSScriptRoot 'prepare-corpus-pilot-context.ps1') @prepareParameters
     $run = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
     $run | Add-Member -NotePropertyName status -NotePropertyValue 'local_extraction_complete' -Force
     $run | Add-Member -NotePropertyName completedUtc -NotePropertyValue ([DateTime]::UtcNow.ToString('o')) -Force
