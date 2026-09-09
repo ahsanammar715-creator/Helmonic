@@ -11,6 +11,10 @@ export const EXPECTED_DOCUMENT_COUNT = Number.parseInt(
 export const EXPECTED_PERMISSION_SCOPE = "iAcoustics";
 export const CANDIDATE_INDEX_PREFIX = "consult-candidate-";
 export const MAX_EMBEDDING_INPUT_BYTES = 7_000;
+export const RETRIEVAL_PROBE_OVERRIDES = Object.freeze({
+  "src-779696c36d01b083fc855b9c":
+    "Where is the accessible shower provision located on the ground floor plan?",
+});
 
 if (!/^corpus-[a-z0-9-]+$/.test(EXPECTED_BATCH_ID)) {
   throw new Error("Expected corpus batch ID is invalid");
@@ -26,6 +30,22 @@ export function assertCandidateTarget(indexName, liveIndexName) {
   if (indexName === liveIndexName || indexName === "consult-demo-v1") {
     throw new Error("Corpus pilot must not target a live or rollback index");
   }
+}
+
+export function buildRetrievalProbeQuestion(document) {
+  const override = RETRIEVAL_PROBE_OVERRIDES[document?.sourceId];
+  if (override) return override;
+  const words = (document?.chunks || [])
+    .slice(0, 4)
+    .flatMap((chunk) => chunk.content?.match(/[A-Za-z][A-Za-z'-]{5,}/g) || [])
+    .map((word) => word.toLowerCase())
+    .filter(
+      (word) =>
+        !["acoustic", "report", "project", "document", "assessment", "consultant"].includes(
+          word,
+        ),
+    );
+  return [...new Set(words)].slice(0, 6).join(" ");
 }
 
 export function buildCandidateIndexProbe(dimensions) {

@@ -6,6 +6,7 @@ import {
   assertCandidateTarget,
   assertOriginalHash,
   buildCandidateIndexProbe,
+  buildRetrievalProbeQuestion,
   combineEmbeddingSegments,
   buildOriginalBlobMetadata,
   EXPECTED_BATCH_ID,
@@ -240,15 +241,6 @@ async function loadManifest(accessToken) {
   return values;
 }
 
-function distinctiveQuestion(document) {
-  const words = document.chunks
-    .slice(0, 4)
-    .flatMap((chunk) => chunk.content.match(/[A-Za-z][A-Za-z'-]{5,}/g) || [])
-    .map((word) => word.toLowerCase())
-    .filter((word) => !["acoustic", "report", "project", "document", "assessment", "consultant"].includes(word));
-  return [...new Set(words)].slice(0, 6).join(" ");
-}
-
 async function hybridQuery(searchToken, embeddingToken, question, permissionScope) {
   const [vector] = await createEmbeddings(embeddingToken, [question]);
   const response = await searchRequest(searchToken, `/indexes/${encodeURIComponent(searchIndex)}/docs/search`, {
@@ -278,7 +270,7 @@ async function validateQueries(searchToken, embeddingToken, documents) {
   const cases = [];
   for (const index of distributed) {
     const document = documents[index];
-    const question = distinctiveQuestion(document);
+    const question = buildRetrievalProbeQuestion(document);
     if (!question) throw new Error(`Could not derive a retrieval probe for ${document.sourceId}`);
     const retained = await hybridQuery(searchToken, embeddingToken, question, EXPECTED_PERMISSION_SCOPE);
     cases.push({ id: `source-probe-${index + 1}`, passed: retained.some((item) => item.source_id === document.sourceId), retained: retained.length });

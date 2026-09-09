@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   assertCandidateTarget,
   buildCandidateIndexProbe,
+  buildRetrievalProbeQuestion,
   buildOriginalBlobMetadata,
   combineEmbeddingSegments,
   isSafeExistingBlobResponse,
@@ -62,6 +63,23 @@ test("candidate schema probe uses only document-data operations", () => {
   assert.equal(probe.vectorQueries[0].fields, "content_vector");
   assert.equal(probe.vectorQueries[0].vector.length, 1536);
   assert.throws(() => buildCandidateIndexProbe(0), /positive integer/);
+});
+
+test("known drawing probe uses the validated realistic question", () => {
+  assert.equal(
+    buildRetrievalProbeQuestion({
+      sourceId: "src-779696c36d01b083fc855b9c",
+      chunks: [{ content: "legend shower provision location entrance rating" }],
+    }),
+    "Where is the accessible shower provision located on the ground floor plan?",
+  );
+  assert.equal(
+    buildRetrievalProbeQuestion({
+      sourceId: "src-other",
+      chunks: [{ content: "Distinctive building envelope performance values" }],
+    }),
+    "distinctive building envelope performance values",
+  );
 });
 
 test("original Blob metadata uses Azure-safe names", () => {
