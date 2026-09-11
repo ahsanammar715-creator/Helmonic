@@ -285,6 +285,7 @@ def process_document(
     output: Path,
     timeout_seconds: int,
     memory_mib: int,
+    extraction_mode: str = "full",
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     work = output / "checkpoint-documents"
     source_id = row["source_id"]
@@ -297,6 +298,7 @@ def process_document(
         "sourceRoot": str(source_root),
         "originals": str(output / "originals"),
         "resultPath": str(result_path),
+        "extractionMode": extraction_mode,
     }
     atomic_json(request_path, request)
     worker = Path(__file__).with_name("corpus_document_worker.py")
@@ -308,7 +310,12 @@ def process_document(
         stderr_path=stderr_path,
     )
     status = "completed" if execution["returnCode"] == 0 and result_path.exists() else "manual_review"
-    record = {"status": status, "execution": execution, "resultFile": result_path.name}
+    record = {
+        "status": status,
+        "execution": execution,
+        "resultFile": result_path.name,
+        "extractionMode": extraction_mode,
+    }
     if status != "completed":
         error = stderr_path.read_text(encoding="utf-8", errors="replace")[-2_000:]
         record["error"] = error or execution["reason"]

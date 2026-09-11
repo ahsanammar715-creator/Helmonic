@@ -16,6 +16,9 @@ from typing import Any
 MAX_CHARS = 4_500
 OVERLAP_CHARS = 300
 CORRUPTION_WARNING = "Data-loss while decompressing corrupted data"
+FULL_EXTRACTION = "full"
+BOUNDED_TEXT_TABLE_EXTRACTION = "bounded_text_tables"
+EXTRACTION_MODES = {FULL_EXTRACTION, BOUNDED_TEXT_TABLE_EXTRACTION}
 
 
 class WarningCapture(logging.Handler):
@@ -119,9 +122,16 @@ def integrity_decision(
     }
 
 
-def extract_with_two_readers(staged: Path, row: dict[str, Any]) -> tuple[dict[str, Any], dict[str, int]]:
+def extract_with_two_readers(
+    staged: Path,
+    row: dict[str, Any],
+    extraction_mode: str = FULL_EXTRACTION,
+) -> tuple[dict[str, Any], dict[str, int]]:
     import pdfplumber
     from pypdf import PdfReader
+
+    if extraction_mode not in EXTRACTION_MODES:
+        raise RuntimeError(f"Unsupported extraction mode: {extraction_mode}")
 
     pdfminer_capture = WarningCapture()
     pypdf_capture = WarningCapture()
@@ -137,39 +147,62 @@ def extract_with_two_readers(staged: Path, row: dict[str, Any]) -> tuple[dict[st
             if len(pdf.pages) != int(row["page_count"]):
                 raise RuntimeError(f"Page-count drift for {row['source_id']}")
             for page_number, page in enumerate(pdf.pages, start=1):
-                page_text = page.extract_text() or ""
-                pdfminer_lengths.append(len(page_text.strip()))
-                for ordinal, content in enumerate(split_text(page_text), start=1):
-                    chunk_id = f"{row['source_id']}-p{page_number:04d}-c{ordinal:03d}"
-                    chunks.append(
-                        {
-                            "chunkId": chunk_id,
-                            "section": f"Page {page_number}",
-                            "pageNumber": page_number,
-                            "content": content,
-                            "contentHash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-                            "kind": "text",
-                            "contentFormat": "plain_text",
-                            "atomic": False,
+                try:
+                    page_text = page.extract_text() or ""
+                    pdfminer_lengths.append(len(page_text.strip()))
+                    for ordinal, content in enumerate(split_text(page_text), start=1):
+                        chunk_id = f"{row['source_id']}-p{page_number:04d}-c{ordinal:03d}"
+                        chunks.append(
+                            {
+                                "chunkId": chunk_id,
+                                "section": f"Page {page_number}",
+                                "pageNumber": page_number,
+                                "content": content,
+                                "contentHash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                                "kind": "text",
+                                "contentFormat": "plain_text",
+                                "atomic": False,
+                            }
+                        )
+                    table_settings = None
+                    if extraction_mode == BOUNDED_TEXT_TABLE_EXTRACTION:
+                        # Vector-heavy CAD drawings can make line-intersection table
+                        # detection consume several GiB. Text strategies preserve the
+                        # page text and still attempt structured table recovery without
+                        # constructing the unbounded vector-line graph.
+                        table_settings = {
+                            "vertical_strategy": "text",
+                            "horizontal_strategy": "text",
+                            "min_words_vertical": 3,
+                            "min_words_horizontal": 1,
                         }
-                    )
-                tables = [table for table in (page.extract_tables() or []) if useful_table(table)]
-                for ordinal, table in enumerate(tables, start=1):
-                    content = table_markdown(table, ordinal)
-                    chunk_id = f"{row['source_id']}-p{page_number:04d}-t{ordinal:03d}"
-                    chunks.append(
-                        {
-                            "chunkId": chunk_id,
-                            "section": f"Page {page_number} table {ordinal}",
-                            "pageNumber": page_number,
-                            "content": content,
-                            "contentHash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-                            "kind": "table",
-                            "contentFormat": "markdown",
-                            "atomic": True,
-                        }
-                    )
-                    table_pages.add(page_number)
+                    tables = [
+                        table
+                        for table in (page.extract_tables(table_settings) or [])
+                        if useful_table(table)
+                    ]
+                    for ordinal, table in enumerate(tables, start=1):
+                        content = table_markdown(table, ordinal)
+                        chunk_id = f"{row['source_id']}-p{page_number:04d}-t{ordinal:03d}"
+                        chunks.append(
+                            {
+                                "chunkId": chunk_id,
+                                "section": f"Page {page_number} table {ordinal}",
+                                "pageNumber": page_number,
+                                "content": content,
+                                "contentHash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                                "kind": "table",
+                                "contentFormat": "markdown",
+                                "atomic": True,
+                            }
+                        )
+                        table_pages.add(page_number)
+                finally:
+                    if extraction_mode == BOUNDED_TEXT_TABLE_EXTRACTION:
+                        flush = getattr(page, "flush_cache", None)
+                        if callable(flush):
+                            flush()
+                        gc.collect()
 
         pypdf_original_failures: list[str] = []
         try:
@@ -193,6 +226,12 @@ def extract_with_two_readers(staged: Path, row: dict[str, Any]) -> tuple[dict[st
     )
     integrity["pypdfWarnings"] = pypdf_capture.messages
     integrity["pypdfOriginalFailures"] = pypdf_original_failures
+    integrity["extractionMode"] = extraction_mode
+    if extraction_mode == BOUNDED_TEXT_TABLE_EXTRACTION:
+        integrity["boundedRecoveryApplied"] = True
+        if integrity["outcome"] == "verified":
+            integrity["outcome"] = "repair_verified"
+        integrity["recoveryApplied"] = True
     if integrity["outcome"] == "quarantine":
         raise RuntimeError(f"Two-reader integrity check requires quarantine for {row['source_id']}")
     if not chunks:
@@ -250,7 +289,11 @@ def process(request_path: Path) -> dict[str, Any]:
         partial.unlink(missing_ok=True)
 
     try:
-        document, metrics = extract_with_two_readers(staged, row)
+        document, metrics = extract_with_two_readers(
+            staged,
+            row,
+            request.get("extractionMode", FULL_EXTRACTION),
+        )
         if document["sourceHash"] != source_hash:
             raise RuntimeError(f"Staged source changed during extraction for {row['source_id']}")
         result = {"document": document, "metrics": metrics}
