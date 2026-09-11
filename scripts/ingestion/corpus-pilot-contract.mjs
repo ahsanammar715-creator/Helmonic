@@ -16,6 +16,20 @@ export const RETRIEVAL_PROBE_OVERRIDES = Object.freeze({
     "Where is the accessible shower provision located on the ground floor plan?",
 });
 
+const DRAWING_METADATA_LABELS = Object.freeze([
+  "Project Title",
+  "Site Address",
+  "Site Addres",
+  "Drawing Title",
+  "Drawing Number",
+  "Revision",
+  "Status",
+  "Scale",
+  "Sheet Size",
+  "Drawn By",
+  "Date and Time",
+]);
+
 if (!/^corpus-[a-z0-9-]+$/.test(EXPECTED_BATCH_ID)) {
   throw new Error("Expected corpus batch ID is invalid");
 }
@@ -35,6 +49,8 @@ export function assertCandidateTarget(indexName, liveIndexName) {
 export function buildRetrievalProbeQuestion(document) {
   const override = RETRIEVAL_PROBE_OVERRIDES[document?.sourceId];
   if (override) return override;
+  const drawingQuestion = buildDrawingRetrievalProbeQuestion(document);
+  if (drawingQuestion) return drawingQuestion;
   const words = (document?.chunks || [])
     .slice(0, 4)
     .flatMap((chunk) => chunk.content?.match(/[A-Za-z][A-Za-z'-]{5,}/g) || [])
@@ -46,6 +62,47 @@ export function buildRetrievalProbeQuestion(document) {
         ),
     );
   return [...new Set(words)].slice(0, 6).join(" ");
+}
+
+function buildDrawingRetrievalProbeQuestion(document) {
+  const content = (document?.chunks || [])
+    .slice(0, 8)
+    .map((chunk) => chunk.content || "")
+    .join("\n");
+  const drawingTitle = extractDrawingMetadataValue(content, "Drawing Title");
+  if (!drawingTitle) return null;
+  const projectTitle = extractDrawingMetadataValue(content, "Project Title");
+  return projectTitle
+    ? `Where can I find the ${drawingTitle} drawing for ${projectTitle}?`
+    : `Where can I find the ${drawingTitle} drawing?`;
+}
+
+function extractDrawingMetadataValue(content, label) {
+  if (!content) return null;
+  const escapedLabel = escapeRegularExpression(label);
+  const tableRow = content.match(new RegExp(`\\|\\s*${escapedLabel}\\s*:\\s*([^|\\r\\n]+)`, "i"));
+  if (tableRow?.[1]) return normalizeDrawingMetadataValue(tableRow[1]);
+
+  const labels = DRAWING_METADATA_LABELS.map(escapeRegularExpression).join("|");
+  const plainText = content.match(
+    new RegExp(
+      `(?:^|\\r?\\n)\\s*${escapedLabel}\\s*:\\s*([^\\r\\n]*(?:\\r?\\n(?!\\s*(?:${labels})\\s*:)[^\\r\\n]*){0,2})`,
+      "i",
+    ),
+  );
+  return plainText?.[1] ? normalizeDrawingMetadataValue(plainText[1]) : null;
+}
+
+function normalizeDrawingMetadataValue(value) {
+  const normalized = value
+    .replace(/^\|+|\|+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized || null;
+}
+
+function escapeRegularExpression(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function buildCandidateIndexProbe(dimensions) {

@@ -65,13 +65,43 @@ test("candidate schema probe uses only document-data operations", () => {
   assert.throws(() => buildCandidateIndexProbe(0), /positive integer/);
 });
 
-test("known drawing probe uses the validated realistic question", () => {
+test("drawing probes use validated overrides or structured drawing metadata", () => {
   assert.equal(
     buildRetrievalProbeQuestion({
       sourceId: "src-779696c36d01b083fc855b9c",
       chunks: [{ content: "legend shower provision location entrance rating" }],
     }),
     "Where is the accessible shower provision located on the ground floor plan?",
+  );
+  assert.equal(
+    buildRetrievalProbeQuestion({
+      sourceId: "src-008d7b77069971cd95cd1405",
+      chunks: [
+        {
+          content: [
+            "living laundry corridor parcel accessible cleaner's",
+            "Project Title: Goatstown PBSA",
+            "Site Addres: Goatstown, Dublin 14, Ireland",
+            "Drawing Title: Room Acoustic",
+            "Performance Targets - L00",
+            "Drawing Number: GSA-ZZ-ZZ-L00-DR-IAC-SD-2200",
+          ].join("\n"),
+        },
+      ],
+    }),
+    "Where can I find the Room Acoustic Performance Targets - L00 drawing for Goatstown PBSA?",
+  );
+  assert.equal(
+    buildRetrievalProbeQuestion({
+      sourceId: "src-generic-drawing",
+      chunks: [
+        {
+          content:
+            "| Project Title: Riverside Hotel | |\n| Drawing Title: L02 Floor Plan | |\n| Drawing Number: RH-L02-100 | |",
+        },
+      ],
+    }),
+    "Where can I find the L02 Floor Plan drawing for Riverside Hotel?",
   );
   assert.equal(
     buildRetrievalProbeQuestion({
