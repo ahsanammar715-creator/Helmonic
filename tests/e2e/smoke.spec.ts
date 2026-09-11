@@ -30,6 +30,81 @@ test.describe("route smoke test", () => {
   }
 });
 
+test.describe("Phase 1A runtime safeguards", () => {
+  test("health is process-only while readiness fails closed without Azure configuration", async ({ request }) => {
+    const response = await request.get("/healthz");
+    expect(response.status()).toBe(200);
+    const health = await response.json();
+    expect(health).toMatchObject({
+      status: "healthy",
+      service: "helmonic-consult",
+    });
+    expect(health.runtime).toHaveProperty("userId");
+    expect(health.runtime).toHaveProperty("nonRoot");
+    expect([null, true]).toContain(health.runtime.nonRoot);
+
+    const readiness = await request.get("/readyz");
+    expect(readiness.status()).toBe(503);
+    await expect(readiness.json()).resolves.toMatchObject({ status: "not-ready" });
+  });
+
+  test("Consult is inert and explicit when HELMONIC_RUNTIME is unset", async ({ page }) => {
+    await page.goto("/consult");
+    const composer = page.getByPlaceholder("Ask Helmonic about the 16 source documents…");
+    await composer.fill("What do the permitted sources say?");
+    await composer.press("Enter");
+
+    await expect(page.getByText("Runtime not configured")).toBeVisible();
+    await expect(
+      page.getByText("The Azure Consult runtime is not configured in this deployment."),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Sources from the 16-document knowledge set will appear here after a successful query.",
+      ),
+    ).toBeVisible();
+  });
+
+  test("Consult API short-circuits without attempting Azure", async ({ request }) => {
+    const response = await request.post("/api/consult/query", {
+      data: { question: "What do the permitted sources say?" },
+    });
+    expect(response.status()).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      answer: null,
+      citations: [],
+      mode: "not-configured",
+      documentAnswer: {
+        status: "not-configured",
+        citations: [],
+      },
+    });
+  });
+
+  test("Phase 1B persistence and upload APIs fail closed when disabled", async ({ request }) => {
+    const [folders, conversations, upload] = await Promise.all([
+      request.post("/api/consult/folders", { data: { name: "Project" } }),
+      request.post("/api/consult/conversations", {
+        data: { title: "Project review" },
+      }),
+      request.post(
+        "/api/consult/conversations/6f920bd0-3ba1-4f07-9510-1b7198367b62/documents",
+        {
+          headers: {
+            "Content-Type": "application/pdf",
+            "x-helmonic-file-name": "test.pdf",
+          },
+          data: Buffer.from("%PDF-test"),
+        },
+      ),
+    ]);
+
+    expect(folders.status()).toBe(503);
+    expect(conversations.status()).toBe(503);
+    expect(upload.status()).toBe(503);
+  });
+});
+
 test.describe("key interactive flows", () => {
   test("landing: prompt bar opens the workspace chooser and routes to Consult", async ({ page }) => {
     await page.goto("/");

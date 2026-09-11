@@ -1,21 +1,27 @@
 # Helmonic
 
+> **Active Consult engineering reference:** the current Azure architecture, security
+> model, deployment status, decision log, Phase 1B roadmap, and cost controls are
+> maintained in [`docs/phase1b-consult-design.md`](docs/phase1b-consult-design.md).
+> The UI-baseline description below predates the Phase 1A Azure runtime and must not be
+> used as the current deployment status.
+
 [![CI](https://github.com/ahsanammar715-creator/Helmonic/actions/workflows/ci.yml/badge.svg)](https://github.com/ahsanammar715-creator/Helmonic/actions/workflows/ci.yml)
 
-This repository contains the **approved Helmonic frontend / UI implementation** — a
-Next.js application implementing the Helmonic v4 product design (landing page, Consult,
-Build, Logistics, and Growth workspaces). It runs entirely on **local/mock application
-state**: there is no backend, database, or live API behind it yet.
+This repository contains the approved Helmonic Next.js application: the landing page,
+Consult, Build, Logistics, and Growth workspaces, plus the Phase 1A Azure-backed Consult
+runtime.
 
-**Not implemented in this repository (future engineering phases):**
+Consult now has a real same-origin server API, managed-identity Azure access, private
+Blob/Search/PostgreSQL/Key Vault paths, retrieval from the controlled
+`consult-demo-v1` index, and server-authoritative document/page citations. When no
+approved model deployment is configured, it fails safely to retrieval-only mode.
 
-- Production backend
-- PostgreSQL / persistent storage
-- Vector database / RAG
-- Authentication
-- Live third-party APIs (maps, travel, research, etc.)
-- Cloud infrastructure / deployment
-- WordPress integration
+Build, Logistics, Growth, and the older Consult project/report demonstrations continue
+to use illustrative local/mock state. Phase 1B database/API contracts, real PDF upload
+streaming, queue dispatch, session-index retrieval, and the separately rendered general
+context contract now exist locally behind disabled feature flags. Their Azure schema,
+container/index, worker, and live activation have not been applied or approved.
 
 ## Stack
 
@@ -24,6 +30,8 @@ state**: there is no backend, database, or live API behind it yet.
 - [Tailwind CSS v4](https://tailwindcss.com/)
 - [lucide-react](https://lucide.dev/) for icons
 - [Playwright](https://playwright.dev/) for end-to-end tests
+- [Azure Identity](https://www.npmjs.com/package/@azure/identity) for managed-identity tokens
+- [node-postgres](https://node-postgres.com/) for PostgreSQL readiness and future persistence
 
 ## Implemented UI
 
@@ -44,8 +52,9 @@ state**: there is no backend, database, or live API behind it yet.
   ranks fit, and separates tender facts/evidence from Helmonic analysis in a right-side
   panel; "Send to Consult" hands a selected opportunity to Consult's new-project flow)
 - Responsive/mobile behaviour (sidebar collapses to a bottom tab bar, side panels hide)
-- All flows above are interactive, driven by local React state and mock data — nothing
-  is persisted or sent to a server
+- The original product-demonstration flows remain interactive and mock-driven. The main
+  `/consult` route is the exception: it calls the real same-origin Phase 1A API when
+  `HELMONIC_RUNTIME=azure`.
 
 ## Requirements
 
@@ -96,9 +105,9 @@ Generation research, and mobile layout).
 
 ## Environment variables
 
-None required. This is currently a frontend-only application with no backend calls, so
-there is no `.env.example` in this repository — one will be added when a real backend
-or external API is wired up.
+Local UI-only development requires no Azure configuration. The Azure-backed Consult
+runtime uses the non-secret configuration names documented in [`.env.example`](.env.example).
+Azure credentials, keys, passwords, and connection strings must not be committed.
 
 ## Repository structure
 
@@ -117,30 +126,49 @@ tests/e2e/                   Playwright end-to-end tests
 playwright.config.ts         Playwright configuration
 ```
 
-## Mock data
+## Mock and live data boundaries
 
-All content shown in the app — project details, chat transcripts, BOM line items,
-logistics scenarios, lead-generation companies, etc. — lives in
-[`src/lib/data.ts`](src/lib/data.ts). Components read from this file and from local
-React `useState`; nothing is fetched from a network API. Panel open/closed preferences
-(Sources, Drafts, Travel Plan) are persisted to `sessionStorage` only, via
+Illustrative project details, transcripts, BOM items, logistics scenarios, lead data,
+and tender/planning demonstrations live in [`src/lib/data.ts`](src/lib/data.ts) and
+local React state. Panel preferences use `sessionStorage` through
 [`src/lib/useSessionBoolean.ts`](src/lib/useSessionBoolean.ts).
+
+The primary `/consult` route instead calls `/api/consult/query`. The server queries the
+permitted Azure AI Search index and returns shaped citation objects. Controlled source
+PDFs and extracted payloads are never committed to this repository.
 
 ## Current limitations
 
-- No backend, database, or authentication — everything resets on page reload except
-  the `sessionStorage`-backed panel toggles
-- No automated unit-test suite (component-level tests), only end-to-end coverage
-- Lead Generation, Logistics, and Marketing data is illustrative/mock, not real research
-- Costs, scores, and company data are placeholder values for demonstrating the UI
+- Conversation/folder persistence and real PDF upload are locally implemented behind
+  disabled feature flags; their database migration and Azure dependencies are not live.
+- The web-side upload path stores metadata, streams PDF bytes to the isolated session
+  container, and queues ingestion, but the page-extraction/indexing worker is not yet
+  implemented or deployed, so this is not an end-to-end live upload feature yet.
+- No approved language-model deployment is active; live Consult is retrieval-only.
+- General context has a separate API/UI/citation contract but deliberately remains
+  unavailable until a curated reference index and approved model exist.
+- The active Azure revision now runs non-root on port 8080. The historical root/port-80
+  revision remains active at 0% solely for rollback and must be deactivated when that
+  rollback window closes.
+- The controlled ingestion script now validates and reproduces the approved
+  sixteen-document corpus from an operator-supplied payload.
+- No automated unit-test suite exists yet; current automated coverage is Playwright E2E.
+- Lead Generation, Logistics, Marketing, Build, and legacy Consult-project data remains
+  illustrative/mock rather than live research or transactional data.
 
 ## Next engineering phase
 
-This repository is the frontend/UI layer only. Planned future phases (not started):
+Phase 1B implementation now includes the runtime-hardening prerequisite and its first
+fail-closed local application contracts. The remaining delivery work includes:
 
-- Backend API
-- Database (PostgreSQL)
-- Vector search / RAG
-- Authentication
-- External integrations (maps, travel pricing, research data)
-- Deployment / cloud infrastructure
+- activating persistent Consult conversations and nested sidebar folders after migration;
+- completing the PDF extraction/indexing worker and attachment lifecycle UI;
+- asynchronous, page-preserving ingestion into a separate session Search index;
+- explicit promotion from temporary attachments to controlled sources;
+- Azure Speech input behind a disabled feature flag until separate resource/cost approval;
+- a Model Gateway and strictly separate, properly cited general-context section;
+- a controlled Azure rollout of the locally implemented non-root port-8080 runtime
+  before live upload exposure.
+
+See the [living reference](docs/phase1b-consult-design.md) for the authoritative plan,
+security model, resource inventory, decisions, current status, and cost gates.
