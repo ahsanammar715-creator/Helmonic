@@ -1,5 +1,7 @@
 import "server-only";
 
+import { actorMayReadRestrictedEmailEvidence } from "@/lib/consult/email-evidence-policy";
+import { buildRestrictedEmailSearchRequest } from "@/lib/consult/email-search-policy";
 import type { ConsultCitation } from "@/lib/consult/types";
 import {
   buildControlledEvidenceExcerpt,
@@ -7,8 +9,12 @@ import {
   buildControlledSearchRequest,
   retainRelevantHybridDocuments,
 } from "@/lib/consult/search-policy";
-import { getAzureAccessToken } from "@/lib/server/azure-credential";
+import {
+  getAzureAccessToken,
+  getAzureAccessTokenForClient,
+} from "@/lib/server/azure-credential";
 import type { RuntimeConfig } from "@/lib/server/config";
+import type { AuthenticatedActor } from "@/lib/server/identity";
 
 type SearchDocument = {
   "@search.score"?: number;
@@ -191,6 +197,76 @@ export async function searchSessionEvidence(
           : undefined,
       sourceType: "attachment",
       marker: `A${index + 1}`,
+    }));
+}
+
+type EmailSearchDocument = {
+  "@search.score"?: number;
+  chunk_id?: string;
+  message_id?: string;
+  evidence_ref?: string;
+  subject?: string;
+  body_text?: string;
+  mailbox_owner?: string;
+  source_uri?: string;
+};
+
+export async function searchRestrictedEmailEvidence(
+  question: string,
+  actor: AuthenticatedActor,
+  requestId: string,
+  config: RuntimeConfig,
+) {
+  if (!actorMayReadRestrictedEmailEvidence(actor, config)) {
+    throw new Error("restricted-email-evidence-forbidden");
+  }
+
+  const { endpoint, indexName, managedIdentityClientId } = config.emailEvidence;
+  if (!endpoint || !indexName || !managedIdentityClientId) {
+    throw new Error("restricted-email-evidence-not-configured");
+  }
+
+  const token = await getAzureAccessTokenForClient(
+    "https://search.azure.com/.default",
+    managedIdentityClientId,
+  );
+  const response = await fetch(
+    `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(
+      config.search.apiVersion,
+    )}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "x-ms-client-request-id": requestId,
+      },
+      body: JSON.stringify(buildRestrictedEmailSearchRequest(question, config.search.top)),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Restricted email evidence query failed with status ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { value?: EmailSearchDocument[] };
+  return (payload.value ?? [])
+    .filter((document) => document.body_text && document.message_id)
+    .map<ConsultCitation>((document, index) => ({
+      id: document.chunk_id ?? `email-citation-${index + 1}`,
+      title: document.subject || `Restricted email evidence ${index + 1}`,
+      sourceId: document.evidence_ref ?? document.message_id ?? `email-${index + 1}`,
+      section: document.mailbox_owner || undefined,
+      excerpt: buildControlledEvidenceExcerpt(document.body_text ?? ""),
+      sourceUri: document.source_uri || undefined,
+      score:
+        typeof document["@search.score"] === "number"
+          ? document["@search.score"]
+          : undefined,
+      sourceType: "email",
+      marker: `E${index + 1}`,
     }));
 }
 

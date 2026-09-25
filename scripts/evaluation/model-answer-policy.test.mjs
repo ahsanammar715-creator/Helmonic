@@ -81,3 +81,25 @@ test("document-only mode still rejects general markers", () => {
   assert.equal(result.valid, false);
   assert.match(result.errors.join(" "), /general-knowledge marker/);
 });
+
+test("restricted email markers are accepted only when supplied as evidence", () => {
+  const emailCitation = {
+    id: "email-1",
+    title: "Restricted email",
+    sourceId: "[E:glen:1234]",
+    excerpt: "A traceable relationship statement.",
+    marker: "E1",
+  };
+  const accepted = validateDocumentAnswerCitations(
+    "The relationship is supported by the authorised correspondence. [E1]",
+    [emailCitation],
+  );
+  const rejected = validateDocumentAnswerCitations(
+    "The relationship is supported by an email that was not retrieved. [E1]",
+    citations,
+  );
+
+  assert.equal(accepted.valid, true);
+  assert.equal(rejected.valid, false);
+  assert.match(rejected.errors.join(" "), /unsupported markers/);
+});

@@ -7,8 +7,8 @@ export type ConsultCitation = {
   excerpt: string;
   sourceUri?: string;
   score?: number;
-  sourceType?: "controlled" | "attachment";
-  marker?: `D${number}` | `A${number}`;
+  sourceType?: "controlled" | "attachment" | "email";
+  marker?: `D${number}` | `A${number}` | `E${number}`;
 };
 
 export type ConsultAnswerMode =

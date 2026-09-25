@@ -5,6 +5,10 @@ import type {
   ConsultQueryResponse,
 } from "@/lib/consult/types";
 import {
+  actorMayReadRestrictedEmailEvidence,
+  emailEvidenceConfigurationErrors,
+} from "@/lib/consult/email-evidence-policy";
+import {
   getQueryConfigurationErrors,
   getRuntimeConfig,
 } from "@/lib/server/config";
@@ -71,6 +75,10 @@ export async function POST(request: Request) {
     typeof body === "object" && body !== null && "includeGeneralContext" in body
       ? (body as { includeGeneralContext?: unknown }).includeGeneralContext === true
       : false;
+  const includeEmailEvidence =
+    typeof body === "object" && body !== null && "includeEmailEvidence" in body
+      ? (body as { includeEmailEvidence?: unknown }).includeEmailEvidence === true
+      : false;
   const conversationId =
     typeof body === "object" && body !== null && "conversationId" in body
       ? (body as { conversationId?: unknown }).conversationId
@@ -113,12 +121,29 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { searchConsultEvidence, searchSessionEvidence } = await import("@/lib/server/search");
-    const actor = conversationId ? getAuthenticatedActor(request) : null;
-    if (conversationId && !actor) {
-      return errorResponse("Sign in to query conversation attachments.", requestId, 401);
+    const {
+      searchConsultEvidence,
+      searchSessionEvidence,
+      searchRestrictedEmailEvidence,
+    } = await import("@/lib/server/search");
+    const actor = conversationId || includeEmailEvidence ? getAuthenticatedActor(request) : null;
+    if ((conversationId || includeEmailEvidence) && !actor) {
+      return errorResponse("Sign in to query uploaded or restricted evidence.", requestId, 401);
     }
-    const [controlledCitations, attachmentCitations] = await Promise.all([
+    if (includeEmailEvidence) {
+      const emailConfigurationErrors = emailEvidenceConfigurationErrors(config);
+      if (emailConfigurationErrors.length > 0) {
+        console.error("Restricted email evidence configuration is incomplete", {
+          requestId,
+          missing: emailConfigurationErrors,
+        });
+        return errorResponse("Restricted email evidence is not available.", requestId, 503);
+      }
+      if (!actorMayReadRestrictedEmailEvidence(actor, config)) {
+        return errorResponse("You are not permitted to query restricted email evidence.", requestId, 403);
+      }
+    }
+    const [controlledCitations, attachmentCitations, emailCitations] = await Promise.all([
       searchConsultEvidence(trimmedQuestion, requestId, config),
       conversationId && actor && config.phase1b.uploadsEnabled
         ? searchSessionEvidence(
@@ -129,8 +154,11 @@ export async function POST(request: Request) {
             config,
           )
         : Promise.resolve([]),
+      includeEmailEvidence && actor
+        ? searchRestrictedEmailEvidence(trimmedQuestion, actor, requestId, config)
+        : Promise.resolve([]),
     ]);
-    const citations = [...controlledCitations, ...attachmentCitations];
+    const citations = [...controlledCitations, ...attachmentCitations, ...emailCitations];
     const allowGeneralKnowledge = generalKnowledgeEnabled(includeGeneralContext, config);
 
     if (citations.length === 0 && !allowGeneralKnowledge) {

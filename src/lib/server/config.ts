@@ -88,6 +88,21 @@ export function getRuntimeConfig() {
     storage: {
       accountName: optional("AZURE_STORAGE_ACCOUNT"),
     },
+    emailEvidence: {
+      enabled: enabled("HELMONIC_EMAIL_EVIDENCE_ENABLED"),
+      endpoint: withoutTrailingSlash(optional("AZURE_EMAIL_SEARCH_ENDPOINT")),
+      indexName: optional("AZURE_EMAIL_SEARCH_INDEX"),
+      managedIdentityClientId: optional("AZURE_EMAIL_SEARCH_CLIENT_ID"),
+      leadershipObjectIds: (optional("HELMONIC_EMAIL_LEADERSHIP_OBJECT_IDS") ?? "")
+        .split(",")
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean),
+      leadershipGroupIds: (optional("HELMONIC_EMAIL_LEADERSHIP_GROUP_IDS") ?? "")
+        .split(",")
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean),
+      retentionYears: positiveInteger(optional("HELMONIC_EMAIL_RETENTION_YEARS"), 7),
+    },
     keyVault: {
       url: withoutTrailingSlash(optional("AZURE_KEY_VAULT_URL")),
     },

@@ -2,7 +2,7 @@ import type { ConsultCitation } from "@/lib/consult/types";
 
 export type DocumentAnswerValidation = {
   valid: boolean;
-  markers: Array<`D${number}` | `A${number}`>;
+  markers: Array<`D${number}` | `A${number}` | `E${number}`>;
   generalMarkers: Array<`G${number}`>;
   generalKnowledgeUsed: boolean;
   errors: string[];
@@ -23,8 +23,8 @@ export function validateDocumentAnswerCitations(
   const allowed = new Set(
     citations.map((citation, index) => citation.marker ?? (`D${index + 1}` as const)),
   );
-  const markers = Array.from(answer.matchAll(/\[([DA]\d+)\]/g), (match) =>
-    match[1] as `D${number}` | `A${number}`,
+  const markers = Array.from(answer.matchAll(/\[([DAE]\d+)\]/g), (match) =>
+    match[1] as `D${number}` | `A${number}` | `E${number}`,
   );
   const generalMarkers = Array.from(answer.matchAll(/\[(G\d+)\]/g), (match) =>
     match[1] as `G${number}`,
@@ -53,7 +53,7 @@ export function validateDocumentAnswerCitations(
     }
   }
 
-  if (/\[(?:\d+|[DAG])\]/.test(answer)) {
+  if (/\[(?:\d+|[DAGE])\]/.test(answer)) {
     errors.push("The model answer uses a malformed citation marker.");
   }
 
