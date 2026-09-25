@@ -1891,3 +1891,67 @@ compatibility, unchanged `[A]` behavior and model citation enforcement. Producti
 remains on `consult-demo-v2`; traffic promotion and any production index switch are
 separate approval decisions.
 
+## 24. 2026-09-25 — grounded report generation from the approved master
+
+This is isolation step 3 of the approved six-step release sequence. It is built from
+the step-2 secure base in its own branch and contains no Tender Intelligence, workspace
+removal, ingestion or unrelated UI changes.
+
+The approved Word master remains the immutable formatting and structural authority.
+Runtime generation begins with an exact in-memory clone of that private Blob object;
+the master is never edited, overwritten or used as an output location. Generation does
+not recreate or restyle the report. It changes visible text in approved slots only and
+retains the existing paragraph/run properties, cover construction, Gibson definitions,
+font sizes and colours, page geometry and margins, section breaks, header/footer
+construction, relationships, tables, drawings, logos and media. The fixed report
+section sequence is:
+
+1. Executive Summary;
+2. Project Information;
+3. Introduction;
+4. Acoustic Performance Specification;
+5. Inward Noise & Building Envelope Assessment;
+6. Internal Sound Insulation;
+7. Room Acoustics;
+8. Building Services Noise;
+9. Construction, Inspection & Commissioning.
+
+The supplied master has no Word fields or content controls. Its formatted two-page
+table-of-contents construction is therefore retained exactly rather than replaced by a
+new field. This is the explicit operating distinction confirmed on 2026-09-25: cover,
+table-of-contents construction, headers, footers, typography, margins, page geometry
+and section skeleton are protected; project text is dynamic within the available
+approved slots. A request that exceeds those fixed slots fails instead of silently
+changing the layout.
+
+Generation retrieves the same controlled evidence used by Consult and optionally the
+current conversation's already-ingested session evidence. The model returns the fixed
+section contract in an acoustician-to-acoustician register. Every factual paragraph
+must use a marker supplied by retrieval; unsupported markers fail closed. Sections
+without grounded evidence say so and are not filled with guessed content. `[B]` source
+identity remains hidden in the generated document while the backend audit path retains
+the private identity under the step-2 policy.
+
+Supplementary files can be attached to the request. They are hashed and stored beside
+the generated Word report and its immutable JSON manifest under one random report ID.
+They are recorded as `stored-only`: attachment content is not treated as evidence until
+it passes the normal extraction and verification path. Output names are server-derived,
+write-once Blob puts fail on collision, the output container remains private, and the
+download route derives the Blob prefix from the authenticated caller's object ID. One
+user cannot download another user's report merely by knowing its report ID.
+
+Both report-template reads and generated-report writes are disabled by default. Live
+activation requires the immutable master Blob name, SHA-256 and byte length, the private
+output container, managed-identity Blob permissions and the approved model deployment.
+The local proof uses the approved Gibson master with SHA-256
+`3842d039e63165759b5377893f76876d302aeb7f24a19b34d67719c48dde24c3`.
+Automated validation checks unsupported-citation rejection, immutable DOCX/PDF template
+identity, Gibson retention and removal of the source template's sample-project values.
+The generated proof must retain the exact package-part inventory and the protected XML
+skeleton; the current master gate verifies all 54 section definitions, 14 tables, 94
+DrawingML objects and 81 legacy drawing containers. Every package part other than the
+document's approved text slots and footer metadata is required to remain byte-identical.
+The approved PDF is retained as a separate visual cross-check, while the Word master is
+the final authority for generated reports. Production traffic and production feature
+activation remain separate approval gates.
+

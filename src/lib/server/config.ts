@@ -103,6 +103,25 @@ export function getRuntimeConfig() {
         .filter(Boolean),
       retentionYears: positiveInteger(optional("HELMONIC_EMAIL_RETENTION_YEARS"), 7),
     },
+    reportTemplate: {
+      enabled: enabled("HELMONIC_REPORT_TEMPLATE_ENABLED"),
+      container: optional("AZURE_REPORT_TEMPLATE_CONTAINER") ?? "consult-report-templates",
+      blobName: optional("AZURE_REPORT_TEMPLATE_BLOB"),
+      sha256: optional("AZURE_REPORT_TEMPLATE_SHA256"),
+      byteLength: positiveInteger(optional("AZURE_REPORT_TEMPLATE_BYTES"), 0),
+    },
+    reportGeneration: {
+      enabled: enabled("HELMONIC_REPORT_GENERATION_ENABLED"),
+      container: optional("AZURE_REPORT_OUTPUT_CONTAINER") ?? "consult-generated-reports",
+      maximumAttachmentCount: positiveInteger(
+        optional("HELMONIC_REPORT_MAX_ATTACHMENT_COUNT"),
+        10,
+      ),
+      maximumAttachmentBytes: positiveInteger(
+        optional("HELMONIC_REPORT_MAX_ATTACHMENT_BYTES"),
+        40 * 1024 * 1024,
+      ),
+    },
     keyVault: {
       url: withoutTrailingSlash(optional("AZURE_KEY_VAULT_URL")),
     },
