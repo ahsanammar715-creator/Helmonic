@@ -14,8 +14,17 @@ export default function SourcesList({ sources }: { sources?: ConsultCitation[] }
         }))
       : sources.map((source) => ({
           id: source.id,
-          title: source.title,
+          title: `${source.marker ? `[${source.marker}] ` : ""}${source.title}`,
           meta: [
+            source.citationNamespace === "S"
+              ? "Standard"
+              : source.citationNamespace === "B"
+                ? "Approved book · identity held privately"
+                : source.citationNamespace === "A"
+                  ? "Attachment"
+                  : source.citationNamespace === "E"
+                    ? "Restricted email evidence"
+                    : "Project document",
             source.section,
             source.pageNumber ? `p. ${source.pageNumber}` : undefined,
           ]

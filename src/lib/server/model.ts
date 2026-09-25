@@ -1,7 +1,7 @@
 import "server-only";
 
 import {
-  NO_DOCUMENT_EVIDENCE_NOTICE,
+  buildConsultSystemPrompt,
   validateDocumentAnswerCitations,
 } from "@/lib/consult/model-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
@@ -55,10 +55,6 @@ async function createDocumentAnswer(
     throw new Error("Azure model is not configured");
   }
 
-  const answerPolicy = request.allowGeneralKnowledge
-    ? `Write one natural, flowing answer. Claims supported by the supplied documents, attachments, or separately authorised email evidence must use their exact [D#], [A#], or [E#] marker. You may add useful background from your own general knowledge in the same paragraphs, but every such passage must use sequential markers starting at [G1]. [G] markers are disclosure labels only: they are not verified sources and must never be described as document citations. Do not invent a source, URL, standard, clause, measurement, page, relationship, or evidence marker. If no evidence was supplied, begin with this exact sentence: "${NO_DOCUMENT_EVIDENCE_NOTICE}" You may then provide clearly marked general knowledge, or say that you do not know enough to answer reliably. Never let general knowledge conceal missing or conflicting evidence.`
-    : "Answer only from the supplied evidence. Cite every factual paragraph with one or more supplied document [D#], attachment [A#], or separately authorised email [E#] markers. Never infer an email relationship from ordinary document evidence. Never invent a source, clause, page, measurement, relationship, citation marker, or general-knowledge claim. If the evidence conflicts, identify the conflict and cite both sides. If it is insufficient, say so clearly and do not fill the gap from general knowledge.";
-
   const token = await getAzureAccessToken("https://cognitiveservices.azure.com/.default");
   const response = await fetch(
     `${config.model.endpoint}/openai/deployments/${encodeURIComponent(
@@ -75,8 +71,10 @@ async function createDocumentAnswer(
         messages: [
           {
             role: "system",
-            content:
-              `You are Helmonic Consult for the fixed ${config.profile} evidence set. ${answerPolicy} Keep the answer concise and practical.`,
+            content: buildConsultSystemPrompt({
+              profile: config.profile,
+              allowGeneralKnowledge: request.allowGeneralKnowledge,
+            }),
           },
           {
             role: "user",

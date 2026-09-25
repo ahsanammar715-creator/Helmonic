@@ -106,7 +106,7 @@ export function buildControlledSearchRequest(
     searchFields: "title,section,content",
     filter: `permission_scope eq '${searchFilterValue(permissionScope)}'`,
     top,
-    select: "chunk_id,source_id,source_uri,title,section,page_number,content",
+    select: "chunk_id,source_id,source_uri,title,section,page_number,content,citation_namespace",
   };
 }
 
@@ -131,7 +131,7 @@ export function buildControlledHybridSearchRequest(
     searchFields: "title,section,content",
     filter: `permission_scope eq '${searchFilterValue(permissionScope)}'`,
     top,
-    select: "chunk_id,source_id,source_uri,title,section,page_number,content,chunk_kind",
+    select: "chunk_id,source_id,source_uri,title,section,page_number,content,chunk_kind,citation_namespace",
     vectorFilterMode: "preFilter",
     vectorQueries: [
       {

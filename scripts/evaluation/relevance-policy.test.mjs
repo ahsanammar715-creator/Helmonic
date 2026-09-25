@@ -44,6 +44,7 @@ test("hybrid request applies permission scope before HNSW scoring", () => {
   assert.equal(request.vectorFilterMode, "preFilter");
   assert.equal(request.queryType, "semantic");
   assert.match(request.select, /chunk_kind/);
+  assert.match(request.select, /citation_namespace/);
   assert.equal(request.vectorQueries[0].fields, "content_vector");
   assert.equal(request.vectorQueries[0].k, 50);
 });

@@ -300,6 +300,14 @@ export default function ConsultWorkspace() {
                             against your documents.
                           </p>
                         )}
+                        {exchange.citations.some(
+                          (citation) => citation.citationNamespace === "B",
+                        ) && (
+                          <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
+                            [B] marks an approved book. Its identity is retained in the private
+                            audit record and is not exposed in the answer.
+                          </p>
+                        )}
                         {exchange.citations.length > 0 && (
                           <div className="border-t border-line pt-3 text-[12px] text-muted">
                             {exchange.citations.length} server-verified source passage

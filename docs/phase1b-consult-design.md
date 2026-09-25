@@ -1843,3 +1843,51 @@ committed and pushed together. A documentation-only correction is allowed when i
 an identified inaccuracy, but documentation catch-up after an implementation has
 already moved ahead is not the normal workflow.
 
+## 23. 2026-09-25 — `[S]`/`[B]` citations and professional answer register
+
+This is isolation step 2 of the approved six-step release sequence. It is reconstructed
+from the secure live base in its own branch; report generation, Tender Intelligence,
+workspace changes, ingestion tools and unrelated UI work are excluded.
+
+Controlled retrieval now recognises three independently numbered namespaces:
+
+- `[D]` — controlled project documents;
+- `[S]` — standards;
+- `[B]` — approved licensed books.
+
+Existing `[A]` session attachments, restricted `[E]` email evidence and visibly
+unverified `[G]` general-context disclosures retain their separate behavior. A model
+marker is accepted only when the exact marker was supplied by retrieval; unsupported,
+unretrieved and malformed markers continue to fail closed.
+
+Search requests explicitly select `citation_namespace`. Unknown or absent namespace
+values default to `[D]`. Marker counters are independent per namespace, so a mixed
+result can contain `[D1]`, `[S1]` and `[B1]` without converting one source class into
+another. The 2026-09-25 read-only data check established the deployment boundary:
+`consult-demo-v2` does not expose this field, while
+`consult-candidate-consolidated-1860-v1` does. The candidate currently contains 25,301
+`[D]` records and 4,521 `[B]` records; it contains no `[S]` records yet. `[S]` is
+therefore implemented and contract-tested, but real `[S]` corpus retrieval must not be
+claimed until approved standards are present under that namespace.
+
+For `[B]`, the server creates a private backend audit event containing the request ID,
+marker, chunk ID, real source ID, title, section, URI and page before applying a
+server-authoritative public transform. The browser receives only the `[B#]` marker,
+`Approved acoustics reference`, the evidence excerpt and page number. The real title,
+source identifier, section and URI are removed. The model is explicitly prohibited
+from identifying or inferring the hidden source.
+
+Generated answers now use an acoustician-to-acoustician register. The prompt preserves
+distinctions such as Rw versus DnT,w, uses C/Ctr only when evidenced, describes
+frequency-dependent findings in octave- or one-third-octave-band terms, retains
+measurement conditions and uncertainty, and avoids explaining elementary acoustics
+unless asked. This changes presentation, not the evidence threshold.
+
+The release gate is a new zero-traffic revision configured against the candidate index,
+because pointing this selector at `consult-demo-v2` would correctly fail. Validation
+must prove health/readiness, unauthorized rejection, real `[D]` and `[B]` retrieval,
+public `[B]` identity suppression plus private audit retention, restricted `[E]`
+compatibility, unchanged `[A]` behavior and model citation enforcement. Production
+remains on `consult-demo-v2`; traffic promotion and any production index switch are
+separate approval decisions.
+

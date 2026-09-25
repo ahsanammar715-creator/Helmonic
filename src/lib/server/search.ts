@@ -1,5 +1,11 @@
 import "server-only";
 
+import {
+  controlledCitationNamespace,
+  nextControlledMarker,
+  privateBookCitationAuditRecord,
+  publicControlledCitation,
+} from "@/lib/consult/citation-policy";
 import { actorMayReadRestrictedEmailEvidence } from "@/lib/consult/email-evidence-policy";
 import { buildRestrictedEmailSearchRequest } from "@/lib/consult/email-search-policy";
 import type { ConsultCitation } from "@/lib/consult/types";
@@ -27,6 +33,7 @@ type SearchDocument = {
   page_number?: number;
   content?: string;
   chunk_kind?: string;
+  citation_namespace?: string;
   document_id?: string;
 };
 
@@ -114,24 +121,35 @@ export async function searchConsultEvidence(
     });
   }
 
+  const markerCounters = { D: 0, S: 0, B: 0 };
   return relevantDocuments
     .filter((document) => document.content && document.source_id)
-    .map<ConsultCitation>((document, index) => ({
-      id: document.chunk_id ?? `citation-${index + 1}`,
-      title: document.title ?? document.source_id ?? `Source ${index + 1}`,
-      sourceId: document.source_id ?? `source-${index + 1}`,
-      section: document.section || undefined,
-      pageNumber:
-        typeof document.page_number === "number" ? document.page_number : undefined,
-      excerpt: buildControlledEvidenceExcerpt(document.content ?? "", document.chunk_kind),
-      sourceUri: document.source_uri || undefined,
-      score:
-        typeof document["@search.score"] === "number"
-          ? document["@search.score"]
-          : undefined,
-      sourceType: "controlled",
-      marker: `D${index + 1}`,
-    }));
+    .map<ConsultCitation>((document, index) => {
+      const citationNamespace = controlledCitationNamespace(document.citation_namespace);
+      const marker = nextControlledMarker(citationNamespace, markerCounters);
+      const citation: ConsultCitation = {
+        id: document.chunk_id ?? `citation-${index + 1}`,
+        title: document.title ?? document.source_id ?? `Source ${index + 1}`,
+        sourceId: document.source_id ?? `source-${index + 1}`,
+        section: document.section || undefined,
+        pageNumber:
+          typeof document.page_number === "number" ? document.page_number : undefined,
+        excerpt: buildControlledEvidenceExcerpt(document.content ?? "", document.chunk_kind),
+        sourceUri: document.source_uri || undefined,
+        score:
+          typeof document["@search.score"] === "number"
+            ? document["@search.score"]
+            : undefined,
+        sourceType: "controlled",
+        citationNamespace,
+        marker,
+      };
+
+      const privateAudit = privateBookCitationAuditRecord(requestId, citation);
+      if (privateAudit) console.info("Helmonic private book citation audit", privateAudit);
+
+      return publicControlledCitation(citation);
+    });
 }
 
 export async function searchSessionEvidence(
@@ -196,6 +214,7 @@ export async function searchSessionEvidence(
           ? document["@search.score"]
           : undefined,
       sourceType: "attachment",
+      citationNamespace: "A",
       marker: `A${index + 1}`,
     }));
 }
@@ -266,6 +285,7 @@ export async function searchRestrictedEmailEvidence(
           ? document["@search.score"]
           : undefined,
       sourceType: "email",
+      citationNamespace: "E",
       marker: `E${index + 1}`,
     }));
 }
