@@ -98,14 +98,15 @@ function compactRunFormatting(node: string, halfPoints: number, widthPercent: nu
   return output;
 }
 
-function keepParagraphTogether(node: string) {
+function keepParagraphTogether(node: string, keepWithNext = true) {
+  const controls = `${keepWithNext ? "<w:keepNext/>" : ""}<w:keepLines/>`;
   if (/<w:pPr\b[^>]*\/>/.test(node)) {
-    return node.replace(/<w:pPr\b([^>]*)\/>/, '<w:pPr$1><w:keepNext/><w:keepLines/></w:pPr>');
+    return node.replace(/<w:pPr\b([^>]*)\/>/, `<w:pPr$1>${controls}</w:pPr>`);
   }
   if (/<w:pPr\b[^>]*>/.test(node)) {
-    return node.replace(/<w:pPr\b([^>]*)>/, '<w:pPr$1><w:keepNext/><w:keepLines/>');
+    return node.replace(/<w:pPr\b([^>]*)>/, `<w:pPr$1>${controls}`);
   }
-  return node.replace(/<w:p\b([^>]*)>/, '<w:p$1><w:pPr><w:keepNext/><w:keepLines/></w:pPr>');
+  return node.replace(/<w:p\b([^>]*)>/, `<w:p$1><w:pPr>${controls}</w:pPr>`);
 }
 
 function stripBookmarks(node: string) {
@@ -440,17 +441,17 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     if (!node) throw new Error(`report-template-appendix-heading-missing:${source}`);
     return keepParagraphTogether(node);
   };
+  const appendixBody = (value: string) => keepParagraphTogether(bodyParagraph(bodyTemplate, value), false);
   rebuilt.push(appendixHeading("Design Standards & Guidance"));
   for (const [index, citation] of plan.citations.entries()) {
     const marker = `[${citation.marker ?? citation.citationNamespace ?? "D"}]`;
     const page = citation.pageNumber ? `, page ${citation.pageNumber}` : "";
-    rebuilt.push(bodyParagraph(bodyTemplate, `${marker} ${citationDisplayTitle(plan, index)}${page}`));
+    rebuilt.push(appendixBody(`${marker} ${citationDisplayTitle(plan, index)}${page}`));
   }
   if (plan.sections.some((section) => section.tables.length)) {
     rebuilt.push(appendixHeading("Acoustic Performance Schedules"));
     rebuilt.push(
-      bodyParagraph(
-        bodyTemplate,
+      appendixBody(
         "Performance schedules are presented in the relevant report sections and are derived only from cited project evidence.",
       ),
     );
@@ -459,15 +460,14 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     rebuilt.push(appendixHeading("Acoustic Scope Drawings"));
     for (const attachment of plan.supplementaryAttachments) {
       rebuilt.push(
-        bodyParagraph(
-          bodyTemplate,
+        appendixBody(
           `${attachment.originalFileName} — ${attachment.byteLength.toLocaleString("en-IE")} bytes — ${attachment.evidenceStatus}`,
         ),
       );
     }
   }
   rebuilt.push(appendixHeading("Glossary of Acoustic Terminology"));
-  rebuilt.push(bodyParagraph(bodyTemplate, "Technical acoustic notation is used throughout in accordance with the cited project evidence and standards."));
+  rebuilt.push(appendixBody("Technical acoustic notation is used throughout in accordance with the cited project evidence and standards."));
   rebuilt.push(nodes[finalSection]);
 
   outputArchive["word/document.xml"] = strToU8(`${open}${rebuilt.join("")}${close}`);
