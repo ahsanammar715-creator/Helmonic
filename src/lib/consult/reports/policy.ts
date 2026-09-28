@@ -15,6 +15,13 @@ export const reportModelReasoningEffort = "low" as const;
 export const reportExecutiveSummaryMaximumParagraphs = 2;
 export const reportExecutiveSummaryMaximumParagraphCharacters = 430;
 
+export type GroundedContentFilterResult = {
+  payload: unknown;
+  removedParagraphCount: number;
+  removedTableRowCount: number;
+  removedTableCount: number;
+};
+
 function reportEvidenceLength(citation: ConsultCitation) {
   const title = citation.citationNamespace === "B" ? "Approved book source" : citation.title;
   return `[${citation.marker ?? "D"}] ${title}\n${citation.excerpt}\n\n`.length;
@@ -47,6 +54,71 @@ export function selectReportModelCitations(
     }
   }
   return selected;
+}
+
+export function filterUngroundedReportContent(
+  sectionPayload: unknown,
+  citations: ConsultCitation[],
+): GroundedContentFilterResult {
+  if (!sectionPayload || typeof sectionPayload !== "object") {
+    return {
+      payload: sectionPayload,
+      removedParagraphCount: 0,
+      removedTableRowCount: 0,
+      removedTableCount: 0,
+    };
+  }
+  const candidate = sectionPayload as { sections?: unknown };
+  if (!Array.isArray(candidate.sections)) {
+    return {
+      payload: sectionPayload,
+      removedParagraphCount: 0,
+      removedTableRowCount: 0,
+      removedTableCount: 0,
+    };
+  }
+
+  let removedParagraphCount = 0;
+  let removedTableRowCount = 0;
+  let removedTableCount = 0;
+  const sections = candidate.sections.map((section) => {
+    if (!section || typeof section !== "object") return section;
+    const item = section as { paragraphs?: unknown; tables?: unknown };
+    const paragraphs = Array.isArray(item.paragraphs)
+      ? item.paragraphs.filter((paragraph) => {
+          if (typeof paragraph !== "string") return true;
+          const keep = validateDocumentAnswerCitations(paragraph, citations).valid;
+          if (!keep) removedParagraphCount += 1;
+          return keep;
+        })
+      : item.paragraphs;
+    const tables = Array.isArray(item.tables)
+      ? item.tables.flatMap((table) => {
+          if (!table || typeof table !== "object") return [table];
+          const tableItem = table as { rows?: unknown };
+          if (!Array.isArray(tableItem.rows)) return [table];
+          const rows = tableItem.rows.filter((row) => {
+            if (!Array.isArray(row) || row.some((cell) => typeof cell !== "string")) return true;
+            const keep = validateDocumentAnswerCitations(row.join(" "), citations).valid;
+            if (!keep) removedTableRowCount += 1;
+            return keep;
+          });
+          if (rows.length === 0) {
+            removedTableCount += 1;
+            return [];
+          }
+          return [{ ...tableItem, rows }];
+        })
+      : item.tables;
+    return { ...item, paragraphs, tables };
+  });
+
+  return {
+    payload: { ...candidate, sections },
+    removedParagraphCount,
+    removedTableRowCount,
+    removedTableCount,
+  };
 }
 
 function limitedText(value: unknown, label: string, maximum: number, required = false) {

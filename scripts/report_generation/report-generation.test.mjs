@@ -5,6 +5,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { buildGroundedReportDocx } from "../../src/lib/consult/reports/docx.ts";
 import {
   buildGroundedReportPlan,
+  filterUngroundedReportContent,
   reportModelEvidenceCharacterBudget,
   reportExecutiveSummaryMaximumParagraphCharacters,
   reportExecutiveSummaryMaximumParagraphs,
@@ -126,6 +127,53 @@ function plan() {
 
 test("report plans reject unsupported citations", () => {
   assert.throws(() => buildGroundedReportPlan({ reportId: "report-1", requestedByObjectId: "11111111-1111-4111-8111-111111111111", instruction: "Prepare report.", metadata: { reportTitle: "Report", projectName: "Project", issueDate: "2026-09-25" }, sectionPayload: { sections: [{ heading: "Executive Summary", paragraphs: ["Invented. [D2]"], tables: [] }] }, citations: [citation], supplementaryAttachments: [] }), /citation-invalid/);
+});
+
+test("report generation omits uncited model content without weakening the evidence gate", () => {
+  const filtered = filterUngroundedReportContent({
+    sections: [
+      {
+        heading: "Executive Summary",
+        paragraphs: ["Grounded statement. [D1]", "Consultant input required."],
+        tables: [],
+      },
+      {
+        heading: "Acoustic Performance Specification",
+        paragraphs: [],
+        tables: [
+          {
+            title: "Criteria",
+            columns: ["Item", "Requirement"],
+            rows: [
+              ["Grounded item", "45 dB LAr,T [D1]"],
+              ["Unsupported item", "To be confirmed"],
+            ],
+          },
+          {
+            title: "Unsupported table",
+            columns: ["Item", "Requirement"],
+            rows: [["Unsupported item", "To be confirmed"]],
+          },
+        ],
+      },
+    ],
+  }, [citation]);
+
+  assert.equal(filtered.removedParagraphCount, 1);
+  assert.equal(filtered.removedTableRowCount, 2);
+  assert.equal(filtered.removedTableCount, 1);
+  const result = buildGroundedReportPlan({
+    reportId: "report-1",
+    requestedByObjectId: "11111111-1111-4111-8111-111111111111",
+    instruction: "Prepare report.",
+    metadata: { reportTitle: "Report", projectName: "Project", issueDate: "2026-09-25" },
+    sectionPayload: filtered.payload,
+    citations: [citation],
+    supplementaryAttachments: [],
+  });
+  assert.deepEqual(result.sections[0].paragraphs, ["Grounded statement. [D1]"]);
+  assert.deepEqual(result.sections[3].tables[0].rows, [["Grounded item", "45 dB LAr,T [D1]"]]);
+  assert.equal(result.sections[3].tables.length, 1);
 });
 
 test("report model evidence is bounded and remains balanced across project sources", () => {

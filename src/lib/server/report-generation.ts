@@ -5,6 +5,7 @@ import path from "node:path";
 import { buildGroundedReportDocx } from "@/lib/consult/reports/docx";
 import {
   buildGroundedReportPlan,
+  filterUngroundedReportContent,
   reportModelMaximumCompletionTokens,
   reportModelReasoningEffort,
   selectReportModelCitations,
@@ -181,12 +182,25 @@ export async function generateAndStoreReport(input: {
     metadata,
     citations: input.citations,
   });
+  const filteredContent = filterUngroundedReportContent(sectionPayload, input.citations);
+  if (
+    filteredContent.removedParagraphCount > 0 ||
+    filteredContent.removedTableRowCount > 0 ||
+    filteredContent.removedTableCount > 0
+  ) {
+    console.warn("Helmonic report content omitted by evidence gate", {
+      requestId: input.requestId,
+      removedParagraphCount: filteredContent.removedParagraphCount,
+      removedTableRowCount: filteredContent.removedTableRowCount,
+      removedTableCount: filteredContent.removedTableCount,
+    });
+  }
   const plan = buildGroundedReportPlan({
     reportId,
     requestedByObjectId: input.requestedByObjectId,
     instruction: input.instruction,
     metadata,
-    sectionPayload,
+    sectionPayload: filteredContent.payload,
     citations: input.citations,
     supplementaryAttachments: attachmentDescriptors,
   });
