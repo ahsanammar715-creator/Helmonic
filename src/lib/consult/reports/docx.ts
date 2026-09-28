@@ -32,6 +32,134 @@ function textOf(node: string) {
     .trim();
 }
 
+function markTextRunsAsPresentation(node: string) {
+  return node.replace(/<w:r\b([^>]*)>([\s\S]*?)<\/w:r>/g, (whole, attributes: string, body: string) => {
+    if (!/<w:t\b/.test(body)) return whole;
+    let updatedBody = body;
+    const properties = `${/<w:noProof\b/.test(body) ? "" : "<w:noProof/>"}${
+      /<w:u\b/.test(body) ? "" : '<w:u w:val="none"/>'
+    }`;
+    if (!properties) return whole;
+    if (/<w:rPr\b[^>]*\/>/.test(updatedBody)) {
+      updatedBody = updatedBody.replace(/<w:rPr\b([^>]*)\/>/, `<w:rPr$1>${properties}</w:rPr>`);
+    } else if (/<w:rPr\b[^>]*>/.test(updatedBody)) {
+      updatedBody = updatedBody.replace(/<w:rPr\b([^>]*)>/, `<w:rPr$1>${properties}`);
+    } else {
+      updatedBody = `<w:rPr>${properties}</w:rPr>${updatedBody}`;
+    }
+    return `<w:r${attributes}>${updatedBody}</w:r>`;
+  });
+}
+
+function setParagraphJustification(node: string, value: "left" | "center" | "right") {
+  if (/<w:jc\b[^>]*\/>/.test(node)) {
+    return node.replace(/<w:jc\b[^>]*\/>/, `<w:jc w:val="${value}"/>`);
+  }
+  if (/<w:pPr\b[^>]*\/>/.test(node)) {
+    return node.replace(/<w:pPr\b([^>]*)\/>/, `<w:pPr$1><w:jc w:val="${value}"/></w:pPr>`);
+  }
+  if (/<w:pPr\b[^>]*>/.test(node)) {
+    return node.replace(/<w:pPr\b([^>]*)>/, `<w:pPr$1><w:jc w:val="${value}"/>`);
+  }
+  return node.replace(/<w:p\b([^>]*)>/, `<w:p$1><w:pPr><w:jc w:val="${value}"/></w:pPr>`);
+}
+
+function setParagraphSpacingBefore(node: string, value: number) {
+  if (/<w:spacing\b[^>]*\/>/.test(node)) {
+    return node.replace(/<w:spacing\b([^>]*)\/>/, (_whole, attributes: string) => {
+      const retained = attributes.replace(/\s+w:before="[^"]*"/g, "");
+      return `<w:spacing${retained} w:before="${value}"/>`;
+    });
+  }
+  if (/<w:pPr\b[^>]*\/>/.test(node)) {
+    return node.replace(/<w:pPr\b([^>]*)\/>/, `<w:pPr$1><w:spacing w:before="${value}"/></w:pPr>`);
+  }
+  if (/<w:pPr\b[^>]*>/.test(node)) {
+    return node.replace(/<w:pPr\b([^>]*)>/, `<w:pPr$1><w:spacing w:before="${value}"/>`);
+  }
+  return node.replace(/<w:p\b([^>]*)>/, `<w:p$1><w:pPr><w:spacing w:before="${value}"/></w:pPr>`);
+}
+
+function normalizeRunTracking(node: string) {
+  return node.replace(/<w:rPr\b([^>]*)>([\s\S]*?)<\/w:rPr>/g, (_whole, attributes: string, body: string) =>
+    `<w:rPr${attributes}>${body.replace(/<w:(?:spacing|w)\b[^>]*\/>/g, "")}</w:rPr>`,
+  );
+}
+
+function normalizeApprovalLabel(node: string) {
+  const compact = textOf(node).replace(/\s+/g, "");
+  const labels = new Map([
+    ["WRITTENBY", "WRITTEN BY"],
+    ["REVIEWEDBY", "REVIEWED BY"],
+    ["APPROVEDFORISSUE", "APPROVED FOR ISSUE"],
+  ]);
+  const label = labels.get(compact);
+  if (!label) return node;
+  return markTextRunsAsPresentation(normalizeRunTracking(replaceVisibleText(node, label)));
+}
+
+function normalizeCoverLabel(node: string) {
+  const compact = textOf(node).replace(/\s+/g, "");
+  const labels = new Map([
+    ["CLIENT", "CLIENT"],
+    ["PROJECTNO.", "PROJECT NO."],
+    ["REVISION", "REVISION"],
+    ["DOCUMENT", "DOCUMENT"],
+  ]);
+  const label = labels.get(compact);
+  if (!label) return node;
+  return markTextRunsAsPresentation(normalizeRunTracking(replaceVisibleText(node, label)));
+}
+
+function polishTocTable(node: string) {
+  return node.replace(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g, (row) => {
+    const anchors = [...row.matchAll(/<w:hyperlink\b[^>]*w:anchor="([^"]+)"/g)].map((match) => match[1]);
+    const topLevel = anchors.some((anchor) => /^(?:exec|s[1-7])$/.test(anchor));
+    return row.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraph) => {
+      const spaced = topLevel ? setParagraphSpacingBefore(paragraph, 251) : paragraph;
+      return markTextRunsAsPresentation(spaced);
+    });
+  });
+}
+
+function alignDisclaimerContinuation(nodes: string[]) {
+  const tail = nodes.findIndex((node) => textOf(node).toLowerCase().startsWith("this report may no longer remain valid"));
+  if (tail < 0) return;
+  const section = nodes.findIndex((node, index) => index > tail && /<w:sectPr\b/.test(node));
+  if (section < 0) return;
+  if (/<w:type\b[^>]*\/>/.test(nodes[section])) {
+    nodes[section] = nodes[section].replace(/<w:type\b[^>]*\/>/, '<w:type w:val="continuous"/>');
+  } else {
+    nodes[section] = nodes[section].replace(/<w:sectPr\b([^>]*)>/, '<w:sectPr$1><w:type w:val="continuous"/>');
+  }
+  nodes[tail] = markTextRunsAsPresentation(nodes[tail]);
+}
+
+function polishFooterIdentity(footerXml: string) {
+  return footerXml.replace(
+    /(<w:txbxContent>)(<w:p\b[\s\S]*?<\/w:p>)(<\/w:txbxContent>)/g,
+    (whole, open: string, paragraph: string, close: string) => {
+      const text = textOf(paragraph);
+      if (!text.includes("Revision") || !text.includes("·")) return whole;
+      return `${open}${markTextRunsAsPresentation(setParagraphJustification(paragraph, "center"))}${close}`;
+    },
+  );
+}
+
+function polishEndOfReport(node: string, documentNumber: string, revision: string) {
+  if (!textOf(node).replace(/\s+/g, "").startsWith("Endofreport")) return node;
+  let output = node.replace(/<w:ind\b([^>]*)\/>/, (_whole, attributes: string) => {
+    const retained = attributes.replace(/\s+w:firstLine="[^"]*"/g, "");
+    return `<w:ind${retained} w:firstLine="0"/>`;
+  });
+  output = setParagraphJustification(output, "right");
+  output = replaceExactRuns(output, new Map([["A", revision]]));
+  const escapedDocumentNumber = escapeXml(documentNumber).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const documentRun = new RegExp(`(<w:r\\b[^>]*>(?:(?!<\\/w:r>)[\\s\\S])*?)(<w:t\\b[^>]*>${escapedDocumentNumber}<\\/w:t>)`);
+  if (documentRun.test(output)) output = output.replace(documentRun, "$1<w:br/>$2");
+  return markTextRunsAsPresentation(output);
+}
+
 function bodyParts(documentXml: string) {
   const match = documentXml.match(/^([\s\S]*?<w:body>)([\s\S]*)(<\/w:body><\/w:document>\s*)$/);
   if (!match) throw new Error("report-template-body-missing");
@@ -71,19 +199,23 @@ function paragraphStyle(node: string) {
 /** Replace visible text only. Paragraph, run and drawing formatting remains unchanged. */
 function replaceVisibleText(node: string, replacement: string) {
   let used = false;
-  return node.replace(/<w:t\b([^>]*)>([\s\S]*?)<\/w:t>/g, (_whole, attributes: string) => {
+  const output = node.replace(/<w:t\b([^>]*)>([\s\S]*?)<\/w:t>/g, (_whole, attributes: string) => {
     const value = used ? "" : escapeXml(replacement);
     used = true;
     return `<w:t${attributes}>${value}</w:t>`;
   });
+  return markTextRunsAsPresentation(output);
 }
 
-function replaceExactRuns(node: string, replacements: Map<string, string>) {
-  return node.replace(/<w:t\b([^>]*)>([\s\S]*?)<\/w:t>/g, (whole, attributes: string, value: string) => {
+function replaceExactRuns(node: string, replacements: Map<string, string>, markPresentation = true) {
+  let changed = false;
+  const output = node.replace(/<w:t\b([^>]*)>([\s\S]*?)<\/w:t>/g, (whole, attributes: string, value: string) => {
     const replacement = replacements.get(decodeXml(value));
     if (replacement === undefined) return whole;
+    changed = true;
     return `<w:t${attributes}>${escapeXml(replacement)}</w:t>`;
   });
+  return changed && markPresentation ? markTextRunsAsPresentation(output) : output;
 }
 
 function replaceValueAfterPrefix(node: string, prefix: string, replacement: string) {
@@ -253,6 +385,14 @@ function maskVisibleText(xml: string) {
   return xml.replace(/(<w:t\b[^>]*>)[\s\S]*?(<\/w:t>)/g, "$1__DYNAMIC_TEXT__$2");
 }
 
+function maskPermittedFooterPresentation(xml: string) {
+  return maskVisibleText(xml)
+    .replace(/<w:noProof\s*\/>/g, "")
+    .replace(/<w:u\b[^>]*w:val="none"[^>]*\/>/g, "")
+    .replace(/<w:rPr>\s*<\/w:rPr>/g, "")
+    .replace(/<w:jc w:val="center"\s*\/>/g, '<w:jc w:val="left"/>');
+}
+
 function assertProtectedShell(sourceArchive: Record<string, Uint8Array>, outputArchive: Record<string, Uint8Array>) {
   const mutableParts = new Set(["word/document.xml", "word/footer1.xml", "word/settings.xml"]);
   const sourceParts = Object.keys(sourceArchive).sort();
@@ -271,8 +411,15 @@ function assertProtectedShell(sourceArchive: Record<string, Uint8Array>, outputA
 
   const sourceFooter = sourceArchive["word/footer1.xml"];
   const outputFooter = outputArchive["word/footer1.xml"];
-  if (sourceFooter && outputFooter && maskVisibleText(strFromU8(sourceFooter)) !== maskVisibleText(strFromU8(outputFooter))) {
-    throw new Error("report-template-protected-footer-structure-changed");
+  if (sourceFooter && outputFooter) {
+    const protectedSourceFooter = maskPermittedFooterPresentation(strFromU8(sourceFooter));
+    const protectedOutputFooter = maskPermittedFooterPresentation(strFromU8(outputFooter));
+    if (protectedSourceFooter !== protectedOutputFooter) {
+      const mismatch = [...protectedSourceFooter].findIndex((value, index) => protectedOutputFooter[index] !== value);
+      throw new Error(
+        `report-template-protected-footer-structure-changed:${mismatch}:${protectedSourceFooter.slice(Math.max(0, mismatch - 80), mismatch + 160)}:${protectedOutputFooter.slice(Math.max(0, mismatch - 80), mismatch + 160)}`,
+      );
+    }
   }
 
   const sourceDocument = strFromU8(sourceArchive["word/document.xml"]);
@@ -330,6 +477,8 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   const { open, nodes: sourceNodes, close } = bodyParts(sourceXml);
   const nodes = [...sourceNodes];
   const shortDate = compactDate(plan.metadata.issueDate);
+  const resolvedRevision = plan.metadata.revision?.trim() || "A";
+  const resolvedDocumentNumber = plan.metadata.documentNumber ?? plan.metadata.projectNumber ?? "-";
 
   replaceFirstParagraph(nodes, "Letterkenny SURS", plan.metadata.projectName);
   replaceFirstParagraph(nodes, "Phase 1 — Alpha Innovation Centre", plan.metadata.projectSubtitle ?? "");
@@ -341,11 +490,11 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   replaceFirstParagraph(nodes, "I S S U E D 0 3 S E P T E M B E R 2 0 2 6", issuedDate(plan.metadata.issueDate));
   replaceFirstParagraph(nodes, "VHA", plan.metadata.client ?? "-");
   replaceFirstParagraph(nodes, "J2769", plan.metadata.projectNumber ?? "-");
-  replaceFirstParagraph(nodes, "A — 03/09/2026", `${plan.metadata.revision ?? "-"} — ${shortDate}`);
+  replaceFirstParagraph(nodes, "A — 03/09/2026", `${resolvedRevision} — ${shortDate}`);
   replaceFirstParagraph(
     nodes,
     "LKPH1-IAC-XX-XX-RP-Y-0001",
-    plan.metadata.documentNumber ?? plan.metadata.projectNumber ?? "-",
+    resolvedDocumentNumber,
   );
 
   const titleSlots = nodes
@@ -359,7 +508,7 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     { source: "ClientVHA", prefix: "Client", replacement: plan.metadata.client ?? "-" },
     { source: "Site / AddressLetterkenny, Co Donegal", prefix: "Site / Address", replacement: plan.metadata.address ?? "-" },
     { source: "Report TitleAcoustic Report", prefix: "Report Title", replacement: plan.metadata.reportTitle },
-    { source: "Document NumberLKPH1-IAC-XX-XX-RP-Y-0001", prefix: "Document Number", replacement: plan.metadata.documentNumber ?? plan.metadata.projectNumber ?? "-" },
+    { source: "Document NumberLKPH1-IAC-XX-XX-RP-Y-0001", prefix: "Document Number", replacement: resolvedDocumentNumber },
   ]) {
     const index = nodes.findIndex((node) => textOf(node) === slot.source);
     if (index < 0) throw new Error(`report-template-slot-missing:${slot.source}`);
@@ -367,7 +516,7 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   }
 
   const projectControlRuns = new Map<string, string>([
-    ["A", plan.metadata.revision ?? "-"],
+    ["A", resolvedRevision],
     ["03/09/2026", shortDate],
     ["Glen", "iAcoustics"],
     ["Plunkett,", ""],
@@ -403,10 +552,13 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     (node, index) => index > tocStart && index < introductionPosition && /<w:sectPr\b/.test(node),
   );
   if (tocEnd < tocStart) throw new Error("report-template-toc-end-missing");
+  const rebuilt = [...nodes];
+  for (let index = tocStart + 1; index < tocEnd; index += 1) {
+    if (rebuilt[index]?.startsWith("<w:tbl")) rebuilt[index] = polishTocTable(rebuilt[index]);
+  }
   const executiveTable = nodes.findIndex(
     (node, index) => index > executiveStart && index < projectStart && node.startsWith("<w:tbl"),
   );
-  const rebuilt = [...nodes];
   const executive = plan.sections.find((section) => section.heading === "Executive Summary")!;
   const executiveBody = nodes.findIndex(
     (node, index) =>
@@ -479,11 +631,15 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     ["J2769", plan.metadata.projectNumber ?? "-"],
     ["VHA", plan.metadata.client ?? "-"],
     ["VHA Architects", plan.metadata.client ?? "the Client"],
-    ["LKPH1-IAC-XX-XX-RP-Y-0001", plan.metadata.documentNumber ?? plan.metadata.projectNumber ?? "-"],
+    ["LKPH1-IAC-XX-XX-RP-Y-0001", resolvedDocumentNumber],
   ]);
   for (let index = 0; index < rebuilt.length; index += 1) {
     rebuilt[index] = replaceExactRuns(rebuilt[index], sampleIdentityRuns);
+    rebuilt[index] = normalizeCoverLabel(rebuilt[index]);
+    rebuilt[index] = normalizeApprovalLabel(rebuilt[index]);
+    rebuilt[index] = polishEndOfReport(rebuilt[index], resolvedDocumentNumber, resolvedRevision);
   }
+  alignDisclaimerContinuation(rebuilt);
 
   if (rebuilt.length !== sourceNodes.length) throw new Error("report-template-body-node-count-changed");
   const generatedBodyXml = rebuilt.join("");
@@ -501,14 +657,15 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   const footer = outputArchive["word/footer1.xml"];
   if (footer) {
     outputArchive["word/footer1.xml"] = strToU8(
-      replaceExactRuns(
+      polishFooterIdentity(replaceExactRuns(
         strFromU8(footer),
         new Map<string, string>([
-          ["LKPH1-IAC-XX-XX-RP-Y-0001", plan.metadata.documentNumber ?? plan.metadata.projectNumber ?? "-"],
-          ["A", plan.metadata.revision ?? "-"],
+          ["LKPH1-IAC-XX-XX-RP-Y-0001", resolvedDocumentNumber],
+          ["A", resolvedRevision],
           ["03/09/2026", shortDate],
         ]),
-      ),
+        false,
+      )),
     );
   }
   const settings = outputArchive["word/settings.xml"];

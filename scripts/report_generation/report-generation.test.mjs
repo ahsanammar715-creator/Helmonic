@@ -57,7 +57,7 @@ function template() {
     paragraph("Report TitleAcoustic Report"),
     paragraph("Document NumberLKPH1-IAC-XX-XX-RP-Y-0001"),
     paragraph("Table of Contents", "Normal"),
-    '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>MASTER TOC ENTRIES</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
+    '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>MASTER TOC ENTRIES</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:pPr><w:spacing w:line="254" w:lineRule="exact"/></w:pPr><w:hyperlink w:anchor="s6"><w:r><w:rPr><w:rFonts w:ascii="Gibson"/><w:sz w:val="22"/></w:rPr><w:t>6 Building Services Noise</w:t></w:r></w:hyperlink></w:p></w:tc></w:tr></w:tbl>',
     '<w:p><w:pPr><w:sectPr><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/><w:cols/></w:sectPr></w:pPr></w:p>',
     ...mainHeadings.flatMap((heading) => [
       paragraph(heading, "Heading1"),
@@ -71,6 +71,7 @@ function template() {
     paragraph("Acoustic Performance Schedules", "Heading4"),
     paragraph("Acoustic Scope Drawings", "Heading4"),
     paragraph("Glossary of Acoustic Terminology", "Heading4"),
+    '<w:p><w:pPr><w:spacing w:before="199"/><w:ind w:left="112" w:right="129" w:firstLine="2329"/><w:jc w:val="left"/></w:pPr><w:r><w:br w:type="column"/></w:r><w:r><w:t>End of report </w:t></w:r><w:r><w:t>LKPH1-IAC-XX-XX-RP-Y-0001</w:t></w:r><w:r><w:t> · Revision </w:t></w:r><w:r><w:t>A</w:t></w:r></w:p>',
     '<w:sectPr><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/><w:headerReference w:type="default" r:id="rIdHeader"/></w:sectPr>',
   ].join("");
   return zipSync({
@@ -79,7 +80,7 @@ function template() {
     "word/styles.xml": strToU8(`<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Gibson"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>`),
     "word/settings.xml": strToU8('<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'),
     "word/header1.xml": strToU8('<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>STATIC HEADER</w:t></w:r></w:p></w:hdr>'),
-    "word/footer1.xml": strToU8('<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>STATIC FOOTER</w:t></w:r></w:p></w:ftr>'),
+    "word/footer1.xml": strToU8('<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>STATIC FOOTER</w:t></w:r><w:r><w:txbxContent><w:p><w:pPr><w:jc w:val="left"/></w:pPr><w:r><w:t>LKPH1-IAC-XX-XX-RP-Y-0001</w:t></w:r><w:r><w:t> · Revision </w:t></w:r><w:r><w:t>A</w:t></w:r><w:r><w:t> · 03/09/2026</w:t></w:r></w:p></w:txbxContent></w:r></w:p></w:ftr>'),
     "word/media/logo.png": new Uint8Array([1, 2, 3]),
   });
 }
@@ -91,7 +92,7 @@ function plan() {
     reportId: "report-1",
     requestedByObjectId: "11111111-1111-4111-8111-111111111111",
     instruction: "Prepare a concise environmental noise report.",
-    metadata: { reportTitle: "Environmental Noise Assessment", projectName: "Example Project", issueDate: "2026-09-25" },
+    metadata: { reportTitle: "Environmental Noise Assessment", projectName: "Example Project", projectNumber: "J2701", issueDate: "2026-09-25" },
     sectionPayload: {
       sections: [
         {
@@ -179,6 +180,10 @@ test("generation clones the immutable master and changes approved text slots onl
   assert.deepEqual(output["word/media/logo.png"], new Uint8Array([1, 2, 3]));
   assert.match(strFromU8(output["word/header1.xml"]), /STATIC HEADER/);
   assert.match(strFromU8(output["word/footer1.xml"]), /STATIC FOOTER/);
+  assert.match(strFromU8(output["word/footer1.xml"]), /J2701/);
+  assert.match(strFromU8(output["word/footer1.xml"]), /<w:jc w:val="center"\/>/);
+  assert.match(strFromU8(output["word/footer1.xml"]), /<w:noProof\/>/);
+  assert.doesNotMatch(strFromU8(output["word/footer1.xml"]), /Revision <\/w:t><\/w:r><w:r[^>]*><w:rPr[^>]*>[\s\S]*?<w:t>-<\/w:t>/);
   const documentXml = strFromU8(output["word/document.xml"]);
   assert.match(documentXml, /w:pgMar w:top="1440"/);
   assert.match(documentXml, /Example Project/);
@@ -187,6 +192,9 @@ test("generation clones the immutable master and changes approved text slots onl
   assert.match(documentXml, /Rating level/);
   assert.doesNotMatch(documentXml, /The measured rating level was 45 dB LAr,T\.:/);
   assert.match(documentXml, /MASTER TOC ENTRIES/);
+  assert.match(documentXml, /w:anchor="s6"[\s\S]*?<w:spacing[^>]*w:before="251"|w:spacing[^>]*w:before="251"[\s\S]*?w:anchor="s6"/);
+  assert.match(documentXml, /<w:u w:val="none"\/>/);
+  assert.match(documentXml, /<w:jc w:val="right"\/>[\s\S]*?<w:br\/>[\s\S]*?<w:t>J2701<\/w:t>/);
   assert.doesNotMatch(documentXml, /TOC \\o "1-2" \\h \\z \\u/);
   assert.match(documentXml, /A–D Appendices/);
   assert.doesNotMatch(documentXml, /updates automatically when this report opens/);
