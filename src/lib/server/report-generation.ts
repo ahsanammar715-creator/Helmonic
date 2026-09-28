@@ -140,7 +140,7 @@ async function createSectionPayload(input: {
   if (!response.ok) throw new ReportModelRequestError(response.status, responseBody.slice(0, 8_192));
   const payload = JSON.parse(responseBody) as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;
-  if (!content) throw new Error("report-model-empty");
+  if (!content) throw new ReportModelRequestError(response.status, responseBody.slice(0, 8_192));
   return JSON.parse(content) as unknown;
 }
 
