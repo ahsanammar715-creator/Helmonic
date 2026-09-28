@@ -12,6 +12,8 @@ import { validateDocumentAnswerCitations } from "../model-policy.ts";
 export const reportModelEvidenceCharacterBudget = 12_000;
 export const reportModelMaximumCompletionTokens = 4_800;
 export const reportModelReasoningEffort = "low" as const;
+export const reportExecutiveSummaryMaximumParagraphs = 2;
+export const reportExecutiveSummaryMaximumParagraphCharacters = 430;
 
 function reportEvidenceLength(citation: ConsultCitation) {
   const title = citation.citationNamespace === "B" ? "Approved book source" : citation.title;
@@ -54,6 +56,21 @@ function limitedText(value: unknown, label: string, maximum: number, required = 
   return normalized;
 }
 
+function compactGroundedParagraph(value: string, maximum: number) {
+  if (value.length <= maximum) return value;
+  const markers = [...new Set(value.match(/\[(?:D|S|B|A|E)\d+\]/g) ?? [])];
+  const prose = value.replace(/\[(?:D|S|B|A|E)\d+\]/g, "").replace(/\s+/g, " ").trim();
+  const suffix = markers.length ? ` ${markers.join(" ")}` : "";
+  const allowance = Math.max(80, maximum - suffix.length - 1);
+  const candidate = prose.slice(0, allowance);
+  const sentenceEnd = Math.max(candidate.lastIndexOf(". "), candidate.lastIndexOf("; "));
+  const safeProse = (sentenceEnd >= Math.floor(allowance * 0.55)
+    ? candidate.slice(0, sentenceEnd + 1)
+    : candidate.replace(/[,;:\s]+\S*$/, "").trimEnd())
+    .replace(/[,:;\s]+$/, "");
+  return `${safeProse}.${suffix}`.trim();
+}
+
 export function validateReportMetadata(value: unknown): ReportMetadata {
   if (!value || typeof value !== "object") throw new Error("report-metadata-required");
   const input = value as Record<string, unknown>;
@@ -92,7 +109,7 @@ export function buildGroundedReportPlan(input: {
     if (headings.has(heading)) throw new Error(`report-section-${index}-duplicate`);
     headings.add(heading);
     if (!Array.isArray(item.paragraphs)) throw new Error(`report-section-${index}-paragraphs-invalid`);
-    const paragraphs = item.paragraphs.map((paragraph, paragraphIndex) =>
+    let paragraphs = item.paragraphs.map((paragraph, paragraphIndex) =>
       limitedText(paragraph, `section-${index}-paragraph-${paragraphIndex}`, 3_500, true),
     );
     for (const paragraph of paragraphs) {
@@ -105,6 +122,11 @@ export function buildGroundedReportPlan(input: {
     if (!Array.isArray(rawTables)) throw new Error(`report-section-${index}-tables-invalid`);
     if (heading === "Executive Summary" && rawTables.length > 0) {
       throw new Error("report-executive-summary-tables-not-supported");
+    }
+    if (heading === "Executive Summary") {
+      paragraphs = paragraphs
+        .slice(0, reportExecutiveSummaryMaximumParagraphs)
+        .map((paragraph) => compactGroundedParagraph(paragraph, reportExecutiveSummaryMaximumParagraphCharacters));
     }
     if (rawTables.length > 6) throw new Error(`report-section-${index}-tables-too-many`);
     const tables = rawTables.map((table, tableIndex) => {

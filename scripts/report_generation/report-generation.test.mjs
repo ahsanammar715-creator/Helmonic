@@ -6,6 +6,8 @@ import { buildGroundedReportDocx } from "../../src/lib/consult/reports/docx.ts";
 import {
   buildGroundedReportPlan,
   reportModelEvidenceCharacterBudget,
+  reportExecutiveSummaryMaximumParagraphCharacters,
+  reportExecutiveSummaryMaximumParagraphs,
   reportModelMaximumCompletionTokens,
   reportModelReasoningEffort,
   selectReportModelCitations,
@@ -137,6 +139,32 @@ test("report plans reject tables in the protected executive-summary layout", () 
   assert.throws(() => buildGroundedReportPlan({ reportId: "report-1", requestedByObjectId: "11111111-1111-4111-8111-111111111111", instruction: "Prepare report.", metadata: { reportTitle: "Report", projectName: "Project", issueDate: "2026-09-25" }, sectionPayload: { sections: [{ heading: "Executive Summary", paragraphs: ["Grounded. [D1]"], tables: [{ title: "Not supported here", columns: ["A", "B"], rows: [["Grounded [D1]", "Grounded [D1]"]] }] }] }, citations: [citation], supplementaryAttachments: [] }), /executive-summary-tables-not-supported/);
 });
 
+test("report plans compact the executive summary to the protected layout capacity", () => {
+  const result = buildGroundedReportPlan({
+    reportId: "report-1",
+    requestedByObjectId: "11111111-1111-4111-8111-111111111111",
+    instruction: "Prepare report.",
+    metadata: { reportTitle: "Report", projectName: "Project", issueDate: "2026-09-25" },
+    sectionPayload: {
+      sections: [{
+        heading: "Executive Summary",
+        paragraphs: [
+          `${"Grounded evidence sentence. ".repeat(30)}[D1]`,
+          `${"Second grounded evidence sentence. ".repeat(30)}[D1]`,
+          "This third paragraph must not enter the protected shell. [D1]",
+        ],
+        tables: [],
+      }],
+    },
+    citations: [citation],
+    supplementaryAttachments: [],
+  });
+  const summary = result.sections.find((section) => section.heading === "Executive Summary");
+  assert.equal(summary.paragraphs.length, reportExecutiveSummaryMaximumParagraphs);
+  assert.ok(summary.paragraphs.every((paragraph) => paragraph.length <= reportExecutiveSummaryMaximumParagraphCharacters));
+  assert.ok(summary.paragraphs.every((paragraph) => paragraph.endsWith("[D1]")));
+});
+
 test("generation clones the immutable master and changes approved text slots only", () => {
   const output = unzipSync(buildGroundedReportDocx(template(), plan()));
   assert.deepEqual(output["word/media/logo.png"], new Uint8Array([1, 2, 3]));
@@ -148,6 +176,7 @@ test("generation clones the immutable master and changes approved text slots onl
   assert.match(documentXml, /ENVIRONMENTAL NOISE ASSESSMENT/);
   assert.match(documentXml, /\[D1\]/);
   assert.match(documentXml, /Measured level/);
+  assert.doesNotMatch(documentXml, /The measured rating level was 45 dB LAr,T\.:/);
   assert.match(documentXml, /TOC \\o/);
   assert.doesNotMatch(documentXml, /Letterkenny SURS|VHA Architects|J2769|LKPH1/);
   assert.doesNotMatch(documentXml, /SAMPLE Executive Summary/);

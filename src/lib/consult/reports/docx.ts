@@ -429,7 +429,7 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   for (const [index, citation] of plan.citations.entries()) {
     const marker = `[${citation.marker ?? citation.citationNamespace ?? "D"}]`;
     const page = citation.pageNumber ? `, page ${citation.pageNumber}` : "";
-    rebuilt.push(bodyParagraph(bodyTemplate, `${marker} ${citationDisplayTitle(plan, index)}${page}: ${citation.excerpt}`));
+    rebuilt.push(bodyParagraph(bodyTemplate, `${marker} ${citationDisplayTitle(plan, index)}${page}`));
   }
   if (plan.sections.some((section) => section.tables.length)) {
     rebuilt.push(appendixHeading("Acoustic Performance Schedules"));
