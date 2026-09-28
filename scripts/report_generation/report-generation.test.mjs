@@ -3,7 +3,12 @@ import test from "node:test";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 
 import { buildGroundedReportDocx } from "../../src/lib/consult/reports/docx.ts";
-import { buildGroundedReportPlan } from "../../src/lib/consult/reports/policy.ts";
+import {
+  buildGroundedReportPlan,
+  reportModelEvidenceCharacterBudget,
+  reportModelMaximumCompletionTokens,
+  selectReportModelCitations,
+} from "../../src/lib/consult/reports/policy.ts";
 
 const headings = [
   "Executive Summary",
@@ -103,6 +108,27 @@ function plan() {
 
 test("report plans reject unsupported citations", () => {
   assert.throws(() => buildGroundedReportPlan({ reportId: "report-1", requestedByObjectId: "11111111-1111-4111-8111-111111111111", instruction: "Prepare report.", metadata: { reportTitle: "Report", projectName: "Project", issueDate: "2026-09-25" }, sectionPayload: { sections: [{ heading: "Executive Summary", paragraphs: ["Invented. [D2]"], tables: [] }] }, citations: [citation], supplementaryAttachments: [] }), /citation-invalid/);
+});
+
+test("report model evidence is bounded and remains balanced across project sources", () => {
+  const citations = Array.from({ length: 80 }, (_, index) => ({
+    id: `chunk-${index + 1}`,
+    title: `Evidence ${index + 1}`,
+    sourceId: index % 2 === 0 ? "source-a" : "source-b",
+    excerpt: "x".repeat(420),
+    citationNamespace: "D",
+    marker: `D${index + 1}`,
+  }));
+  const selected = selectReportModelCitations(citations);
+  assert.ok(selected.length > 4);
+  assert.ok(selected.length < citations.length);
+  assert.deepEqual(new Set(selected.map((item) => item.sourceId)), new Set(["source-a", "source-b"]));
+  const serializedLength = selected.reduce(
+    (total, item) => total + `[${item.marker}] ${item.title}\n${item.excerpt}\n\n`.length,
+    0,
+  );
+  assert.ok(serializedLength <= reportModelEvidenceCharacterBudget);
+  assert.equal(reportModelMaximumCompletionTokens, 3_500);
 });
 
 test("report plans reject tables in the protected executive-summary layout", () => {

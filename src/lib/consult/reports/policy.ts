@@ -9,6 +9,43 @@ import {
 import type { ConsultCitation } from "../types.ts";
 import { validateDocumentAnswerCitations } from "../model-policy.ts";
 
+export const reportModelEvidenceCharacterBudget = 12_000;
+export const reportModelMaximumCompletionTokens = 3_500;
+
+function reportEvidenceLength(citation: ConsultCitation) {
+  const title = citation.citationNamespace === "B" ? "Approved book source" : citation.title;
+  return `[${citation.marker ?? "D"}] ${title}\n${citation.excerpt}\n\n`.length;
+}
+
+export function selectReportModelCitations(
+  citations: ConsultCitation[],
+  maximumCharacters = reportModelEvidenceCharacterBudget,
+) {
+  if (maximumCharacters <= 0) return [];
+  const bySource = new Map<string, ConsultCitation[]>();
+  for (const citation of citations) {
+    const queue = bySource.get(citation.sourceId) ?? [];
+    queue.push(citation);
+    bySource.set(citation.sourceId, queue);
+  }
+  const selected: ConsultCitation[] = [];
+  let usedCharacters = 0;
+  let remaining = true;
+  while (remaining) {
+    remaining = false;
+    for (const queue of bySource.values()) {
+      const citation = queue.shift();
+      if (!citation) continue;
+      remaining = true;
+      const length = reportEvidenceLength(citation);
+      if (usedCharacters + length > maximumCharacters) continue;
+      selected.push(citation);
+      usedCharacters += length;
+    }
+  }
+  return selected;
+}
+
 function limitedText(value: unknown, label: string, maximum: number, required = false) {
   const normalized = String(value ?? "").replace(/\s+/g, " ").trim();
   if (required && !normalized) throw new Error(`report-${label}-required`);

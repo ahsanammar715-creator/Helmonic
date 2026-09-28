@@ -5,6 +5,8 @@ import path from "node:path";
 import { buildGroundedReportDocx } from "@/lib/consult/reports/docx";
 import {
   buildGroundedReportPlan,
+  reportModelMaximumCompletionTokens,
+  selectReportModelCitations,
   sha256Attachment,
   validateReportMetadata,
 } from "@/lib/consult/reports/policy";
@@ -45,6 +47,8 @@ async function createSectionPayload(input: {
 }) {
   if (!input.config.model.endpoint || !input.config.model.deployment) throw new Error("report-model-not-configured");
   if (input.citations.length === 0) throw new Error("report-evidence-empty");
+  const modelCitations = selectReportModelCitations(input.citations);
+  if (modelCitations.length === 0) throw new Error("report-evidence-budget-empty");
   const token = await getAzureAccessToken("https://cognitiveservices.azure.com/.default");
   const response = await fetch(
     `${input.config.model.endpoint}/openai/deployments/${encodeURIComponent(input.config.model.deployment)}/chat/completions?api-version=${encodeURIComponent(input.config.model.apiVersion)}`,
@@ -64,11 +68,14 @@ async function createSectionPayload(input: {
           },
           {
             role: "user",
-            content: `Instruction:\n${input.instruction}\n\nProject metadata:\n${JSON.stringify(input.metadata)}\n\nRequired section headings:\n${reportSectionHeadings.join("\n")}\n\nEvidence:\n${evidenceText(input.citations)}`,
+            content: `Instruction:\n${input.instruction}\n\nProject metadata:\n${JSON.stringify(input.metadata)}\n\nRequired section headings:\n${reportSectionHeadings.join("\n")}\n\nEvidence:\n${evidenceText(modelCitations)}`,
           },
         ],
         reasoning_effort: input.config.model.reasoningEffort,
-        max_completion_tokens: input.config.model.maximumCompletionTokens,
+        max_completion_tokens: Math.min(
+          input.config.model.maximumCompletionTokens,
+          reportModelMaximumCompletionTokens,
+        ),
         response_format: {
           type: "json_schema",
           json_schema: {
