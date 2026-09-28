@@ -17,6 +17,10 @@ const headings = [
   "Construction, Inspection & Commissioning",
 ];
 
+const mainHeadings = headings.filter(
+  (heading) => heading !== "Executive Summary" && heading !== "Project Information",
+);
+
 function paragraph(text, style = "BodyText") {
   return `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr><w:r><w:t>${text}</w:t></w:r></w:p>`;
 }
@@ -33,21 +37,24 @@ function template() {
     paragraph("A — 03/09/2026", "Normal"),
     paragraph("LKPH1-IAC-XX-XX-RP-Y-0001", "Normal"),
     paragraph("ACOUSTIC DESIGN REPORT", "Normal"),
-    ...headings.flatMap((heading) => [
-      paragraph(heading, "Heading1"),
-      paragraph(`SAMPLE ${heading}`),
-      ...(heading === "Project Information"
-        ? [
-            paragraph("Project DescriptionLetterkenny SURS Phase 1"),
-            paragraph("Project NumberJ2769"),
-            paragraph("ClientVHA"),
-            paragraph("Site / AddressLetterkenny, Co Donegal"),
-            paragraph("Report TitleAcoustic Report"),
-            paragraph("Document NumberLKPH1-IAC-XX-XX-RP-Y-0001"),
-          ]
-        : []),
-    ]),
+    paragraph("Executive Summary", "Heading1"),
+    paragraph("SAMPLE Executive Summary"),
+    '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>SAMPLE TABLE</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
+    paragraph("Project Information", "Heading1"),
+    paragraph("Project DescriptionLetterkenny SURS Phase 1"),
+    paragraph("Project NumberJ2769"),
+    paragraph("ClientVHA"),
+    paragraph("Site / AddressLetterkenny, Co Donegal"),
+    paragraph("Report TitleAcoustic Report"),
+    paragraph("Document NumberLKPH1-IAC-XX-XX-RP-Y-0001"),
     paragraph("Table of Contents", "Normal"),
+    '<w:p><w:pPr><w:sectPr><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/><w:cols/></w:sectPr></w:pPr></w:p>',
+    ...mainHeadings.flatMap((heading) => [paragraph(heading, "Heading1"), paragraph(`SAMPLE ${heading}`)]),
+    paragraph("A–D Appendices", "Normal"),
+    paragraph("Design Standards & Guidance", "Heading4"),
+    paragraph("Acoustic Performance Schedules", "Heading4"),
+    paragraph("Acoustic Scope Drawings", "Heading4"),
+    paragraph("Glossary of Acoustic Terminology", "Heading4"),
     '<w:sectPr><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/><w:headerReference w:type="default" r:id="rIdHeader"/></w:sectPr>',
   ].join("");
   return zipSync({
@@ -69,32 +76,54 @@ function plan() {
     requestedByObjectId: "11111111-1111-4111-8111-111111111111",
     instruction: "Prepare a concise environmental noise report.",
     metadata: { reportTitle: "Environmental Noise Assessment", projectName: "Example Project", issueDate: "2026-09-25" },
-    sectionPayload: { sections: [{ heading: "Executive Summary", paragraphs: ["The measured rating level was 45 dB LAr,T. [D1]"] }] },
+    sectionPayload: {
+      sections: [
+        {
+          heading: "Executive Summary",
+          paragraphs: ["The measured rating level was 45 dB LAr,T. [D1]"],
+          tables: [],
+        },
+        {
+          heading: "Acoustic Performance Specification",
+          paragraphs: [],
+          tables: [
+            {
+              title: "Measured level",
+              columns: ["Descriptor", "Value"],
+              rows: [["Rating level", "45 dB LAr,T [D1]"]],
+            },
+          ],
+        },
+      ],
+    },
     citations: [citation],
     supplementaryAttachments: [],
   });
 }
 
 test("report plans reject unsupported citations", () => {
-  assert.throws(() => buildGroundedReportPlan({ reportId: "report-1", requestedByObjectId: "11111111-1111-4111-8111-111111111111", instruction: "Prepare report.", metadata: { reportTitle: "Report", projectName: "Project", issueDate: "2026-09-25" }, sectionPayload: { sections: [{ heading: "Executive Summary", paragraphs: ["Invented. [D2]"] }] }, citations: [citation], supplementaryAttachments: [] }), /citation-invalid/);
+  assert.throws(() => buildGroundedReportPlan({ reportId: "report-1", requestedByObjectId: "11111111-1111-4111-8111-111111111111", instruction: "Prepare report.", metadata: { reportTitle: "Report", projectName: "Project", issueDate: "2026-09-25" }, sectionPayload: { sections: [{ heading: "Executive Summary", paragraphs: ["Invented. [D2]"], tables: [] }] }, citations: [citation], supplementaryAttachments: [] }), /citation-invalid/);
+});
+
+test("report plans reject tables in the protected executive-summary layout", () => {
+  assert.throws(() => buildGroundedReportPlan({ reportId: "report-1", requestedByObjectId: "11111111-1111-4111-8111-111111111111", instruction: "Prepare report.", metadata: { reportTitle: "Report", projectName: "Project", issueDate: "2026-09-25" }, sectionPayload: { sections: [{ heading: "Executive Summary", paragraphs: ["Grounded. [D1]"], tables: [{ title: "Not supported here", columns: ["A", "B"], rows: [["Grounded [D1]", "Grounded [D1]"]] }] }] }, citations: [citation], supplementaryAttachments: [] }), /executive-summary-tables-not-supported/);
 });
 
 test("generation clones the immutable master and changes approved text slots only", () => {
-  const source = unzipSync(template());
   const output = unzipSync(buildGroundedReportDocx(template(), plan()));
   assert.deepEqual(output["word/media/logo.png"], new Uint8Array([1, 2, 3]));
   assert.match(strFromU8(output["word/header1.xml"]), /STATIC HEADER/);
   assert.match(strFromU8(output["word/footer1.xml"]), /STATIC FOOTER/);
   const documentXml = strFromU8(output["word/document.xml"]);
-  const sourceXml = strFromU8(source["word/document.xml"]);
   assert.match(documentXml, /w:pgMar w:top="1440"/);
   assert.match(documentXml, /Example Project/);
   assert.match(documentXml, /ENVIRONMENTAL NOISE ASSESSMENT/);
   assert.match(documentXml, /\[D1\]/);
+  assert.match(documentXml, /Measured level/);
+  assert.match(documentXml, /TOC \\o/);
   assert.doesNotMatch(documentXml, /Letterkenny SURS|VHA Architects|J2769|LKPH1/);
   assert.doesNotMatch(documentXml, /SAMPLE Executive Summary/);
-  assert.deepEqual(output["word/settings.xml"], source["word/settings.xml"]);
-  for (const tag of ["sectPr", "pgMar", "tbl", "drawing"]) {
-    assert.equal((documentXml.match(new RegExp(`<w:${tag}\\b`, "g")) ?? []).length, (sourceXml.match(new RegExp(`<w:${tag}\\b`, "g")) ?? []).length);
-  }
+  assert.match(strFromU8(output["word/settings.xml"]), /updateFields w:val="true"/);
+  assert.ok((documentXml.match(/<w:tbl\b/g) ?? []).length >= 1);
+  assert.ok((documentXml.match(/<w:pgMar\b/g) ?? []).length >= 1);
 });

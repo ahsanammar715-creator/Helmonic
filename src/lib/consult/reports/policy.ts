@@ -48,7 +48,7 @@ export function buildGroundedReportPlan(input: {
   const headings = new Set<string>();
   const supplied = payload.sections.map((section, index) => {
     if (!section || typeof section !== "object") throw new Error(`report-section-${index}-invalid`);
-    const item = section as { heading?: unknown; paragraphs?: unknown };
+    const item = section as { heading?: unknown; paragraphs?: unknown; tables?: unknown };
     const heading = limitedText(item.heading, `section-${index}-heading`, 120, true);
     if (!reportSectionHeadings.includes(heading as never)) throw new Error(`report-section-${index}-unknown`);
     if (headings.has(heading)) throw new Error(`report-section-${index}-duplicate`);
@@ -63,21 +63,71 @@ export function buildGroundedReportPlan(input: {
         throw new Error(`report-section-${index}-citation-invalid:${validation.errors.join(" ")}`);
       }
     }
-    return { heading: heading as (typeof reportSectionHeadings)[number], paragraphs };
+    const rawTables = item.tables ?? [];
+    if (!Array.isArray(rawTables)) throw new Error(`report-section-${index}-tables-invalid`);
+    if (heading === "Executive Summary" && rawTables.length > 0) {
+      throw new Error("report-executive-summary-tables-not-supported");
+    }
+    if (rawTables.length > 6) throw new Error(`report-section-${index}-tables-too-many`);
+    const tables = rawTables.map((table, tableIndex) => {
+      if (!table || typeof table !== "object") {
+        throw new Error(`report-section-${index}-table-${tableIndex}-invalid`);
+      }
+      const candidate = table as { title?: unknown; columns?: unknown; rows?: unknown };
+      const title = limitedText(candidate.title, `section-${index}-table-${tableIndex}-title`, 180, true);
+      if (!Array.isArray(candidate.columns) || candidate.columns.length < 2 || candidate.columns.length > 6) {
+        throw new Error(`report-section-${index}-table-${tableIndex}-columns-invalid`);
+      }
+      const columns = candidate.columns.map((column, columnIndex) =>
+        limitedText(column, `section-${index}-table-${tableIndex}-column-${columnIndex}`, 100, true),
+      );
+      if (!Array.isArray(candidate.rows) || candidate.rows.length === 0 || candidate.rows.length > 30) {
+        throw new Error(`report-section-${index}-table-${tableIndex}-rows-invalid`);
+      }
+      const rows = candidate.rows.map((row, rowIndex) => {
+        if (!Array.isArray(row) || row.length !== columns.length) {
+          throw new Error(`report-section-${index}-table-${tableIndex}-row-${rowIndex}-invalid`);
+        }
+        const cells = row.map((cell, cellIndex) =>
+          limitedText(cell, `section-${index}-table-${tableIndex}-row-${rowIndex}-cell-${cellIndex}`, 700, true),
+        );
+        const validation = validateDocumentAnswerCitations(cells.join(" "), input.citations);
+        if (!validation.valid) {
+          throw new Error(
+            `report-section-${index}-table-${tableIndex}-row-${rowIndex}-citation-invalid:${validation.errors.join(" ")}`,
+          );
+        }
+        return cells;
+      });
+      return { title, columns, rows };
+    });
+    return { heading: heading as (typeof reportSectionHeadings)[number], paragraphs, tables };
   });
   const byHeading = new Map(supplied.map((section) => [section.heading, section]));
   const sections = reportSectionHeadings.map(
-    (heading) => byHeading.get(heading) ?? { heading, paragraphs: [] },
+    (heading) => byHeading.get(heading) ?? { heading, paragraphs: [], tables: [] },
   );
+  const usedMarkers = new Set(
+    sections
+      .flatMap((section) => [
+        ...section.paragraphs,
+        ...section.tables.flatMap((table) => table.rows.flat()),
+      ])
+      .flatMap((text) => text.match(/\[(?:D|S|B|A|E)\d+\]/g) ?? []),
+  );
+  const usedCitations = input.citations.filter((citation) => {
+    const marker = `[${citation.marker ?? citation.citationNamespace ?? "D"}]`;
+    return usedMarkers.has(marker);
+  });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     reportId: input.reportId,
     createdAt: new Date().toISOString(),
     requestedByObjectId: input.requestedByObjectId,
     instruction: limitedText(input.instruction, "instruction", 2_000, true),
     metadata: input.metadata,
     sections,
-    citations: input.citations,
+    citations: usedCitations,
     supplementaryAttachments: input.supplementaryAttachments,
   };
 }

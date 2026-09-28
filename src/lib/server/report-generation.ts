@@ -50,7 +50,7 @@ async function createSectionPayload(input: {
           {
             role: "system",
             content:
-              "Prepare a technically exact acoustic report plan for a practising acoustic consultant. Use correct acoustic notation and terminology without explaining elementary concepts. Use only supplied evidence. Every factual paragraph must end with one or more exact supplied citation markers. Never invent values, clauses, measurements, standards or project facts. Return an empty paragraphs array where evidence is absent.",
+              "Prepare a technically exact acoustic report plan for a practising acoustic consultant. Use correct acoustic notation and terminology without explaining elementary concepts. Use only supplied evidence. Every factual paragraph must end with one or more exact supplied citation markers. The Executive Summary must contain paragraphs only and its tables array must be empty. In later sections, use tables only when the evidence contains genuinely comparable criteria, schedules, measurements or constructions; every factual table row must contain at least one exact supplied citation marker. Never invent values, clauses, measurements, standards or project facts. Return empty paragraphs and tables arrays where evidence is absent. Do not write placeholder prose about missing evidence.",
           },
           {
             role: "user",
@@ -74,10 +74,39 @@ async function createSectionPayload(input: {
                   items: {
                     type: "object",
                     additionalProperties: false,
-                    required: ["heading", "paragraphs"],
+                    required: ["heading", "paragraphs", "tables"],
                     properties: {
                       heading: { type: "string", enum: reportSectionHeadings },
                       paragraphs: { type: "array", items: { type: "string" } },
+                      tables: {
+                        type: "array",
+                        maxItems: 6,
+                        items: {
+                          type: "object",
+                          additionalProperties: false,
+                          required: ["title", "columns", "rows"],
+                          properties: {
+                            title: { type: "string" },
+                            columns: {
+                              type: "array",
+                              minItems: 2,
+                              maxItems: 6,
+                              items: { type: "string" },
+                            },
+                            rows: {
+                              type: "array",
+                              minItems: 1,
+                              maxItems: 30,
+                              items: {
+                                type: "array",
+                                minItems: 2,
+                                maxItems: 6,
+                                items: { type: "string" },
+                              },
+                            },
+                          },
+                        },
+                      },
                     },
                   },
                 },
@@ -182,7 +211,7 @@ export async function generateAndStoreReport(input: {
     reportBlobName: reportWrite.blobName,
     manifestBlobName: manifestWrite.blobName,
     attachmentBlobNames: attachmentWrites.map((write) => write.blobName),
-    citationCount: input.citations.length,
+    citationCount: plan.citations.length,
     sectionCount: plan.sections.length,
     downloadUrl: `/api/consult/reports/${reportId}/download`,
   };

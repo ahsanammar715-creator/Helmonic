@@ -29,6 +29,13 @@ export type ReportMetadata = {
 export type GroundedReportSection = {
   heading: ReportSectionHeading;
   paragraphs: string[];
+  tables: GroundedReportTable[];
+};
+
+export type GroundedReportTable = {
+  title: string;
+  columns: string[];
+  rows: string[][];
 };
 
 export type SupplementaryAttachment = {
@@ -41,7 +48,7 @@ export type SupplementaryAttachment = {
 };
 
 export type GroundedReportPlan = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   reportId: string;
   createdAt: string;
   requestedByObjectId: string;

@@ -52,10 +52,43 @@ function requireSearchConfig(config: RuntimeConfig) {
   };
 }
 
-export async function searchConsultEvidence(
+function controlledCitationsFromDocuments(documents: SearchDocument[], requestId: string) {
+  const markerCounters = { D: 0, S: 0, B: 0 };
+  return documents
+    .filter((document) => document.content && document.source_id)
+    .map<ConsultCitation>((document, index) => {
+      const citationNamespace = controlledCitationNamespace(document.citation_namespace);
+      const marker = nextControlledMarker(citationNamespace, markerCounters);
+      const citation: ConsultCitation = {
+        id: document.chunk_id ?? `citation-${index + 1}`,
+        title: document.title ?? document.source_id ?? `Source ${index + 1}`,
+        sourceId: document.source_id ?? `source-${index + 1}`,
+        section: document.section || undefined,
+        pageNumber:
+          typeof document.page_number === "number" ? document.page_number : undefined,
+        excerpt: buildControlledEvidenceExcerpt(document.content ?? "", document.chunk_kind),
+        sourceUri: document.source_uri || undefined,
+        score:
+          typeof document["@search.score"] === "number"
+            ? document["@search.score"]
+            : undefined,
+        sourceType: "controlled",
+        citationNamespace,
+        marker,
+      };
+
+      const privateAudit = privateBookCitationAuditRecord(requestId, citation);
+      if (privateAudit) console.info("Helmonic private book citation audit", privateAudit);
+
+      return publicControlledCitation(citation);
+    });
+}
+
+async function searchControlledDocuments(
   question: string,
   requestId: string,
   config: RuntimeConfig,
+  top = config.search.top,
 ) {
   const { endpoint, indexName } = requireSearchConfig(config);
   const queryEmbedding = config.search.hybridEnabled
@@ -67,7 +100,7 @@ export async function searchConsultEvidence(
     ? buildControlledHybridSearchRequest(
         question,
         config.profile,
-        config.search.top,
+        top,
         queryEmbedding,
         {
           vectorK: config.search.vectorK,
@@ -76,7 +109,7 @@ export async function searchConsultEvidence(
             : undefined,
         },
       )
-    : buildControlledSearchRequest(question, config.profile, config.search.top);
+    : buildControlledSearchRequest(question, config.profile, top);
   const token = await getAzureAccessToken("https://search.azure.com/.default");
   const response = await fetch(
     `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(
@@ -121,35 +154,75 @@ export async function searchConsultEvidence(
     });
   }
 
-  const markerCounters = { D: 0, S: 0, B: 0 };
-  return relevantDocuments
-    .filter((document) => document.content && document.source_id)
-    .map<ConsultCitation>((document, index) => {
-      const citationNamespace = controlledCitationNamespace(document.citation_namespace);
-      const marker = nextControlledMarker(citationNamespace, markerCounters);
-      const citation: ConsultCitation = {
-        id: document.chunk_id ?? `citation-${index + 1}`,
-        title: document.title ?? document.source_id ?? `Source ${index + 1}`,
-        sourceId: document.source_id ?? `source-${index + 1}`,
-        section: document.section || undefined,
-        pageNumber:
-          typeof document.page_number === "number" ? document.page_number : undefined,
-        excerpt: buildControlledEvidenceExcerpt(document.content ?? "", document.chunk_kind),
-        sourceUri: document.source_uri || undefined,
-        score:
-          typeof document["@search.score"] === "number"
-            ? document["@search.score"]
-            : undefined,
-        sourceType: "controlled",
-        citationNamespace,
-        marker,
-      };
+  return relevantDocuments;
+}
 
-      const privateAudit = privateBookCitationAuditRecord(requestId, citation);
-      if (privateAudit) console.info("Helmonic private book citation audit", privateAudit);
+export async function searchConsultEvidence(
+  question: string,
+  requestId: string,
+  config: RuntimeConfig,
+) {
+  return controlledCitationsFromDocuments(
+    await searchControlledDocuments(question, requestId, config),
+    requestId,
+  );
+}
 
-      return publicControlledCitation(citation);
-    });
+export async function searchReportEvidence(
+  question: string,
+  requestId: string,
+  config: RuntimeConfig,
+) {
+  const initial = await searchControlledDocuments(
+    question,
+    requestId,
+    config,
+    Math.max(config.search.top, 12),
+  );
+  const sourceIds = [...new Set(initial.map((document) => document.source_id).filter(Boolean))]
+    .slice(0, 2) as string[];
+  if (sourceIds.length === 0) return [];
+
+  const { endpoint, indexName } = requireSearchConfig(config);
+  const token = await getAzureAccessToken("https://search.azure.com/.default");
+  const expanded = await Promise.all(
+    sourceIds.map(async (sourceId) => {
+      const scope = config.profile.replace(/'/g, "''");
+      const source = sourceId.replace(/'/g, "''");
+      const response = await fetch(
+        `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(
+          config.search.apiVersion,
+        )}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "x-ms-client-request-id": requestId,
+          },
+          body: JSON.stringify({
+            search: "*",
+            queryType: "simple",
+            searchMode: "all",
+            filter: `permission_scope eq '${scope}' and source_id eq '${source}'`,
+            top: 60,
+            select:
+              "chunk_id,source_id,source_uri,title,section,page_number,content,chunk_kind,citation_namespace",
+          }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(12_000),
+        },
+      );
+      if (!response.ok) throw new Error(`Azure AI Search report expansion failed with status ${response.status}`);
+      return ((await response.json()) as SearchResponse).value ?? [];
+    }),
+  );
+  const unique = new Map<string, SearchDocument>();
+  for (const document of [...initial, ...expanded.flat()]) {
+    const key = document.chunk_id ?? `${document.source_id}:${document.page_number}:${document.section}`;
+    if (!unique.has(key)) unique.set(key, document);
+  }
+  return controlledCitationsFromDocuments([...unique.values()], requestId);
 }
 
 export async function searchSessionEvidence(

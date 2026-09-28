@@ -45,9 +45,17 @@ export async function POST(request: Request) {
       attachmentValues
         .map(async (file) => ({ name: file.name, type: file.type, bytes: new Uint8Array(await file.arrayBuffer()) })),
     );
-    const { searchConsultEvidence, searchSessionEvidence } = await import("@/lib/server/search");
+    const { searchReportEvidence, searchSessionEvidence } = await import("@/lib/server/search");
+    const reportEvidenceQuery = [
+      instruction,
+      typeof metadata?.projectName === "string" ? metadata.projectName : "",
+      typeof metadata?.projectNumber === "string" ? metadata.projectNumber : "",
+      typeof metadata?.client === "string" ? metadata.client : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     const [controlled, session] = await Promise.all([
-      searchConsultEvidence(instruction, requestId, config),
+      searchReportEvidence(reportEvidenceQuery, requestId, config),
       conversationId && config.phase1b.uploadsEnabled
         ? searchSessionEvidence(instruction, actor.objectId, conversationId, requestId, config)
         : Promise.resolve([]),
