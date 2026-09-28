@@ -72,11 +72,28 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ ...result, requestId }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    const diagnostic =
+      process.env.REPORT_GENERATION_DIAGNOSTICS === "true" &&
+      error instanceof Error &&
+      error.name === "ReportModelRequestError"
+        ? {
+            modelStatus: Number((error as Error & { status?: number }).status ?? 0),
+            modelResponse: String((error as Error & { responseBody?: string }).responseBody ?? ""),
+          }
+        : undefined;
     console.error("Helmonic report generation failed", {
       requestId,
       errorType: error instanceof Error ? error.name : "UnknownError",
       message: error instanceof Error ? error.message : "unknown",
+      diagnostic,
     });
-    return fail("Helmonic could not generate the report from the available grounded evidence.", requestId, 422);
+    return NextResponse.json(
+      {
+        error: "Helmonic could not generate the report from the available grounded evidence.",
+        requestId,
+        ...(diagnostic ? { diagnostic } : {}),
+      },
+      { status: 422, headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

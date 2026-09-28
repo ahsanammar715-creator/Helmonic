@@ -17,6 +17,16 @@ import { loadConfiguredReportTemplate } from "@/lib/server/report-template-blob"
 
 type ReportInputFile = { name: string; type: string; bytes: Uint8Array };
 
+export class ReportModelRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly responseBody: string,
+  ) {
+    super(`report-model-${status}`);
+    this.name = "ReportModelRequestError";
+  }
+}
+
 function evidenceText(citations: ConsultCitation[]) {
   return citations
     .map((citation) => {
@@ -119,8 +129,9 @@ async function createSectionPayload(input: {
       signal: AbortSignal.timeout(input.config.model.timeoutMilliseconds),
     },
   );
-  if (!response.ok) throw new Error(`report-model-${response.status}`);
-  const payload = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const responseBody = await response.text();
+  if (!response.ok) throw new ReportModelRequestError(response.status, responseBody.slice(0, 8_192));
+  const payload = JSON.parse(responseBody) as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;
   if (!content) throw new Error("report-model-empty");
   return JSON.parse(content) as unknown;
