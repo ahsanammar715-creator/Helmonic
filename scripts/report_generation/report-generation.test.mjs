@@ -57,11 +57,17 @@ function template() {
     paragraph("Report TitleAcoustic Report"),
     paragraph("Document NumberLKPH1-IAC-XX-XX-RP-Y-0001"),
     paragraph("Table of Contents", "Normal"),
-    '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>MASTER TOC ENTRIES</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:pPr><w:spacing w:line="254" w:lineRule="exact"/></w:pPr><w:hyperlink w:anchor="s6"><w:r><w:rPr><w:rFonts w:ascii="Gibson"/><w:sz w:val="22"/></w:rPr><w:t>6 Building Services Noise</w:t></w:r></w:hyperlink></w:p></w:tc></w:tr></w:tbl>',
+    '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>MASTER TOC ENTRIES</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:pPr><w:spacing w:line="254" w:lineRule="exact"/></w:pPr><w:hyperlink w:anchor="s6"><w:r><w:rPr><w:rFonts w:ascii="Gibson Condensed"/><w:i/><w:spacing w:val="12"/><w:w w:val="85"/><w:sz w:val="22"/></w:rPr><w:t>6 Building Services Noise</w:t></w:r></w:hyperlink></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:hyperlink w:anchor="s6a"><w:r><w:rPr><w:rFonts w:ascii="Gibson Condensed"/><w:i/><w:w w:val="75"/><w:sz w:val="18"/></w:rPr><w:t>6.1 General Requirements</w:t></w:r></w:hyperlink></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:spacing w:val="-8"/><w:sz w:val="24"/></w:rPr><w:t>Appendix A — Design Standards &amp; Guidance</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
     '<w:p><w:pPr><w:sectPr><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/><w:cols/></w:sectPr></w:pPr></w:p>',
     ...mainHeadings.flatMap((heading) => [
       paragraph(heading, "Heading1"),
       paragraph(`SAMPLE ${heading}`),
+      ...(heading === "Internal Sound Insulation"
+        ? [
+            '<w:p><w:pPr><w:pStyle w:val="BodyText"/></w:pPr><w:r><w:rPr><w:spacing w:val="30"/><w:u w:val="single"/></w:rPr><w:t>Figure 3-1   Site location showing receptors</w:t></w:r></w:p>',
+            '<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:spacing w:before="0"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:spacing w:val="20"/><w:sz w:val="22"/></w:rPr><w:t>Internal Partition Junction Typical Detail</w:t></w:r></w:p>',
+          ]
+        : []),
       ...(heading === "Acoustic Performance Specification"
         ? ['<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>COL 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>COL 2</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>VALUE 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>VALUE 2</w:t></w:r></w:p></w:tc></w:tr></w:tbl>']
         : []),
@@ -193,7 +199,17 @@ test("generation clones the immutable master and changes approved text slots onl
   assert.doesNotMatch(documentXml, /The measured rating level was 45 dB LAr,T\.:/);
   assert.match(documentXml, /MASTER TOC ENTRIES/);
   assert.match(documentXml, /w:anchor="s6"[\s\S]*?<w:spacing[^>]*w:before="251"|w:spacing[^>]*w:before="251"[\s\S]*?w:anchor="s6"/);
+  const tocXml = documentXml.match(/<w:tbl><w:tblPr\/>[\s\S]*?MASTER TOC ENTRIES[\s\S]*?<\/w:tbl>/)?.[0] ?? "";
+  assert.match(tocXml, /w:ascii="Gibson" w:hAnsi="Gibson" w:eastAsia="Gibson" w:cs="Gibson"/);
+  assert.doesNotMatch(tocXml, /Gibson Condensed|w:ascii="Arial"|<w:i\/>|<w:b\/>|<w:spacing w:val=|<w:w w:val=/);
+  assert.match(tocXml, /Appendix A[\s\S]*?<w:sz w:val="22"\/>|<w:sz w:val="22"\/>[\s\S]*?Appendix A/);
+  assert.match(tocXml, /6\.1 General Requirements/);
+  assert.doesNotMatch(documentXml, /Figure 3-1\s{2,}Site/);
+  assert.match(documentXml, /Figure 3-1 Site location showing receptors/);
+  assert.match(documentXml, /Internal Partition Junction Typical Detail/);
+  assert.match(documentXml, /<w:spacing[^>]*w:before="82"/);
   assert.match(documentXml, /<w:u w:val="none"\/>/);
+  assert.doesNotMatch(documentXml, /<w:u w:val="single"\/>/);
   assert.match(documentXml, /<w:jc w:val="right"\/>[\s\S]*?<w:br\/>[\s\S]*?<w:t>J2701<\/w:t>/);
   assert.doesNotMatch(documentXml, /TOC \\o "1-2" \\h \\z \\u/);
   assert.match(documentXml, /A–D Appendices/);

@@ -35,11 +35,10 @@ function textOf(node: string) {
 function markTextRunsAsPresentation(node: string) {
   return node.replace(/<w:r\b([^>]*)>([\s\S]*?)<\/w:r>/g, (whole, attributes: string, body: string) => {
     if (!/<w:t\b/.test(body)) return whole;
-    let updatedBody = body;
-    const properties = `${/<w:noProof\b/.test(body) ? "" : "<w:noProof/>"}${
-      /<w:u\b/.test(body) ? "" : '<w:u w:val="none"/>'
-    }`;
-    if (!properties) return whole;
+    let updatedBody = body
+      .replace(/<w:noProof\b[^>]*\/>/g, "")
+      .replace(/<w:u\b[^>]*(?:\/>|>[\s\S]*?<\/w:u>)/g, "");
+    const properties = '<w:noProof/><w:u w:val="none"/>';
     if (/<w:rPr\b[^>]*\/>/.test(updatedBody)) {
       updatedBody = updatedBody.replace(/<w:rPr\b([^>]*)\/>/, `<w:rPr$1>${properties}</w:rPr>`);
     } else if (/<w:rPr\b[^>]*>/.test(updatedBody)) {
@@ -80,10 +79,55 @@ function setParagraphSpacingBefore(node: string, value: number) {
   return node.replace(/<w:p\b([^>]*)>/, `<w:p$1><w:pPr><w:spacing w:before="${value}"/></w:pPr>`);
 }
 
+function setParagraphSpacing(
+  node: string,
+  values: { before?: number; after?: number; line?: number; lineRule?: "auto" | "exact" | "atLeast" },
+) {
+  const attributes = [
+    values.before === undefined ? "" : ` w:before="${values.before}"`,
+    values.after === undefined ? "" : ` w:after="${values.after}"`,
+    values.line === undefined ? "" : ` w:line="${values.line}"`,
+    values.lineRule === undefined ? "" : ` w:lineRule="${values.lineRule}"`,
+  ].join("");
+  if (/<w:spacing\b[^>]*\/>/.test(node)) {
+    return node.replace(/<w:spacing\b([^>]*)\/>/, (_whole, existing: string) => {
+      const retained = existing.replace(/\s+w:(?:before|after|line|lineRule)="[^"]*"/g, "");
+      return `<w:spacing${retained}${attributes}/>`;
+    });
+  }
+  if (/<w:pPr\b[^>]*\/>/.test(node)) {
+    return node.replace(/<w:pPr\b([^>]*)\/>/, `<w:pPr$1><w:spacing${attributes}/></w:pPr>`);
+  }
+  if (/<w:pPr\b[^>]*>/.test(node)) {
+    return node.replace(/<w:pPr\b([^>]*)>/, `<w:pPr$1><w:spacing${attributes}/>`);
+  }
+  return node.replace(/<w:p\b([^>]*)>/, `<w:p$1><w:pPr><w:spacing${attributes}/></w:pPr>`);
+}
+
 function normalizeRunTracking(node: string) {
   return node.replace(/<w:rPr\b([^>]*)>([\s\S]*?)<\/w:rPr>/g, (_whole, attributes: string, body: string) =>
     `<w:rPr${attributes}>${body.replace(/<w:(?:spacing|w)\b[^>]*\/>/g, "")}</w:rPr>`,
   );
+}
+
+function normalizeRunTypography(node: string, halfPoints: number, regular = false) {
+  return node.replace(/<w:r\b([^>]*)>([\s\S]*?)<\/w:r>/g, (whole, attributes: string, body: string) => {
+    if (!/<w:t\b/.test(body)) return whole;
+    let stripped = body
+      .replace(/<w:rFonts\b[^>]*\/>/g, "")
+      .replace(/<w:(?:sz|szCs|spacing|w|i|iCs)\b[^>]*\/>/g, "");
+    if (regular) stripped = stripped.replace(/<w:(?:b|bCs)\b[^>]*\/>/g, "");
+    const typography = `<w:rFonts w:ascii="Gibson" w:hAnsi="Gibson" w:eastAsia="Gibson" w:cs="Gibson"/><w:sz w:val="${halfPoints}"/><w:szCs w:val="${halfPoints}"/>`;
+    let updatedBody = stripped;
+    if (/<w:rPr\b[^>]*\/>/.test(updatedBody)) {
+      updatedBody = updatedBody.replace(/<w:rPr\b([^>]*)\/>/, `<w:rPr$1>${typography}</w:rPr>`);
+    } else if (/<w:rPr\b[^>]*>/.test(updatedBody)) {
+      updatedBody = updatedBody.replace(/<w:rPr\b([^>]*)>/, `<w:rPr$1>${typography}`);
+    } else {
+      updatedBody = `<w:rPr>${typography}</w:rPr>${updatedBody}`;
+    }
+    return `<w:r${attributes}>${updatedBody}</w:r>`;
+  });
 }
 
 function normalizeApprovalLabel(node: string) {
@@ -114,12 +158,134 @@ function normalizeCoverLabel(node: string) {
 function polishTocTable(node: string) {
   return node.replace(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/g, (row) => {
     const anchors = [...row.matchAll(/<w:hyperlink\b[^>]*w:anchor="([^"]+)"/g)].map((match) => match[1]);
-    const topLevel = anchors.some((anchor) => /^(?:exec|s[1-7])$/.test(anchor));
+    const rowText = textOf(row);
+    const topLevel = anchors.some((anchor) => /^(?:exec|s[1-7])$/.test(anchor))
+      || /^(?:Executive Summary|[1-7]\s|Appendix\s+[A-D]\b)/.test(rowText);
     return row.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraph) => {
       const spaced = topLevel ? setParagraphSpacingBefore(paragraph, 251) : paragraph;
-      return markTextRunsAsPresentation(spaced);
+      return markTextRunsAsPresentation(normalizeRunTypography(normalizeRunTracking(spaced), topLevel ? 22 : 20, true));
     });
   });
+}
+
+function normalizeCaption(node: string) {
+  const value = textOf(node);
+  if (!/^(?:Figure|Table)\s+\d+(?:-\d+)?\s+/i.test(value)) return node;
+  return markTextRunsAsPresentation(
+    normalizeRunTracking(
+      setParagraphSpacing(replaceVisibleText(node, value.replace(/\s+/g, " ").trim()), { before: 60, after: 90 }),
+    ),
+  );
+}
+
+function normalizeCompactSubheading(node: string) {
+  if (paragraphStyle(node) !== "ListParagraph") return node;
+  const value = textOf(node);
+  if (!/^(?:General Construction Method|Internal Partition Junction Typical Detail|Partition to Mullion Typical Detail|Deflection Head Typical Detail)$/i.test(value)) {
+    return node;
+  }
+  return markTextRunsAsPresentation(
+    keepParagraphTogether(
+      normalizeRunTypography(normalizeRunTracking(setParagraphSpacingBefore(node, 82)), 18),
+    ),
+  );
+}
+
+function normalizeSectionSubheading(node: string) {
+  if (paragraphStyle(node) !== "Heading4") return node;
+  return markTextRunsAsPresentation(
+    keepParagraphTogether(
+      normalizeRunTypography(normalizeRunTracking(setParagraphSpacing(node, { before: 120, after: 80 })), 22),
+    ),
+  );
+}
+
+function normalizeDisclaimerLayout(nodes: string[]) {
+  const start = nodes.findIndex((node) => textOf(node).startsWith("This report has been prepared by Integrated Acoustic Solutions Ltd"));
+  const end = nodes.findIndex((node, index) => index > start && textOf(node).toLowerCase().startsWith("this report may no longer remain valid"));
+  if (start < 0 || end < start) return;
+  for (let index = start; index <= end; index += 1) {
+    if (!nodes[index].startsWith("<w:p") || !textOf(nodes[index])) continue;
+    nodes[index] = setParagraphSpacing(nodes[index], {
+      before: index === start ? 60 : 36,
+      after: 0,
+      line: 276,
+      lineRule: "auto",
+    });
+  }
+}
+
+function normalizeInternalFlowBreaks(nodes: string[]) {
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (!/<w:sectPr\b/.test(nodes[index])) continue;
+    const preceding = nodes.slice(0, index).findLast((node) => node.startsWith("<w:p") && Boolean(textOf(node)));
+    if (!preceding || !/^Door sets/i.test(textOf(preceding))) continue;
+    if (/<w:type\b[^>]*\/>/.test(nodes[index])) {
+      nodes[index] = nodes[index].replace(/<w:type\b[^>]*\/>/, '<w:type w:val="continuous"/>');
+    } else {
+      nodes[index] = nodes[index].replace(/<w:sectPr\b([^>]*)>/, '<w:sectPr$1><w:type w:val="continuous"/>');
+    }
+  }
+}
+
+function normalizeComponentParagraph(node: string) {
+  if (!/^(?:Glazed screens|Door sets|Folding partitions|Riser doors)/i.test(textOf(node))) return node;
+  return setParagraphSpacing(node, { before: 36, after: 0, line: 276, lineRule: "auto" });
+}
+
+function normalizeHeadingIntroductions(nodes: string[]) {
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (paragraphStyle(nodes[index]) !== "Heading4") continue;
+    for (let following = index + 1; following < nodes.length; following += 1) {
+      if (!nodes[following].startsWith("<w:p")) break;
+      const value = textOf(nodes[following]);
+      if (!value) continue;
+      if (value.length <= 900) {
+        nodes[following] = setParagraphSpacing(nodes[following], {
+          before: 40,
+          after: 0,
+          line: 286,
+          lineRule: "auto",
+        });
+      }
+      break;
+    }
+  }
+}
+
+function protectCompactSubheadingIntroductions(nodes: string[]) {
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (paragraphStyle(nodes[index]) !== "ListParagraph") continue;
+    if (!/^(?:General Construction Method|Internal Partition Junction Typical Detail|Partition to Mullion Typical Detail|Deflection Head Typical Detail)$/i.test(textOf(nodes[index]))) continue;
+    for (let following = index + 1; following < nodes.length; following += 1) {
+      if (!nodes[following].startsWith("<w:p")) break;
+      if (!textOf(nodes[following])) continue;
+      nodes[following] = keepParagraphTogether(nodes[following], false);
+      break;
+    }
+  }
+}
+
+function forceParagraphStart(node: string) {
+  if (!textOf(node).startsWith("Refer to Appendix A — Design Standards & Guidance")) return node;
+  return node.replace(/<w:r\b([^>]*)>/, '<w:r$1><w:br/>');
+}
+
+function polishEndIdentity(node: string) {
+  if (!textOf(node).startsWith("Integrated Acoustic Solutions Ltd")) return node;
+  return setParagraphSpacing(node, { before: 220, after: 0 });
+}
+
+function protectParagraphsBeforeSectionBreaks(nodes: string[]) {
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (!/<w:sectPr\b/.test(nodes[index])) continue;
+    for (let preceding = index - 1; preceding >= 0; preceding -= 1) {
+      if (!nodes[preceding].startsWith("<w:p")) continue;
+      if (!textOf(nodes[preceding])) continue;
+      nodes[preceding] = keepParagraphTogether(nodes[preceding], false);
+      break;
+    }
+  }
 }
 
 function alignDisclaimerContinuation(nodes: string[]) {
@@ -390,6 +556,7 @@ function maskPermittedFooterPresentation(xml: string) {
     .replace(/<w:noProof\s*\/>/g, "")
     .replace(/<w:u\b[^>]*w:val="none"[^>]*\/>/g, "")
     .replace(/<w:rPr>\s*<\/w:rPr>/g, "")
+    .replace(/<w:rPr\s*\/>/g, "")
     .replace(/<w:jc w:val="center"\s*\/>/g, '<w:jc w:val="left"/>');
 }
 
@@ -637,9 +804,21 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     rebuilt[index] = replaceExactRuns(rebuilt[index], sampleIdentityRuns);
     rebuilt[index] = normalizeCoverLabel(rebuilt[index]);
     rebuilt[index] = normalizeApprovalLabel(rebuilt[index]);
+    rebuilt[index] = normalizeCaption(rebuilt[index]);
+    rebuilt[index] = normalizeCompactSubheading(rebuilt[index]);
+    rebuilt[index] = normalizeSectionSubheading(rebuilt[index]);
+    rebuilt[index] = normalizeComponentParagraph(rebuilt[index]);
+    rebuilt[index] = forceParagraphStart(rebuilt[index]);
+    rebuilt[index] = polishEndIdentity(rebuilt[index]);
     rebuilt[index] = polishEndOfReport(rebuilt[index], resolvedDocumentNumber, resolvedRevision);
+    rebuilt[index] = markTextRunsAsPresentation(rebuilt[index]);
   }
   alignDisclaimerContinuation(rebuilt);
+  normalizeDisclaimerLayout(rebuilt);
+  normalizeInternalFlowBreaks(rebuilt);
+  normalizeHeadingIntroductions(rebuilt);
+  protectCompactSubheadingIntroductions(rebuilt);
+  protectParagraphsBeforeSectionBreaks(rebuilt);
 
   if (rebuilt.length !== sourceNodes.length) throw new Error("report-template-body-node-count-changed");
   const generatedBodyXml = rebuilt.join("");
@@ -657,7 +836,7 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   const footer = outputArchive["word/footer1.xml"];
   if (footer) {
     outputArchive["word/footer1.xml"] = strToU8(
-      polishFooterIdentity(replaceExactRuns(
+      markTextRunsAsPresentation(polishFooterIdentity(replaceExactRuns(
         strFromU8(footer),
         new Map<string, string>([
           ["LKPH1-IAC-XX-XX-RP-Y-0001", resolvedDocumentNumber],
@@ -665,7 +844,7 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
           ["03/09/2026", shortDate],
         ]),
         false,
-      )),
+      ))),
     );
   }
   const settings = outputArchive["word/settings.xml"];
