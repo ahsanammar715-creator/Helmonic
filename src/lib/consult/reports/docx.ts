@@ -384,6 +384,18 @@ function replaceExactRuns(node: string, replacements: Map<string, string>, markP
   return changed && markPresentation ? markTextRunsAsPresentation(output) : output;
 }
 
+function replaceVisibleParagraphSubstrings(
+  node: string,
+  replacements: ReadonlyArray<readonly [string, string]>,
+) {
+  return node.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const visible = textOf(paragraph);
+    let replacement = visible;
+    for (const [source, target] of replacements) replacement = replacement.replaceAll(source, target);
+    return replacement === visible ? paragraph : replaceVisibleText(paragraph, replacement);
+  });
+}
+
 function replaceValueAfterPrefix(node: string, prefix: string, replacement: string) {
   let visible = "";
   let inserted = false;
@@ -800,8 +812,17 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     ["VHA Architects", plan.metadata.client ?? "the Client"],
     ["LKPH1-IAC-XX-XX-RP-Y-0001", resolvedDocumentNumber],
   ]);
+  const splitSampleIdentityText = [
+    ["VHA Architects", plan.metadata.client ?? "the Client"],
+    ["Letterkenny,", plan.metadata.address ? `${plan.metadata.address},` : `${plan.metadata.projectName},`],
+    ["LKPH1-IAC-XX-XX-RP-Y-0001", resolvedDocumentNumber],
+    ["Letterkenny", plan.metadata.projectName],
+    ["J2769", plan.metadata.projectNumber ?? "-"],
+    ["VHA", plan.metadata.client ?? "-"],
+  ] as const;
   for (let index = 0; index < rebuilt.length; index += 1) {
     rebuilt[index] = replaceExactRuns(rebuilt[index], sampleIdentityRuns);
+    rebuilt[index] = replaceVisibleParagraphSubstrings(rebuilt[index], splitSampleIdentityText);
     rebuilt[index] = normalizeCoverLabel(rebuilt[index]);
     rebuilt[index] = normalizeApprovalLabel(rebuilt[index]);
     rebuilt[index] = normalizeCaption(rebuilt[index]);

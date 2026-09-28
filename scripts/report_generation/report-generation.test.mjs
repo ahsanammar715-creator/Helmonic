@@ -69,6 +69,9 @@ function template() {
             '<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:spacing w:before="0"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:spacing w:val="20"/><w:sz w:val="22"/></w:rPr><w:t>Internal Partition Junction Typical Detail</w:t></w:r></w:p>',
           ]
         : []),
+      ...(heading === "Room Acoustics"
+        ? ['<w:p><w:pPr><w:pStyle w:val="BodyText"/></w:pPr><w:r><w:t>The site is in Letter</w:t></w:r><w:r><w:t>kenny.</w:t></w:r></w:p>']
+        : []),
       ...(heading === "Acoustic Performance Specification"
         ? ['<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>COL 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>COL 2</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>VALUE 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>VALUE 2</w:t></w:r></w:p></w:tc></w:tr></w:tbl>']
         : []),
@@ -264,6 +267,7 @@ test("generation clones the immutable master and changes approved text slots onl
   assert.doesNotMatch(documentXml, /updates automatically when this report opens/);
   assert.doesNotMatch(documentXml, /report-1/);
   assert.doesNotMatch(documentXml, /Letterkenny SURS|VHA Architects|J2769|LKPH1/);
+  assert.match(documentXml, /The site is in Example Project\./);
   assert.doesNotMatch(documentXml, /SAMPLE Executive Summary/);
   assert.match(strFromU8(output["word/settings.xml"]), /updateFields w:val="true"/);
   assert.equal(
