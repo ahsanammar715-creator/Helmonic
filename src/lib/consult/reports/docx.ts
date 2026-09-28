@@ -86,6 +86,29 @@ function replaceExactRuns(node: string, replacements: Map<string, string>) {
   });
 }
 
+function replaceValueAfterPrefix(node: string, prefix: string, replacement: string) {
+  let visible = "";
+  let inserted = false;
+  return node.replace(/<w:t\b([^>]*)>([\s\S]*?)<\/w:t>/g, (whole, attributes: string, value: string) => {
+    const decoded = decodeXml(value);
+    if (visible.length < prefix.length) {
+      const priorLength = visible.length;
+      visible += decoded;
+      if (visible.length <= prefix.length) return whole;
+      const retainedPrefix = decoded.slice(0, prefix.length - priorLength);
+      inserted = true;
+      return `<w:t${attributes}>${escapeXml(`${retainedPrefix}${replacement}`)}</w:t>`;
+    }
+    if (inserted) return `<w:t${attributes}></w:t>`;
+    inserted = true;
+    return `<w:t${attributes}>${escapeXml(replacement)}</w:t>`;
+  });
+}
+
+function tableCellCount(node: string) {
+  return (node.match(/<w:tc\b/g) ?? []).length;
+}
+
 function compactRunFormatting(node: string, halfPoints: number, widthPercent: number) {
   let output = node.replace(/<w:sz\b[^>]*w:val="\d+"\s*\/>/g, `<w:sz w:val="${halfPoints}"/>`);
   output = output.replace(/<w:szCs\b[^>]*w:val="\d+"\s*\/>/g, `<w:szCs w:val="${halfPoints}"/>`);
@@ -212,6 +235,20 @@ function compactDate(value: string) {
   return `${day}/${month}/${parsed.getFullYear()}`;
 }
 
+function issuedDate(value: string) {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return value.toUpperCase();
+  const month = new Intl.DateTimeFormat("en-IE", { month: "long", timeZone: "UTC" }).format(parsed).toUpperCase();
+  return `I S S U E D ${String(parsed.getUTCDate()).split("").join(" ")} ${month.split("").join(" ")} ${String(parsed.getUTCFullYear()).split("").join(" ")}`;
+}
+
+function replaceTableCells(node: string, values: string[]) {
+  let index = 0;
+  return node.replace(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/g, (cell) =>
+    replaceVisibleText(cell, values[index++] ?? ""),
+  );
+}
+
 function maskVisibleText(xml: string) {
   return xml.replace(/(<w:t\b[^>]*>)[\s\S]*?(<\/w:t>)/g, "$1__DYNAMIC_TEXT__$2");
 }
@@ -301,60 +338,32 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     "Letterkenny, Co Donegal · Prepared for VHA",
     [plan.metadata.address, plan.metadata.client ? `Prepared for ${plan.metadata.client}` : ""].filter(Boolean).join(" · "),
   );
-  replaceFirstParagraph(nodes, "I S S U E D 0 3 S E P T E M B E R 2 0 2 6", `ISSUED ${shortDate}`);
-  const clientCover = replaceFirstParagraph(nodes, "VHA", plan.metadata.client ?? "");
-  nodes[clientCover] = compactRunFormatting(nodes[clientCover], 17, 75);
-  replaceFirstParagraph(nodes, "J2769", plan.metadata.projectNumber ?? "");
-  replaceFirstParagraph(nodes, "A — 03/09/2026", plan.metadata.revision ?? "");
-  const documentCover = replaceFirstParagraph(nodes, "LKPH1-IAC-XX-XX-RP-Y-0001", plan.metadata.documentNumber ?? "");
-  nodes[documentCover] = compactRunFormatting(nodes[documentCover], 17, 78);
-  for (const label of ["C L I E N T", "P R O J E C T N O .", "R E V I S I O N", "D O C U M E N T"]) {
-    const labelIndex = nodes.findIndex((node) => textOf(node) === label);
-    if (labelIndex >= 0) nodes[labelIndex] = compactRunFormatting(nodes[labelIndex], 16, 68);
-  }
-
-  for (let index = 0; index < nodes.length; index += 1) {
-    if (!textOf(nodes[index]).includes("drop cover image")) continue;
-    nodes[index] = replaceVisibleText(stripFloatingDrawings(nodes[index]), "");
-  }
+  replaceFirstParagraph(nodes, "I S S U E D 0 3 S E P T E M B E R 2 0 2 6", issuedDate(plan.metadata.issueDate));
+  replaceFirstParagraph(nodes, "VHA", plan.metadata.client ?? "-");
+  replaceFirstParagraph(nodes, "J2769", plan.metadata.projectNumber ?? "-");
+  replaceFirstParagraph(nodes, "A — 03/09/2026", `${plan.metadata.revision ?? "-"} — ${shortDate}`);
+  replaceFirstParagraph(
+    nodes,
+    "LKPH1-IAC-XX-XX-RP-Y-0001",
+    plan.metadata.documentNumber ?? plan.metadata.projectNumber ?? "-",
+  );
 
   const titleSlots = nodes
     .map((node, index) => ({ index, text: textOf(node) }))
     .filter(({ text }) => text === "ACOUSTIC DESIGN REPORT");
-  for (const [slotIndex, slot] of titleSlots.entries()) {
-    // The master contains a decorative title object directly beneath the executive-page logo.
-    // Leaving text in that first repeated slot collides with the protected logo at runtime.
-    const replacement = titleSlots.length > 1 && slotIndex === 0 ? "" : plan.metadata.reportTitle.toUpperCase();
-    nodes[slot.index] = replaceVisibleText(nodes[slot.index], replacement);
-  }
+  for (const slot of titleSlots) nodes[slot.index] = replaceVisibleText(nodes[slot.index], plan.metadata.reportTitle.toUpperCase());
 
-  const projectInfoRuns = new Map<string, string>([
-    ["Letterkenny", plan.metadata.projectName],
-    ["SURS", ""],
-    ["Phase", ""],
-    ["1", ""],
-    ["J2769", plan.metadata.projectNumber ?? ""],
-    ["VHA", plan.metadata.client ?? ""],
-    ["Letterkenny,", plan.metadata.address ?? ""],
-    ["Co", ""],
-    ["Donegal", ""],
-    ["Acoustic", plan.metadata.reportTitle],
-    ["Report", ""],
-    ["LKPH1-IAC-XX-XX-RP-Y-", plan.metadata.documentNumber ?? ""],
-    ["0001", ""],
-  ]);
   for (const slot of [
-    { source: "Project DescriptionLetterkenny SURS Phase 1", replacement: `Project Description${plan.metadata.projectName}` },
-    { source: "Project NumberJ2769", replacement: `Project Number${plan.metadata.projectNumber ?? ""}` },
-    { source: "ClientVHA", replacement: `Client${plan.metadata.client ?? ""}` },
-    { source: "Site / AddressLetterkenny, Co Donegal", replacement: `Site / Address${plan.metadata.address ?? ""}` },
-    { source: "Report TitleAcoustic Report", replacement: `Report Title${plan.metadata.reportTitle}` },
-    { source: "Document NumberLKPH1-IAC-XX-XX-RP-Y-0001", replacement: `Document Number${plan.metadata.documentNumber ?? ""}` },
+    { source: "Project DescriptionLetterkenny SURS Phase 1", prefix: "Project Description", replacement: plan.metadata.projectName },
+    { source: "Project NumberJ2769", prefix: "Project Number", replacement: plan.metadata.projectNumber ?? "-" },
+    { source: "ClientVHA", prefix: "Client", replacement: plan.metadata.client ?? "-" },
+    { source: "Site / AddressLetterkenny, Co Donegal", prefix: "Site / Address", replacement: plan.metadata.address ?? "-" },
+    { source: "Report TitleAcoustic Report", prefix: "Report Title", replacement: plan.metadata.reportTitle },
+    { source: "Document NumberLKPH1-IAC-XX-XX-RP-Y-0001", prefix: "Document Number", replacement: plan.metadata.documentNumber ?? plan.metadata.projectNumber ?? "-" },
   ]) {
     const index = nodes.findIndex((node) => textOf(node) === slot.source);
     if (index < 0) throw new Error(`report-template-slot-missing:${slot.source}`);
-    const patched = replaceExactRuns(nodes[index], projectInfoRuns);
-    nodes[index] = textOf(patched) === slot.source ? replaceVisibleText(nodes[index], slot.replacement) : patched;
+    nodes[index] = replaceValueAfterPrefix(nodes[index], slot.prefix, slot.replacement);
   }
 
   const projectControlRuns = new Map<string, string>([
@@ -375,11 +384,6 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
       nodes[index] = replaceExactRuns(nodes[index], projectControlRuns);
     }
   }
-  for (const approvalLabel of ["WR I T T E N B Y", "R E V I E WE D B Y", "A P P R OV E D F OR I S S U E"]) {
-    const labelIndex = nodes.findIndex((node) => textOf(node) === approvalLabel);
-    if (labelIndex >= 0) nodes[labelIndex] = compactRunFormatting(nodes[labelIndex], 15, 60);
-  }
-
   const headingPositions = new Map<ReportSectionHeading, number>();
   for (const heading of plan.sections.map((section) => section.heading)) {
     const sourceHeading = templateHeadingByReportHeading[heading];
@@ -395,155 +399,117 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   if (tocStart < 0 || appendicesStart < 0 || finalSection < 0) throw new Error("report-template-layout-anchor-missing");
 
   const introductionPosition = headingPositions.get("Introduction")!;
-  const bodyTemplate = nodes.find(
-    (node, index) => index > introductionPosition && paragraphStyle(node) === "BodyText" && textOf(node),
-  );
-  if (!bodyTemplate) throw new Error("report-template-body-style-slot-missing");
-  const singleColumnBreakTemplate = nodes.findLast(
-    (node, index) =>
-      index < introductionPosition
-      && node.startsWith("<w:p")
-      && /<w:sectPr\b/.test(node)
-      && !/<w:cols\b[^>]*w:num=/.test(node),
-  );
-  if (!singleColumnBreakTemplate) throw new Error("report-template-single-column-section-break-missing");
-  const executiveBreakTemplate = nodes.find(
-    (node, index) =>
-      index > executiveStart
-      && index < projectStart
-      && node.startsWith("<w:p")
-      && /<w:sectPr\b/.test(node)
-      && !/<w:cols\b[^>]*w:num="[2-9]"/.test(node),
-  );
-  if (!executiveBreakTemplate) throw new Error("report-template-executive-section-break-missing");
   const tocEnd = nodes.findLastIndex(
     (node, index) => index > tocStart && index < introductionPosition && /<w:sectPr\b/.test(node),
   );
   if (tocEnd < tocStart) throw new Error("report-template-toc-end-missing");
-  const coverMetadataIndex = nodes.findIndex((node) => textOf(node) === "C L I E N T");
-  const coverMetadataStart = coverMetadataIndex >= 0 && coverMetadataIndex < executiveStart
-    ? coverMetadataIndex
-    : executiveStart;
-
-  const rebuilt: string[] = [];
-  rebuilt.push(...nodes.slice(0, coverMetadataStart));
-  rebuilt.push(pageBreakParagraph());
-
-  const executive = plan.sections.find((section) => section.heading === "Executive Summary")!;
-  rebuilt.push(replaceVisibleText(nodes[tocStart], "Executive Summary"));
-  appendSectionContent(rebuilt, bodyTemplate, executive.paragraphs, executive.tables);
-  // Section properties describe the content that precedes them. Without this
-  // terminator the following two-column project block also formats the summary.
-  rebuilt.push(sectionBreak(executiveBreakTemplate, "continuous"));
-  rebuilt.push(pageBreakParagraph());
-
-  const projectBlock = nodes.slice(projectStart, tocStart);
-  const splitParagraph = projectBlock.findIndex((node) => textOf(node).endsWith("the conclusions in"));
-  if (
-    splitParagraph >= 0
-    && projectBlock[splitParagraph + 1]
-    && /<w:sectPr\b/.test(projectBlock[splitParagraph + 1])
-    && projectBlock[splitParagraph + 2]
-    && textOf(projectBlock[splitParagraph + 2]).startsWith("this report may no longer remain valid")
-  ) {
-    projectBlock[splitParagraph] = replaceVisibleText(
-      projectBlock[splitParagraph],
-      `${textOf(projectBlock[splitParagraph])} ${textOf(projectBlock[splitParagraph + 2])}`,
-    );
-    projectBlock.splice(splitParagraph + 1, 2);
-  }
-  while (projectBlock.length && !textOf(projectBlock.at(-1) ?? "")) projectBlock.pop();
-  rebuilt.push(...projectBlock);
-  rebuilt.push(sectionBreak(singleColumnBreakTemplate, "continuous"));
-
-  rebuilt.push(nodes[tocStart]);
-  rebuilt.push(
-    ...tocFieldBlock([
-      ...plan.sections
-        .filter((section) => section.paragraphs.length > 0 || section.tables.length > 0)
-        .map((section) => section.heading),
-      "A–D Appendices",
-    ]),
+  const executiveTable = nodes.findIndex(
+    (node, index) => index > executiveStart && index < projectStart && node.startsWith("<w:tbl"),
   );
-  rebuilt.push(sectionBreak(singleColumnBreakTemplate, "nextPage"));
+  const rebuilt = [...nodes];
+  const executive = plan.sections.find((section) => section.heading === "Executive Summary")!;
+  const executiveBody = nodes.findIndex(
+    (node, index) =>
+      index > executiveStart
+      && index < projectStart
+      && node.startsWith("<w:p")
+      && paragraphStyle(node) === "BodyText"
+      && Boolean(textOf(node)),
+  );
+  if (executiveBody < 0) throw new Error("report-template-executive-body-slot-missing");
+  rebuilt[executiveBody] = bodyParagraph(nodes[executiveBody], executive.paragraphs.join(" "));
 
-  const generatedBodyStart = rebuilt.length;
+  const executiveTopics = plan.sections
+    .filter((section) => section.heading !== "Executive Summary" && section.heading !== "Project Information")
+    .filter((section) => section.paragraphs.length > 0 || section.tables.length > 0)
+    .slice(0, 6);
+  const executiveCells = ["TOPIC", "DESIGN POSITION"];
+  for (const section of executiveTopics) executiveCells.push(section.heading, section.paragraphs[0] ?? "See report section.");
+  while (executiveCells.length < 14) executiveCells.push("");
+  if (executiveTable >= 0 && tableCellCount(nodes[executiveTable]) === executiveCells.length) {
+    rebuilt[executiveTable] = replaceTableCells(nodes[executiveTable], executiveCells);
+  }
+
+  // The master is the page skeleton. Never rebuild its pages from selected
+  // fragments: doing so changes floating-object anchors, section geometry,
+  // TOC alignment, header spacing and footer tab stops. Populate only
+  // verified in-place slots and retain every other source node in position.
+  const orderedHeadingPositions = [...headingPositions.values()].sort((left, right) => left - right);
   for (const section of plan.sections) {
     if (section.heading === "Executive Summary" || section.heading === "Project Information") continue;
     if (section.paragraphs.length === 0 && section.tables.length === 0) continue;
     const position = headingPositions.get(section.heading)!;
-    rebuilt.push(stripFloatingDrawings(nodes[position]));
-    appendSectionContent(rebuilt, bodyTemplate, section.paragraphs, section.tables);
-    rebuilt.push(sectionBreak(singleColumnBreakTemplate, "nextPage"));
-  }
+    const nextHeading = orderedHeadingPositions.find((candidate) => candidate > position) ?? appendicesStart;
+    const rangeEnd = Math.min(nextHeading, appendicesStart);
+    const paragraphSlots = nodes
+      .map((node, index) => ({ node, index }))
+      .filter(
+        ({ node, index }) =>
+          index > position
+          && index < rangeEnd
+          && node.startsWith("<w:p")
+          && paragraphStyle(node) === "BodyText"
+          && Boolean(textOf(node))
+          && !/<w:drawing\b/.test(node)
+          && !/<w:sectPr\b/.test(node),
+      )
+      .map(({ index }) => index);
+    for (const [paragraphIndex, paragraph] of section.paragraphs.entries()) {
+      const slot = paragraphSlots[paragraphIndex];
+      if (slot === undefined) break;
+      rebuilt[slot] = bodyParagraph(nodes[slot], paragraph);
+    }
 
-  rebuilt.push(pageBreakParagraph());
-  rebuilt.push(replaceVisibleText(stripFloatingDrawings(nodes[introductionPosition]), "A–D Appendices"));
-  const appendixHeading = (source: string) => {
-    const node = nodes.find((candidate) => paragraphStyle(candidate) === "Heading4" && textOf(candidate) === source);
-    if (!node) throw new Error(`report-template-appendix-heading-missing:${source}`);
-    return keepParagraphTogether(node);
-  };
-  const appendixBody = (value: string) => keepParagraphTogether(bodyParagraph(bodyTemplate, value), false);
-  rebuilt.push(appendixHeading("Design Standards & Guidance"));
-  for (const [index, citation] of plan.citations.entries()) {
-    const marker = `[${citation.marker ?? citation.citationNamespace ?? "D"}]`;
-    const page = citation.pageNumber ? `, page ${citation.pageNumber}` : "";
-    rebuilt.push(appendixBody(`${marker} ${citationDisplayTitle(plan, index)}${page}`));
-  }
-  if (plan.sections.some((section) => section.tables.length)) {
-    rebuilt.push(appendixHeading("Acoustic Performance Schedules"));
-    rebuilt.push(
-      appendixBody(
-        "Performance schedules are presented in the relevant report sections and are derived only from cited project evidence.",
-      ),
-    );
-  }
-  if (plan.supplementaryAttachments.length) {
-    rebuilt.push(appendixHeading("Acoustic Scope Drawings"));
-    for (const attachment of plan.supplementaryAttachments) {
-      rebuilt.push(
-        appendixBody(
-          `${attachment.originalFileName} — ${attachment.byteLength.toLocaleString("en-IE")} bytes — ${attachment.evidenceStatus}`,
-        ),
-      );
+    const tableSlots = nodes
+      .map((node, index) => ({ node, index }))
+      .filter(({ node, index }) => index > position && index < rangeEnd && node.startsWith("<w:tbl"))
+      .map(({ index }) => index);
+    for (const [tableIndex, table] of section.tables.entries()) {
+      const slot = tableSlots[tableIndex];
+      if (slot === undefined) break;
+      const values = [...table.columns, ...table.rows.flat()];
+      if (tableCellCount(nodes[slot]) !== values.length) continue;
+      rebuilt[slot] = replaceTableCells(nodes[slot], values);
     }
   }
-  rebuilt.push(appendixHeading("Glossary of Acoustic Terminology"));
-  rebuilt.push(appendixBody("Technical acoustic notation is used throughout in accordance with the cited project evidence and standards."));
-  // The source appendix index is assembled with temporary multi-column
-  // sections. This generated evidence register is full-width, so the final
-  // section must be explicitly single-column.
-  rebuilt.push(sectionBreak(nodes[finalSection], "continuous"));
 
-  const generatedBodyXml = rebuilt.slice(generatedBodyStart).join("");
-  if (/<w:cols\b[^>]*w:num="[2-9]"/.test(generatedBodyXml)) {
-    throw new Error("report-generated-body-multi-column-layout-rejected");
+  const sampleIdentityRuns = new Map<string, string>([
+    ["Letterkenny", plan.metadata.projectName],
+    ["Letterkenny,", plan.metadata.address ? `${plan.metadata.address},` : `${plan.metadata.projectName},`],
+    ["J2769", plan.metadata.projectNumber ?? "-"],
+    ["VHA", plan.metadata.client ?? "-"],
+    ["VHA Architects", plan.metadata.client ?? "the Client"],
+    ["LKPH1-IAC-XX-XX-RP-Y-0001", plan.metadata.documentNumber ?? plan.metadata.projectNumber ?? "-"],
+  ]);
+  for (let index = 0; index < rebuilt.length; index += 1) {
+    rebuilt[index] = replaceExactRuns(rebuilt[index], sampleIdentityRuns);
   }
-  const expectedNewPageBoundaries = plan.sections.filter(
-    (section) =>
-      section.heading !== "Executive Summary"
-      && section.heading !== "Project Information"
-      && (section.paragraphs.length > 0 || section.tables.length > 0),
-  ).length;
-  if ((generatedBodyXml.match(/<w:type w:val="nextPage"\/>/g) ?? []).length < expectedNewPageBoundaries) {
-    throw new Error("report-generated-section-boundary-missing");
-  }
+
+  if (rebuilt.length !== sourceNodes.length) throw new Error("report-template-body-node-count-changed");
+  const generatedBodyXml = rebuilt.join("");
+  const sourceDrawingCount = (sourceXml.match(/<w:drawing\b/g) ?? []).length;
+  const outputDrawingCount = (generatedBodyXml.match(/<w:drawing\b/g) ?? []).length;
+  if (outputDrawingCount !== sourceDrawingCount) throw new Error("report-template-drawing-count-changed");
+  const sourceTableCount = (sourceXml.match(/<w:tbl\b/g) ?? []).length;
+  const outputTableCount = (generatedBodyXml.match(/<w:tbl\b/g) ?? []).length;
+  if (outputTableCount !== sourceTableCount) throw new Error("report-template-table-count-changed");
+  const sourceSectionCount = (sourceXml.match(/<w:sectPr\b/g) ?? []).length;
+  const outputSectionCount = (generatedBodyXml.match(/<w:sectPr\b/g) ?? []).length;
+  if (outputSectionCount !== sourceSectionCount) throw new Error("report-template-section-count-changed");
 
   outputArchive["word/document.xml"] = strToU8(`${open}${rebuilt.join("")}${close}`);
   const footer = outputArchive["word/footer1.xml"];
   if (footer) {
-    const footerIdentity = [
-      plan.metadata.documentNumber ?? plan.metadata.projectNumber ?? "",
-      plan.metadata.revision ? `Revision ${plan.metadata.revision}` : "",
-      shortDate,
-    ].filter(Boolean).join(" · ");
-    const patchedFooter = strFromU8(footer).replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraph) =>
-      textOf(paragraph).includes("LKPH1-IAC-XX-XX-RP-Y-0001")
-        ? replaceVisibleText(paragraph, footerIdentity)
-        : paragraph,
+    outputArchive["word/footer1.xml"] = strToU8(
+      replaceExactRuns(
+        strFromU8(footer),
+        new Map<string, string>([
+          ["LKPH1-IAC-XX-XX-RP-Y-0001", plan.metadata.documentNumber ?? plan.metadata.projectNumber ?? "-"],
+          ["A", plan.metadata.revision ?? "-"],
+          ["03/09/2026", shortDate],
+        ]),
+      ),
     );
-    outputArchive["word/footer1.xml"] = strToU8(patchedFooter);
   }
   const settings = outputArchive["word/settings.xml"];
   if (settings) outputArchive["word/settings.xml"] = strToU8(enableFieldUpdates(strFromU8(settings)));

@@ -59,7 +59,13 @@ function template() {
     paragraph("Table of Contents", "Normal"),
     '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>MASTER TOC ENTRIES</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
     '<w:p><w:pPr><w:sectPr><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/><w:cols/></w:sectPr></w:pPr></w:p>',
-    ...mainHeadings.flatMap((heading) => [paragraph(heading, "Heading1"), paragraph(`SAMPLE ${heading}`)]),
+    ...mainHeadings.flatMap((heading) => [
+      paragraph(heading, "Heading1"),
+      paragraph(`SAMPLE ${heading}`),
+      ...(heading === "Acoustic Performance Specification"
+        ? ['<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>COL 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>COL 2</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>VALUE 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>VALUE 2</w:t></w:r></w:p></w:tc></w:tr></w:tbl>']
+        : []),
+    ]),
     paragraph("A–D Appendices", "Normal"),
     paragraph("Design Standards & Guidance", "Heading4"),
     paragraph("Acoustic Performance Schedules", "Heading4"),
@@ -168,6 +174,7 @@ test("report plans compact the executive summary to the protected layout capacit
 });
 
 test("generation clones the immutable master and changes approved text slots only", () => {
+  const source = unzipSync(template());
   const output = unzipSync(buildGroundedReportDocx(template(), plan()));
   assert.deepEqual(output["word/media/logo.png"], new Uint8Array([1, 2, 3]));
   assert.match(strFromU8(output["word/header1.xml"]), /STATIC HEADER/);
@@ -177,20 +184,24 @@ test("generation clones the immutable master and changes approved text slots onl
   assert.match(documentXml, /Example Project/);
   assert.match(documentXml, /ENVIRONMENTAL NOISE ASSESSMENT/);
   assert.match(documentXml, /\[D1\]/);
-  assert.match(documentXml, /Measured level/);
+  assert.match(documentXml, /Rating level/);
   assert.doesNotMatch(documentXml, /The measured rating level was 45 dB LAr,T\.:/);
-  assert.doesNotMatch(documentXml, /MASTER TOC ENTRIES/);
-  assert.match(documentXml, /TOC \\o "1-2" \\h \\z \\u/);
+  assert.match(documentXml, /MASTER TOC ENTRIES/);
+  assert.doesNotMatch(documentXml, /TOC \\o "1-2" \\h \\z \\u/);
   assert.match(documentXml, /A–D Appendices/);
   assert.doesNotMatch(documentXml, /updates automatically when this report opens/);
   assert.doesNotMatch(documentXml, /report-1/);
   assert.doesNotMatch(documentXml, /Letterkenny SURS|VHA Architects|J2769|LKPH1/);
   assert.doesNotMatch(documentXml, /SAMPLE Executive Summary/);
   assert.match(strFromU8(output["word/settings.xml"]), /updateFields w:val="true"/);
-  assert.ok((documentXml.match(/<w:tbl\b/g) ?? []).length >= 1);
-  assert.match(documentXml, /<w:cantSplit\/>/);
+  assert.equal(
+    (documentXml.match(/<w:tbl\b/g) ?? []).length,
+    (strFromU8(source["word/document.xml"] ?? new Uint8Array()).match(/<w:tbl\b/g) ?? []).length,
+  );
   assert.ok((documentXml.match(/<w:pgMar\b/g) ?? []).length >= 1);
-  assert.ok((documentXml.match(/<w:cols w:num="1"\/>/g) ?? []).length >= 3);
-  const generatedBody = documentXml.slice(documentXml.indexOf("Acoustic Performance Specification", documentXml.indexOf("Table of Contents")));
-  assert.doesNotMatch(generatedBody, /<w:cols\b[^>]*w:num="[2-9]"/);
+  assert.ok((documentXml.match(/<w:cols w:num="1"\/>/g) ?? []).length >= 1);
+  assert.equal(
+    (documentXml.match(/<w:sectPr\b/g) ?? []).length,
+    (strFromU8(source["word/document.xml"] ?? new Uint8Array()).match(/<w:sectPr\b/g) ?? []).length,
+  );
 });
