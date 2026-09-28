@@ -119,6 +119,38 @@ function stripSectionProperties(node: string) {
   return node.replace(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g, "");
 }
 
+function stripFloatingDrawings(node: string) {
+  return node.replace(/<w:r\b[^>]*>[\s\S]*?<w:drawing\b[\s\S]*?<\/w:drawing>[\s\S]*?<\/w:r>/g, "");
+}
+
+function sectionBreak(node: string, start: "continuous" | "nextPage", columns = 1) {
+  let output = stripBookmarks(node);
+  const type = `<w:type w:val="${start}"/>`;
+  if (/<w:type\b[^>]*\/>/.test(output)) {
+    output = output.replace(/<w:type\b[^>]*\/>/, type);
+  } else {
+    output = output.replace(/<w:sectPr\b([^>]*)>/, `<w:sectPr$1>${type}`);
+  }
+  const columnDefinition = `<w:cols w:num="${columns}"/>`;
+  if (/<w:cols\b[^>]*(?:\/>|>[\s\S]*?<\/w:cols>)/.test(output)) {
+    output = output.replace(/<w:cols\b[^>]*(?:\/>|>[\s\S]*?<\/w:cols>)/, columnDefinition);
+  } else {
+    output = output.replace(/<\/w:sectPr>/, `${columnDefinition}</w:sectPr>`);
+  }
+  return output;
+}
+
+function tocFieldBlock(headings: string[]) {
+  if (headings.length === 0) return [];
+  return headings.map((heading, index) => {
+    const begin = index === 0
+      ? '<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\o "1-2" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+      : "";
+    const end = index === headings.length - 1 ? '<w:r><w:fldChar w:fldCharType="end"/></w:r>' : "";
+    return `<w:p><w:pPr><w:pStyle w:val="TOC1"/><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="9208"/></w:tabs><w:spacing w:after="80"/></w:pPr>${begin}<w:r><w:rPr><w:rFonts w:ascii="Gibson" w:hAnsi="Gibson"/><w:sz w:val="20"/></w:rPr><w:t>${escapeXml(heading)}</w:t></w:r>${end}</w:p>`;
+  });
+}
+
 function pageBreakParagraph() {
   return '<w:p><w:pPr><w:pStyle w:val="BodyText"/></w:pPr><w:r><w:br w:type="page"/></w:r></w:p>';
 }
@@ -151,16 +183,12 @@ function reportTable(table: GroundedReportTable) {
   const rows = table.rows
     .map(
       (row, index) =>
-        `<w:tr>${row
+        `<w:tr><w:trPr><w:cantSplit/></w:trPr>${row
           .map((value) => tableCell(value, { header: false, shaded: index % 2 === 1, width: cellWidth }))
           .join("")}</w:tr>`,
     )
     .join("");
   return `<w:tbl><w:tblPr><w:tblW w:w="${width}" w:type="dxa"/><w:jc w:val="left"/><w:tblBorders>${borders}</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblLook w:val="04A0"/></w:tblPr><w:tblGrid>${grid}</w:tblGrid>${header}${rows}</w:tbl>`;
-}
-
-function tocFieldParagraph() {
-  return '<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:spacing w:before="120" w:after="120"/></w:pPr><w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\o "1-4" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:rFonts w:ascii="Gibson" w:hAnsi="Gibson"/><w:color w:val="577591"/><w:sz w:val="20"/></w:rPr><w:t>The table of contents updates automatically when this report opens in Microsoft Word.</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>';
 }
 
 function enableFieldUpdates(settingsXml: string) {
@@ -174,14 +202,6 @@ function enableFieldUpdates(settingsXml: string) {
     );
   }
   return settingsXml.replace(/<\/w:settings>\s*$/, '<w:updateFields w:val="true"/></w:settings>');
-}
-
-function remapDrawingIds(xml: string, startAt: number) {
-  let nextId = startAt;
-  return xml.replace(
-    /(<(?:wp:docPr|pic:cNvPr|wps:cNvPr)\b[^>]*\bid=")[0-9]+(")/g,
-    (_match, prefix: string, suffix: string) => `${prefix}${nextId++}${suffix}`,
-  );
 }
 
 function compactDate(value: string) {
@@ -281,16 +301,22 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     "Letterkenny, Co Donegal · Prepared for VHA",
     [plan.metadata.address, plan.metadata.client ? `Prepared for ${plan.metadata.client}` : ""].filter(Boolean).join(" · "),
   );
-  replaceFirstParagraph(nodes, "I S S U E D 0 3 S E P T E M B E R 2 0 2 6", `ISSUED ${plan.metadata.issueDate.toUpperCase()}`);
+  replaceFirstParagraph(nodes, "I S S U E D 0 3 S E P T E M B E R 2 0 2 6", `ISSUED ${shortDate}`);
   const clientCover = replaceFirstParagraph(nodes, "VHA", plan.metadata.client ?? "");
   nodes[clientCover] = compactRunFormatting(nodes[clientCover], 17, 75);
   replaceFirstParagraph(nodes, "J2769", plan.metadata.projectNumber ?? "");
-  replaceFirstParagraph(nodes, "A — 03/09/2026", [plan.metadata.revision, shortDate].filter(Boolean).join(" — "));
-  const documentCover = replaceFirstParagraph(nodes, "LKPH1-IAC-XX-XX-RP-Y-0001", plan.metadata.documentNumber ?? plan.reportId);
+  replaceFirstParagraph(nodes, "A — 03/09/2026", plan.metadata.revision ?? "");
+  const documentCover = replaceFirstParagraph(nodes, "LKPH1-IAC-XX-XX-RP-Y-0001", plan.metadata.documentNumber ?? "");
   nodes[documentCover] = compactRunFormatting(nodes[documentCover], 17, 78);
+  for (const label of ["C L I E N T", "P R O J E C T N O .", "R E V I S I O N", "D O C U M E N T"]) {
+    const labelIndex = nodes.findIndex((node) => textOf(node) === label);
+    if (labelIndex >= 0) nodes[labelIndex] = compactRunFormatting(nodes[labelIndex], 16, 68);
+  }
 
-  const coverImageLabel = nodes.findIndex((node) => textOf(node).includes("drop cover image"));
-  if (coverImageLabel >= 0) nodes[coverImageLabel] = replaceVisibleText(nodes[coverImageLabel], "");
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (!textOf(nodes[index]).includes("drop cover image")) continue;
+    nodes[index] = replaceVisibleText(stripFloatingDrawings(nodes[index]), "");
+  }
 
   const titleSlots = nodes
     .map((node, index) => ({ index, text: textOf(node) }))
@@ -314,7 +340,7 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     ["Donegal", ""],
     ["Acoustic", plan.metadata.reportTitle],
     ["Report", ""],
-    ["LKPH1-IAC-XX-XX-RP-Y-", plan.metadata.documentNumber ?? plan.reportId],
+    ["LKPH1-IAC-XX-XX-RP-Y-", plan.metadata.documentNumber ?? ""],
     ["0001", ""],
   ]);
   for (const slot of [
@@ -323,7 +349,7 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     { source: "ClientVHA", replacement: `Client${plan.metadata.client ?? ""}` },
     { source: "Site / AddressLetterkenny, Co Donegal", replacement: `Site / Address${plan.metadata.address ?? ""}` },
     { source: "Report TitleAcoustic Report", replacement: `Report Title${plan.metadata.reportTitle}` },
-    { source: "Document NumberLKPH1-IAC-XX-XX-RP-Y-0001", replacement: `Document Number${plan.metadata.documentNumber ?? plan.reportId}` },
+    { source: "Document NumberLKPH1-IAC-XX-XX-RP-Y-0001", replacement: `Document Number${plan.metadata.documentNumber ?? ""}` },
   ]) {
     const index = nodes.findIndex((node) => textOf(node) === slot.source);
     if (index < 0) throw new Error(`report-template-slot-missing:${slot.source}`);
@@ -349,6 +375,10 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
       nodes[index] = replaceExactRuns(nodes[index], projectControlRuns);
     }
   }
+  for (const approvalLabel of ["WR I T T E N B Y", "R E V I E WE D B Y", "A P P R OV E D F OR I S S U E"]) {
+    const labelIndex = nodes.findIndex((node) => textOf(node) === approvalLabel);
+    if (labelIndex >= 0) nodes[labelIndex] = compactRunFormatting(nodes[labelIndex], 15, 60);
+  }
 
   const headingPositions = new Map<ReportSectionHeading, number>();
   for (const heading of plan.sections.map((section) => section.heading)) {
@@ -369,31 +399,44 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     (node, index) => index > introductionPosition && paragraphStyle(node) === "BodyText" && textOf(node),
   );
   if (!bodyTemplate) throw new Error("report-template-body-style-slot-missing");
-  const singleColumnSectionBreak = nodes.findLast(
+  const singleColumnBreakTemplate = nodes.findLast(
     (node, index) =>
       index < introductionPosition
       && node.startsWith("<w:p")
       && /<w:sectPr\b/.test(node)
       && !/<w:cols\b[^>]*w:num=/.test(node),
   );
-  if (!singleColumnSectionBreak) throw new Error("report-template-single-column-section-break-missing");
-  const genericChrome = nodes
-    .slice(Math.max(0, introductionPosition - 4), introductionPosition)
-    .filter(
-      (node) =>
-        /<w:drawing\b|<w:pict\b/.test(node)
-        && textOf(node) !== "ACOUSTIC DESIGN REPORT",
-    )
-    .map((node) => stripSectionProperties(stripBookmarks(node)));
+  if (!singleColumnBreakTemplate) throw new Error("report-template-single-column-section-break-missing");
+  const executiveBreakTemplate = nodes.find(
+    (node, index) =>
+      index > executiveStart
+      && index < projectStart
+      && node.startsWith("<w:p")
+      && /<w:sectPr\b/.test(node)
+      && !/<w:cols\b[^>]*w:num="[2-9]"/.test(node),
+  );
+  if (!executiveBreakTemplate) throw new Error("report-template-executive-section-break-missing");
+  const tocEnd = nodes.findLastIndex(
+    (node, index) => index > tocStart && index < introductionPosition && /<w:sectPr\b/.test(node),
+  );
+  if (tocEnd < tocStart) throw new Error("report-template-toc-end-missing");
+  const coverMetadataIndex = nodes.findIndex((node) => textOf(node) === "C L I E N T");
+  const coverMetadataStart = coverMetadataIndex >= 0 && coverMetadataIndex < executiveStart
+    ? coverMetadataIndex
+    : executiveStart;
 
   const rebuilt: string[] = [];
-  rebuilt.push(...nodes.slice(0, executiveStart));
+  rebuilt.push(...nodes.slice(0, coverMetadataStart));
+  rebuilt.push(pageBreakParagraph());
 
   const executive = plan.sections.find((section) => section.heading === "Executive Summary")!;
-  rebuilt.push(nodes[executiveStart]);
+  rebuilt.push(replaceVisibleText(nodes[tocStart], "Executive Summary"));
   appendSectionContent(rebuilt, bodyTemplate, executive.paragraphs, executive.tables);
-
+  // Section properties describe the content that precedes them. Without this
+  // terminator the following two-column project block also formats the summary.
+  rebuilt.push(sectionBreak(executiveBreakTemplate, "continuous"));
   rebuilt.push(pageBreakParagraph());
+
   const projectBlock = nodes.slice(projectStart, tocStart);
   const splitParagraph = projectBlock.findIndex((node) => textOf(node).endsWith("the conclusions in"));
   if (
@@ -409,33 +452,33 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     );
     projectBlock.splice(splitParagraph + 1, 2);
   }
+  while (projectBlock.length && !textOf(projectBlock.at(-1) ?? "")) projectBlock.pop();
   rebuilt.push(...projectBlock);
+  rebuilt.push(sectionBreak(singleColumnBreakTemplate, "continuous"));
 
   rebuilt.push(nodes[tocStart]);
-  rebuilt.push(tocFieldParagraph());
-  rebuilt.push(stripBookmarks(singleColumnSectionBreak));
+  rebuilt.push(
+    ...tocFieldBlock([
+      ...plan.sections
+        .filter((section) => section.paragraphs.length > 0 || section.tables.length > 0)
+        .map((section) => section.heading),
+      "A–D Appendices",
+    ]),
+  );
+  rebuilt.push(sectionBreak(singleColumnBreakTemplate, "nextPage"));
 
-  let generatedSectionIndex = 0;
+  const generatedBodyStart = rebuilt.length;
   for (const section of plan.sections) {
     if (section.heading === "Executive Summary" || section.heading === "Project Information") continue;
     if (section.paragraphs.length === 0 && section.tables.length === 0) continue;
     const position = headingPositions.get(section.heading)!;
-    rebuilt.push(pageBreakParagraph());
-    if (!/<w:drawing\b|<w:pict\b/.test(nodes[position])) {
-      rebuilt.push(
-        ...genericChrome.map((node, chromeIndex) =>
-          remapDrawingIds(node, 10_000 + generatedSectionIndex * 100 + chromeIndex * 10),
-        ),
-      );
-    }
-    rebuilt.push(nodes[position]);
+    rebuilt.push(stripFloatingDrawings(nodes[position]));
     appendSectionContent(rebuilt, bodyTemplate, section.paragraphs, section.tables);
-    generatedSectionIndex += 1;
+    rebuilt.push(sectionBreak(singleColumnBreakTemplate, "nextPage"));
   }
 
-  rebuilt.push(stripBookmarks(singleColumnSectionBreak));
   rebuilt.push(pageBreakParagraph());
-  rebuilt.push(nodes[appendicesStart]);
+  rebuilt.push(replaceVisibleText(stripFloatingDrawings(nodes[introductionPosition]), "A–D Appendices"));
   const appendixHeading = (source: string) => {
     const node = nodes.find((candidate) => paragraphStyle(candidate) === "Heading4" && textOf(candidate) === source);
     if (!node) throw new Error(`report-template-appendix-heading-missing:${source}`);
@@ -468,21 +511,39 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   }
   rebuilt.push(appendixHeading("Glossary of Acoustic Terminology"));
   rebuilt.push(appendixBody("Technical acoustic notation is used throughout in accordance with the cited project evidence and standards."));
-  rebuilt.push(nodes[finalSection]);
+  // The source appendix index is assembled with temporary multi-column
+  // sections. This generated evidence register is full-width, so the final
+  // section must be explicitly single-column.
+  rebuilt.push(sectionBreak(nodes[finalSection], "continuous"));
+
+  const generatedBodyXml = rebuilt.slice(generatedBodyStart).join("");
+  if (/<w:cols\b[^>]*w:num="[2-9]"/.test(generatedBodyXml)) {
+    throw new Error("report-generated-body-multi-column-layout-rejected");
+  }
+  const expectedNewPageBoundaries = plan.sections.filter(
+    (section) =>
+      section.heading !== "Executive Summary"
+      && section.heading !== "Project Information"
+      && (section.paragraphs.length > 0 || section.tables.length > 0),
+  ).length;
+  if ((generatedBodyXml.match(/<w:type w:val="nextPage"\/>/g) ?? []).length < expectedNewPageBoundaries) {
+    throw new Error("report-generated-section-boundary-missing");
+  }
 
   outputArchive["word/document.xml"] = strToU8(`${open}${rebuilt.join("")}${close}`);
   const footer = outputArchive["word/footer1.xml"];
   if (footer) {
-    outputArchive["word/footer1.xml"] = strToU8(
-      replaceExactRuns(
-        strFromU8(footer),
-        new Map<string, string>([
-          ["LKPH1-IAC-XX-XX-RP-Y-0001", plan.metadata.documentNumber ?? plan.reportId],
-          ["A", plan.metadata.revision ?? "-"],
-          ["03/09/2026", shortDate],
-        ]),
-      ),
+    const footerIdentity = [
+      plan.metadata.documentNumber ?? plan.metadata.projectNumber ?? "",
+      plan.metadata.revision ? `Revision ${plan.metadata.revision}` : "",
+      shortDate,
+    ].filter(Boolean).join(" · ");
+    const patchedFooter = strFromU8(footer).replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraph) =>
+      textOf(paragraph).includes("LKPH1-IAC-XX-XX-RP-Y-0001")
+        ? replaceVisibleText(paragraph, footerIdentity)
+        : paragraph,
     );
+    outputArchive["word/footer1.xml"] = strToU8(patchedFooter);
   }
   const settings = outputArchive["word/settings.xml"];
   if (settings) outputArchive["word/settings.xml"] = strToU8(enableFieldUpdates(strFromU8(settings)));

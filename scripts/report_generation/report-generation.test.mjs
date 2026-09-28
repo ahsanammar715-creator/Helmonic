@@ -48,6 +48,7 @@ function template() {
     paragraph("Executive Summary", "Heading1"),
     paragraph("SAMPLE Executive Summary"),
     '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>SAMPLE TABLE</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
+    '<w:p><w:pPr><w:sectPr><w:pgMar w:top="1400" w:right="1440" w:bottom="1440" w:left="1440"/><w:cols w:num="1"/></w:sectPr></w:pPr></w:p>',
     paragraph("Project Information", "Heading1"),
     paragraph("Project DescriptionLetterkenny SURS Phase 1"),
     paragraph("Project NumberJ2769"),
@@ -56,6 +57,7 @@ function template() {
     paragraph("Report TitleAcoustic Report"),
     paragraph("Document NumberLKPH1-IAC-XX-XX-RP-Y-0001"),
     paragraph("Table of Contents", "Normal"),
+    '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>MASTER TOC ENTRIES</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
     '<w:p><w:pPr><w:sectPr><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/><w:cols/></w:sectPr></w:pPr></w:p>',
     ...mainHeadings.flatMap((heading) => [paragraph(heading, "Heading1"), paragraph(`SAMPLE ${heading}`)]),
     paragraph("A–D Appendices", "Normal"),
@@ -177,10 +179,18 @@ test("generation clones the immutable master and changes approved text slots onl
   assert.match(documentXml, /\[D1\]/);
   assert.match(documentXml, /Measured level/);
   assert.doesNotMatch(documentXml, /The measured rating level was 45 dB LAr,T\.:/);
-  assert.match(documentXml, /TOC \\o/);
+  assert.doesNotMatch(documentXml, /MASTER TOC ENTRIES/);
+  assert.match(documentXml, /TOC \\o "1-2" \\h \\z \\u/);
+  assert.match(documentXml, /A–D Appendices/);
+  assert.doesNotMatch(documentXml, /updates automatically when this report opens/);
+  assert.doesNotMatch(documentXml, /report-1/);
   assert.doesNotMatch(documentXml, /Letterkenny SURS|VHA Architects|J2769|LKPH1/);
   assert.doesNotMatch(documentXml, /SAMPLE Executive Summary/);
   assert.match(strFromU8(output["word/settings.xml"]), /updateFields w:val="true"/);
   assert.ok((documentXml.match(/<w:tbl\b/g) ?? []).length >= 1);
+  assert.match(documentXml, /<w:cantSplit\/>/);
   assert.ok((documentXml.match(/<w:pgMar\b/g) ?? []).length >= 1);
+  assert.ok((documentXml.match(/<w:cols w:num="1"\/>/g) ?? []).length >= 3);
+  const generatedBody = documentXml.slice(documentXml.indexOf("Acoustic Performance Specification", documentXml.indexOf("Table of Contents")));
+  assert.doesNotMatch(generatedBody, /<w:cols\b[^>]*w:num="[2-9]"/);
 });
