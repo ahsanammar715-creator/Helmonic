@@ -7,6 +7,7 @@ import {
   buildGroundedReportPlan,
   reportModelEvidenceCharacterBudget,
   reportModelMaximumCompletionTokens,
+  reportModelReasoningEffort,
   selectReportModelCitations,
 } from "../../src/lib/consult/reports/policy.ts";
 
@@ -128,7 +129,8 @@ test("report model evidence is bounded and remains balanced across project sourc
     0,
   );
   assert.ok(serializedLength <= reportModelEvidenceCharacterBudget);
-  assert.equal(reportModelMaximumCompletionTokens, 3_500);
+  assert.equal(reportModelMaximumCompletionTokens, 4_800);
+  assert.equal(reportModelReasoningEffort, "low");
 });
 
 test("report plans reject tables in the protected executive-summary layout", () => {

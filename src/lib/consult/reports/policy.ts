@@ -10,7 +10,8 @@ import type { ConsultCitation } from "../types.ts";
 import { validateDocumentAnswerCitations } from "../model-policy.ts";
 
 export const reportModelEvidenceCharacterBudget = 12_000;
-export const reportModelMaximumCompletionTokens = 3_500;
+export const reportModelMaximumCompletionTokens = 4_800;
+export const reportModelReasoningEffort = "low" as const;
 
 function reportEvidenceLength(citation: ConsultCitation) {
   const title = citation.citationNamespace === "B" ? "Approved book source" : citation.title;

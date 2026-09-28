@@ -6,6 +6,7 @@ import { buildGroundedReportDocx } from "@/lib/consult/reports/docx";
 import {
   buildGroundedReportPlan,
   reportModelMaximumCompletionTokens,
+  reportModelReasoningEffort,
   selectReportModelCitations,
   sha256Attachment,
   validateReportMetadata,
@@ -71,7 +72,7 @@ async function createSectionPayload(input: {
             content: `Instruction:\n${input.instruction}\n\nProject metadata:\n${JSON.stringify(input.metadata)}\n\nRequired section headings:\n${reportSectionHeadings.join("\n")}\n\nEvidence:\n${evidenceText(modelCitations)}`,
           },
         ],
-        reasoning_effort: input.config.model.reasoningEffort,
+        reasoning_effort: reportModelReasoningEffort,
         max_completion_tokens: Math.min(
           input.config.model.maximumCompletionTokens,
           reportModelMaximumCompletionTokens,
