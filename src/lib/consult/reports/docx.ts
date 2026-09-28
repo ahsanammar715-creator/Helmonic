@@ -98,6 +98,16 @@ function compactRunFormatting(node: string, halfPoints: number, widthPercent: nu
   return output;
 }
 
+function keepParagraphTogether(node: string) {
+  if (/<w:pPr\b[^>]*\/>/.test(node)) {
+    return node.replace(/<w:pPr\b([^>]*)\/>/, '<w:pPr$1><w:keepNext/><w:keepLines/></w:pPr>');
+  }
+  if (/<w:pPr\b[^>]*>/.test(node)) {
+    return node.replace(/<w:pPr\b([^>]*)>/, '<w:pPr$1><w:keepNext/><w:keepLines/>');
+  }
+  return node.replace(/<w:p\b([^>]*)>/, '<w:p$1><w:pPr><w:keepNext/><w:keepLines/></w:pPr>');
+}
+
 function stripBookmarks(node: string) {
   return node
     .replace(/<w:bookmarkStart\b[^>]*\/>/g, "")
@@ -284,7 +294,12 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   const titleSlots = nodes
     .map((node, index) => ({ index, text: textOf(node) }))
     .filter(({ text }) => text === "ACOUSTIC DESIGN REPORT");
-  for (const slot of titleSlots) nodes[slot.index] = replaceVisibleText(nodes[slot.index], plan.metadata.reportTitle.toUpperCase());
+  for (const [slotIndex, slot] of titleSlots.entries()) {
+    // The master contains a decorative title object directly beneath the executive-page logo.
+    // Leaving text in that first repeated slot collides with the protected logo at runtime.
+    const replacement = titleSlots.length > 1 && slotIndex === 0 ? "" : plan.metadata.reportTitle.toUpperCase();
+    nodes[slot.index] = replaceVisibleText(nodes[slot.index], replacement);
+  }
 
   const projectInfoRuns = new Map<string, string>([
     ["Letterkenny", plan.metadata.projectName],
@@ -423,7 +438,7 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   const appendixHeading = (source: string) => {
     const node = nodes.find((candidate) => paragraphStyle(candidate) === "Heading4" && textOf(candidate) === source);
     if (!node) throw new Error(`report-template-appendix-heading-missing:${source}`);
-    return node;
+    return keepParagraphTogether(node);
   };
   rebuilt.push(appendixHeading("Design Standards & Guidance"));
   for (const [index, citation] of plan.citations.entries()) {
