@@ -188,12 +188,14 @@ export function routeOpportunitiesByRelationships(
   options: { preserveExistingRoutes?: boolean } = {},
 ): TenderOpportunity[] {
   const routed = records.map((record) => {
+    const recalculated = routeOpportunityByRelationships(record, lookup);
     const preserveExistingRoute = options.preserveExistingRoutes
       && isQualified(record)
       && record.routingStatus === "routed"
       && (record.routedTo === "Glen" || record.routedTo === "Owen")
-      && Boolean(record.routingReason);
-    return preserveExistingRoute ? record : routeOpportunityByRelationships(record, lookup);
+      && Boolean(record.routingReason)
+      && !/^exact-party-match-supported-by-(?:glen|owen)-email-evidence$/i.test(recalculated.routingReason ?? "");
+    return preserveExistingRoute ? record : recalculated;
   });
   const ownerCounts = {
     Glen: routed.filter((record) => record.routedTo === "Glen").length,

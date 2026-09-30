@@ -44,6 +44,7 @@ import {
   confirmedLedgerRecords,
   mergeCurrentSnapshotWithLedger,
   positiveResolution,
+  routingMetadataWithDurablePrecedence,
 } from "../../src/lib/tender-intelligence/carry-forward.ts";
 
 test("TED collector uses the official Irish acoustic query and retains official links", () => {
@@ -651,6 +652,65 @@ test("a prior balanced owner survives a confirmed refresh unless a new exact ema
   });
   assert.equal(merged.routedTo, "Glen");
   assert.equal(merged.routingReason, prior.routingReason);
+});
+
+test("the durable ledger owner takes precedence over an older legacy audit owner", () => {
+  const durable = {
+    id: "durable-owner",
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    sourceRecordId: "WEB3000/26",
+    title: "Durable owner project",
+    description: "Residential development",
+    sourceUrl: "https://example.test/durable",
+    evidenceStatus: "official-text",
+    classification: "design-construction-potential",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 60,
+    routedTo: "Owen",
+    routingStatus: "routed",
+    routingReason: "balanced-assignment-to-owen-without-confirmed-warm-connection",
+  };
+  const legacy = {
+    ...durable,
+    routedTo: "Glen",
+    routingReason: "balanced-assignment-to-glen-without-confirmed-warm-connection",
+  };
+  assert.deepEqual(routingMetadataWithDurablePrecedence(durable, legacy), {
+    routedTo: "Owen",
+    routingStatus: "routed",
+    routingEvidence: undefined,
+    routingReason: durable.routingReason,
+  });
+});
+
+test("a new exact email-evidence match supersedes a sticky balanced owner", () => {
+  const lookup = buildRelationshipLookup([{
+    name: "Exact Owen Contact",
+    email: "exact.owen@example.test",
+    evidence_refs: ["[E:owen:message-1]"],
+  }]);
+  const [routed] = routeOpportunitiesByRelationships([{
+    id: "new-exact-route",
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    sourceRecordId: "WEB3001/26",
+    title: "New exact route project",
+    description: "Residential development",
+    sourceUrl: "https://example.test/new-exact-route",
+    evidenceStatus: "official-text",
+    classification: "design-construction-potential",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 60,
+    parties: [{ name: "Exact Owen Contact", email: "exact.owen@example.test", role: "applicant" }],
+    routedTo: "Glen",
+    routingStatus: "routed",
+    routingReason: "balanced-assignment-to-glen-without-confirmed-warm-connection",
+  }], lookup, { preserveExistingRoutes: true });
+  assert.equal(routed.routedTo, "Owen");
+  assert.equal(routed.routingReason, "exact-party-match-supported-by-owen-email-evidence");
 });
 
 test("a retained national lead becomes confirmed again only after fresh official evidence", () => {

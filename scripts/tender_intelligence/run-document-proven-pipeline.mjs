@@ -12,6 +12,7 @@ import {
   isConfirmedOpportunity,
   mergeCurrentSnapshotWithLedger,
   opportunityIdentity,
+  routingMetadataWithDurablePrecedence,
 } from "../../src/lib/tender-intelligence/carry-forward.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -127,15 +128,12 @@ function mergePriorConfirmedRecords(fullRecords, legacyAuditRecords) {
       byIdentity.set(key, legacy);
       continue;
     }
-    // Legacy audits contain the last verified owner assignment even when a
-    // later weak refresh reset the record to unassigned. Keep the full record
-    // and its evidence, but restore that verified routing metadata.
+    // The durable ledger is authoritative. Legacy snapshot audits are only a
+    // migration fallback for records that never received a durable owner.
     byIdentity.set(key, {
       ...legacy,
       ...existing,
-      routedTo: legacy.routedTo ?? existing.routedTo,
-      routingStatus: legacy.routingStatus ?? existing.routingStatus,
-      routingReason: legacy.routingReason ?? existing.routingReason,
+      ...routingMetadataWithDurablePrecedence(existing, legacy),
     });
   }
   return [...byIdentity.values()];

@@ -86,6 +86,22 @@ function hasPreservableRoute(record: TenderOpportunity) {
     && Boolean(record.routingReason);
 }
 
+export function routingMetadataWithDurablePrecedence(
+  durable: TenderOpportunity,
+  legacy: TenderOpportunity,
+) {
+  const selected = hasPreservableRoute(durable) ? durable : legacy;
+  return {
+    routedTo: selected.routedTo ?? durable.routedTo,
+    routingStatus: selected.routingStatus ?? durable.routingStatus,
+    routingEvidence: selected.routingEvidence ?? durable.routingEvidence,
+    routingReason: selected.routingReason ?? durable.routingReason,
+  } satisfies Pick<
+    TenderOpportunity,
+    "routedTo" | "routingStatus" | "routingEvidence" | "routingReason"
+  >;
+}
+
 export function mergeCurrentSnapshotWithLedger(input: {
   current: TenderOpportunity[];
   priorConfirmed: TenderOpportunity[];
