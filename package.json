@@ -13,6 +13,8 @@
     "test:retrieval-policy": "node --experimental-strip-types --test --test-isolation=none scripts/evaluation/relevance-policy.test.mjs scripts/evaluation/managed-identity-selection.test.mjs scripts/evaluation/index-parity.test.mjs",
     "test:model-policy": "node --experimental-strip-types --test --experimental-test-isolation=none scripts/evaluation/model-answer-policy.test.mjs",
     "test:email-query": "node --experimental-strip-types --test --experimental-test-isolation=none scripts/evaluation/email-query-policy.test.mjs",
+    "test:tender-intelligence": "node --experimental-strip-types --test --experimental-test-isolation=none scripts/tender_intelligence/official-sources.test.mjs",
+    "run:tender-intelligence": "node --experimental-strip-types scripts/tender_intelligence/run-document-proven-pipeline.mjs",
     "verify:runtime": "node scripts/verify-runtime-hardening.mjs",
     "test:e2e": "playwright test"
   },

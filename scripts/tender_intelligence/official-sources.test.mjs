@@ -1,0 +1,638 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { strToU8, zipSync } from "fflate";
+
+import {
+  buildPlanningLeadsSearchUrls,
+  buildNationalPlanningWhere,
+  buildTedSearchRequest,
+  collectNationalPlanningFeatures,
+  collectTedOpportunities,
+  countDccWeeklyApplications,
+  filterRecentPlanningLeads,
+  parseDccPlanningCsv,
+  parseDccWeeklyDocumentLinks,
+  parseDccWeeklyDocx,
+  parseEtendersCsv,
+  parseNationalPlanningFeatures,
+  parsePlanningLeads,
+  parseTedNotices,
+} from "../../src/lib/tender-intelligence/official-sources.ts";
+import { classifyPlanningEvidence } from "../../src/lib/tender-intelligence/policy.ts";
+import {
+  classifyDccDocumentText,
+  enrichDccPlanningOpportunity,
+  isDccEvidenceDocument,
+  parseDccDocumentIndex,
+} from "../../src/lib/tender-intelligence/dcc-document-evidence.ts";
+import {
+  approvedCpvCodesFromOfficialNotice,
+  enrichFormalTenderEvidence,
+  textFromOfficialNoticeXml,
+} from "../../src/lib/tender-intelligence/formal-document-evidence.ts";
+import {
+  enrichNationalPlanningOpportunity,
+  parseEplanningDocumentRows,
+} from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
+import {
+  buildRelationshipLookup,
+  routeOpportunityByRelationships,
+  routeOpportunitiesByRelationships,
+} from "../../src/lib/tender-intelligence/relationship-routing.ts";
+import {
+  confirmedLedgerRecords,
+  mergeCurrentSnapshotWithLedger,
+  positiveResolution,
+} from "../../src/lib/tender-intelligence/carry-forward.ts";
+
+test("TED collector uses the official Irish acoustic query and retains official links", () => {
+  const request = buildTedSearchRequest();
+  assert.match(request.query, /buyer-country=IRL/);
+  assert.match(request.query, /classification-cpv=71313100/);
+  assert.equal(request.scope, "ACTIVE");
+  const records = parseTedNotices({ notices: [{
+    "publication-number": "123456-2026",
+    "notice-title": { eng: ["Building acoustics consultancy"] },
+    "buyer-name": { eng: ["Example County Council"] },
+    "classification-cpv": ["71313200"],
+    "description-lot": { eng: ["Acoustic design and noise assessment"] },
+  }] });
+  assert.equal(records.length, 1);
+  assert.match(records[0].sourceUrl, /123456-2026/);
+});
+
+test("formal tender confirmation requires both approved CPV and acoustic wording in the authoritative notice", async () => {
+  const xml = `<?xml version="1.0"?><Notice><CPV>71313200</CPV><Description>Building acoustic consultancy and environmental noise assessment.</Description></Notice>`;
+  assert.deepEqual(approvedCpvCodesFromOfficialNotice(xml), ["71313200"]);
+  assert.match(textFromOfficialNoticeXml(xml), /acoustic consultancy/);
+  const enriched = await enrichFormalTenderEvidence({
+    id: "ted-1",
+    type: "formal-public-tender",
+    sourceSystem: "TED",
+    sourceRecordId: "123456-2026",
+    title: "Discovery title",
+    description: "Discovery summary",
+    sourceUrl: "https://ted.europa.eu/en/notice/-/detail/123456-2026",
+    evidenceStatus: "discovery-only",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 0,
+  }, async () => new Response(xml, { status: 200, headers: { "content-type": "application/xml" } }));
+  assert.equal(enriched.evidenceStatus, "official-text");
+  assert.notEqual(enriched.classification, "no-relevant-opportunity");
+  assert.deepEqual(enriched.cpvCodes, ["71313200"]);
+  assert.match(enriched.evidenceDocuments[0].sourceUrl, /\/xml$/);
+});
+
+test("formal tender stays unqualified when the authoritative notice lacks an approved CPV", async () => {
+  const enriched = await enrichFormalTenderEvidence({
+    id: "ted-2",
+    type: "formal-public-tender",
+    sourceSystem: "TED",
+    sourceRecordId: "123457-2026",
+    title: "Noise consultancy",
+    description: "Noise consultancy",
+    sourceUrl: "https://ted.europa.eu/en/notice/-/detail/123457-2026",
+    evidenceStatus: "discovery-only",
+    cpvCodes: ["71313200"],
+    matchedTerms: ["noise"],
+    fitScore: 0,
+  }, async () => new Response("<Notice><CPV>99999999</CPV><Description>Noise consultancy</Description></Notice>", {
+    status: 200,
+    headers: { "content-type": "application/xml" },
+  }));
+  assert.equal(enriched.evidenceStatus, "official-text");
+  assert.equal(enriched.classification, "no-relevant-opportunity");
+  assert.equal(enriched.routingStatus, "not-qualified");
+});
+
+test("TED collector follows every result page and reports the scanned scale", async () => {
+  const requestedPages = [];
+  const fetcher = async (_url, init) => {
+    const request = JSON.parse(init.body);
+    requestedPages.push(request.page);
+    const notices = request.page === 1
+      ? ["100001-2026", "100002-2026"]
+      : ["100003-2026"];
+    return Response.json({
+      totalNoticeCount: 3,
+      timedOut: false,
+      notices: notices.map((publicationNumber) => ({
+        "publication-number": publicationNumber,
+        "notice-title": { eng: ["Noise consultancy"] },
+        "buyer-name": { eng: ["Example Council"] },
+        "classification-cpv": ["71313100"],
+        "description-lot": { eng: ["Environmental noise assessment"] },
+      })),
+    });
+  };
+  const result = await collectTedOpportunities(fetcher, 2);
+  assert.deepEqual(requestedPages, [1, 2]);
+  assert.equal(result.scannedRecords, 3);
+  assert.equal(result.pagesFetched, 2);
+  assert.equal(result.records.length, 3);
+});
+
+test("eTenders CSV keeps acoustic notices and ignores irrelevant competitions", () => {
+  const records = parseEtendersCsv(
+    'CfT Id,CfT Title,Description,Contracting Authority,CPV Code,Notice URL\n' +
+      '1,Noise consultancy,Environmental noise assessment,OPW,71313100,https://example.test/1\n' +
+      '2,Office stationery,Supply of pens,Example,30192000,https://example.test/2\n',
+  );
+  assert.equal(records.length, 1);
+  assert.equal(records[0].sourceSystem, "eTenders");
+});
+
+test("formal tender filter rejects AV, telemetry and component false positives", () => {
+  const records = parseEtendersCsv(
+    'CfT Id,CfT Title,Description,Contracting Authority,CPV Code,Notice URL,Tender Submission Deadline\n' +
+      '1,Audio Visual Services,Sound and video equipment support,Example,92370000,https://example.test/1,01/01/2030\n' +
+      '2,Acoustic telemetry equipment,Supply of acoustic telemetry devices,Example,32342400,https://example.test/2,01/01/2030\n' +
+      '3,Anti-Vibration Components,Supply of metal rubber anti-vibration components,Example,19500000,https://example.test/3,01/01/2030\n' +
+      '4,Building acoustics consultancy,Acoustic design and environmental noise assessment,Example,71313200,https://example.test/4,01/01/2030\n',
+  );
+  assert.deepEqual(records.map((record) => record.sourceRecordId), ["4"]);
+});
+
+test("national register records are discovery-only until council wording is inspected", () => {
+  const records = parseNationalPlanningFeatures({ features: [{ attributes: {
+    PlanningAuthority: "Example County Council",
+    ApplicationNumber: "26/100",
+    DevelopmentDescription: "Construction of a 120-unit residential development",
+    DevelopmentAddress: "Main Street",
+    Decision: "GRANT PERMISSION",
+    ReceivedDate: Date.now(),
+    LinkAppDetails: "https://example.test/26-100",
+  } }] });
+  assert.equal(records.length, 1);
+  assert.equal(records[0].evidenceStatus, "discovery-only");
+  assert.notEqual(records[0].classification, "granted-with-noise-conditions");
+});
+
+test("national register live query is bounded to current weekly discovery activity", () => {
+  const where = buildNationalPlanningWhere(Date.parse("2026-09-25T12:00:00Z"));
+  assert.match(where, /ReceivedDate >= DATE '2026-08-21'/);
+  assert.match(where, /DecisionDate >= DATE '2026-08-21'/);
+  assert.match(where, /FIRequestDate >= DATE '2026-08-21'/);
+  assert.doesNotMatch(where, /ETL_DATE/);
+});
+
+test("national register collector exhausts the ArcGIS transfer limit", async () => {
+  const offsets = [];
+  const fetcher = async (url) => {
+    const offset = Number(new URL(url).searchParams.get("resultOffset"));
+    offsets.push(offset);
+    return Response.json({
+      exceededTransferLimit: offset === 0,
+      features: offset === 0
+        ? [{ attributes: { OBJECTID: 1 } }, { attributes: { OBJECTID: 2 } }]
+        : [{ attributes: { OBJECTID: 3 } }],
+    });
+  };
+  const result = await collectNationalPlanningFeatures(fetcher, 2, Date.parse("2026-09-25T12:00:00Z"));
+  assert.deepEqual(offsets, [0, 2]);
+  assert.equal(result.features.length, 3);
+  assert.equal(result.pagesFetched, 2);
+});
+
+test("DCC further-information wording can prove a noise-related RFI", () => {
+  const base = 'APNID,REG_REF,LONG_PROPOSAL,LOCATION,APPTYPE DECISION\n42,WEB1000/26,"Hotel development",Dublin,"Further Information"\n';
+  const fi = 'APNID,REQDATE,RECDDATE,FI_DESC\n42,2026-09-01,2027-03-01,"Submit an acoustic report addressing plant noise and vibration."\n';
+  const records = parseDccPlanningCsv(base, fi);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].classification, "noise-related-rfi");
+  assert.equal(records[0].evidenceStatus, "official-text");
+  assert.match(records[0].evidenceExcerpt, /acoustic report/);
+});
+
+test("DCC weekly collector selects the newest official document for every area", () => {
+  const links = parseDccWeeklyDocumentLinks(`
+    <a href="/sites/default/files/2026-09/a1-wpl-36-26.docx">old</a>
+    <a href="/sites/default/files/2026-09/a1-wpl-37-26.docx">new</a>
+    <a href="/sites/default/files/2026-09/a2-wpl-37-26.docx">area two</a>
+  `);
+  assert.deepEqual(links, [
+    "https://www.dublincity.ie/sites/default/files/2026-09/a1-wpl-37-26.docx",
+    "https://www.dublincity.ie/sites/default/files/2026-09/a2-wpl-37-26.docx",
+  ]);
+});
+
+test("DCC weekly applications with acoustic wording remain discovery-only", () => {
+  const text = "Area 1 - South East Application Number WEB1000/26 Application Type Permission Applicant Example Developments Location Main Street Registration Date 22/09/2026 Proposal: A hotel with rooftop plant requiring an acoustic and noise assessment.";
+  const xml = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`;
+  const docx = zipSync({ "word/document.xml": strToU8(xml) });
+  const records = parseDccWeeklyDocx(docx, "https://www.dublincity.ie/example.docx");
+  assert.equal(records.length, 1);
+  assert.equal(records[0].sourceRecordId, "WEB1000/26");
+  assert.equal(records[0].evidenceStatus, "discovery-only");
+  assert.notEqual(records[0].classification, "granted-with-noise-conditions");
+});
+
+test("DCC weekly sector leads advance to document inspection even without summary keywords", () => {
+  const text = "Area 1 - South East Application Number WEB1001/26 Application Type Permission Applicant Example Developments Location Main Street Registration Date 22/09/2026 Additional Information Proposal: Construction of 120 apartments in two residential blocks.";
+  const xml = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`;
+  const docx = zipSync({ "word/document.xml": strToU8(xml) });
+  const records = parseDccWeeklyDocx(docx, "https://www.dublincity.ie/example.docx");
+  assert.equal(countDccWeeklyApplications(docx), 1);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].classification, "design-construction-potential");
+  assert.equal(records[0].evidenceStatus, "discovery-only");
+});
+
+test("DCC application archive parser retains the authoritative evidence document set", () => {
+  const html = `<script>var model =${JSON.stringify({ Rows: [
+    { Guid: "A".repeat(32), Doc_Type: "Decision Notices", Date_Received: "09/24/2026", Doc_Ref2: "Decision Notice" },
+    { Guid: "B".repeat(32), Doc_Type: "Planner's Report Published", Date_Received: "09/24/2026", Doc_Ref2: "Planner Report" },
+    { Guid: "C".repeat(32), Doc_Type: "Floor Plans", Date_Received: "09/20/2026", Doc_Ref2: "Proposed" },
+    { Guid: "D".repeat(32), Doc_Type: "Additional Info Response Correspondence", Date_Received: "09/21/2026", Doc_Ref2: "Request for Additional Information" },
+  ] })}; var data = JSON.stringify(model.Rows);</script>`;
+  const documents = parseDccDocumentIndex(html);
+  assert.equal(documents.length, 4);
+  assert.deepEqual(documents.filter(isDccEvidenceDocument).map((document) => document.id), [
+    "A".repeat(32),
+    "B".repeat(32),
+    "D".repeat(32),
+  ]);
+  assert.match(documents[0].sourceUrl, /Document\/ViewDocument\?id=/);
+});
+
+test("DCC document classifier only confirms opportunities from the real document wording", () => {
+  const decision = {
+    id: "A".repeat(32),
+    documentType: "Decision Notices",
+    description: "Decision Notice",
+    receivedAt: "09/24/2026",
+    sourceUrl: "https://example.test/decision.pdf",
+  };
+  assert.equal(
+    classifyDccDocumentText(
+      decision,
+      "NOTIFICATION OF DECISION TO GRANT PERMISSION. Condition 8: An acoustic report shall demonstrate that plant noise meets the applicable limits. The applicant may appeal if permission is refused for any later amendment.",
+    ).classification,
+    "granted-with-noise-conditions",
+  );
+  assert.equal(
+    classifyDccDocumentText(
+      { ...decision, description: "Refusal Decision" },
+      "NOTIFICATION OF DECISION TO REFUSE PERMISSION. Reason for refusal: the proposal would cause unacceptable noise impacts at nearby dwellings.",
+    ).classification,
+    "refused-on-noise-grounds",
+  );
+  assert.equal(
+    classifyDccDocumentText(
+      { ...decision, documentType: "Additional Info Response Correspondence", description: "Request for Additional Information" },
+      "Further information is required. Submit an acoustic assessment of operational noise and vibration.",
+    ).classification,
+    "noise-related-rfi",
+  );
+  assert.equal(
+    classifyDccDocumentText(decision, "NOTIFICATION OF DECISION TO GRANT PERMISSION. Standard drainage condition.").classification,
+    undefined,
+  );
+});
+
+test("DCC evidence enrichment fetches the actual document and cites it", async () => {
+  const guid = "E".repeat(32);
+  const indexHtml = `<script>var model =${JSON.stringify({ Rows: [
+    { Guid: guid, Doc_Type: "Decision Notices", Date_Received: "09/24/2026", Doc_Ref2: "Decision Notice" },
+  ] })}; var data = JSON.stringify(model.Rows);</script>`;
+  const fetcher = async (url) => {
+    if (String(url).includes("RunThirdPartySearch")) return new Response(indexHtml, { status: 200, headers: { "content-type": "text/html" } });
+    return new Response(
+      "NOTIFICATION OF DECISION TO GRANT PERMISSION. Condition 12: A detailed acoustic report shall be submitted to control plant noise.",
+      { status: 200, headers: { "content-type": "text/plain" } },
+    );
+  };
+  const enriched = await enrichDccPlanningOpportunity({
+    id: "discovery",
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    sourceRecordId: "WEB1000/26",
+    projectReference: "WEB1000/26",
+    title: "Example Hotel",
+    description: "Hotel development",
+    sourceUrl: "https://example.test/discovery",
+    evidenceStatus: "discovery-only",
+    classification: "needs-council-evidence",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 0,
+  }, fetcher);
+  assert.equal(enriched.evidenceStatus, "official-text");
+  assert.equal(enriched.classification, "granted-with-noise-conditions");
+  assert.equal(enriched.evidenceDocuments?.length, 1);
+  assert.match(enriched.sourceUrl, new RegExp(guid));
+  assert.match(enriched.evidenceExcerpt, /acoustic report/i);
+});
+
+test("DCC evidence enrichment fails closed when the application documents are unavailable", async () => {
+  const enriched = await enrichDccPlanningOpportunity({
+    id: "discovery",
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    sourceRecordId: "WEB404/26",
+    projectReference: "WEB404/26",
+    title: "Unavailable application",
+    description: "Residential development",
+    sourceUrl: "https://example.test/discovery",
+    evidenceStatus: "discovery-only",
+    classification: "needs-council-evidence",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 0,
+  }, async () => new Response("missing", { status: 404 }));
+  assert.equal(enriched.evidenceStatus, "evidence-unavailable");
+  assert.equal(enriched.classification, "needs-council-evidence");
+  assert.match(enriched.evidenceUnavailableReason, /document-index-http-404/);
+});
+
+test("planning classes fail closed without actual acoustic wording", () => {
+  assert.equal(
+    classifyPlanningEvidence({ stage: "Refused", description: "Residential development" }),
+    "needs-council-evidence",
+  );
+});
+
+test("legacy ePlanning document index parser retains direct evidence-viewer rows", () => {
+  const html = `<table><tr><td>42</td><td>Decision Notice</td><td>Decision Notice with Conditions</td><td><a href='ViewFiles.aspx?docid=42&format=djvu'>View</a></td></tr></table>`;
+  const rows = parseEplanningDocumentRows(html, "https://idocs.example.ie/iDocsWebDPSS/listFiles.aspx?id=100");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].documentType, "Decision Notice");
+  assert.match(rows[0].sourceUrl, /docid=42/);
+});
+
+test("Agile council adapter reads the real further-information endpoint and preserves party details", async () => {
+  const fetcher = async (url) => {
+    const value = String(url);
+    if (value.includes("/api/client/get")) return Response.json({ code: "SD" });
+    if (value.endsWith("/application/70996")) return Response.json({ applicantSurname: "Example Developments Ltd" });
+    if (value.endsWith("/further-info")) return Response.json([{ description: "Submit an acoustic report addressing operational noise and vibration." }]);
+    if (value.endsWith("/conditions")) return Response.json({ decisionText: "" });
+    if (value.endsWith("/document")) return Response.json([]);
+    return new Response("missing", { status: 404 });
+  };
+  const enriched = await enrichNationalPlanningOpportunity({
+    id: "national-1",
+    type: "planning-pipeline-lead",
+    sourceSystem: "National Planning Register",
+    sourceRecordId: "South Dublin:ED26/0099",
+    projectReference: "ED26/0099",
+    planningAuthority: "South Dublin County Council",
+    title: "Example development",
+    description: "Mixed-use development",
+    sourceUrl: "https://planning.agileapplications.ie/southdublin/application-details/70996",
+    evidenceStatus: "discovery-only",
+    classification: "needs-council-evidence",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 0,
+  }, fetcher);
+  assert.equal(enriched.evidenceStatus, "official-text");
+  assert.equal(enriched.classification, "noise-related-rfi");
+  assert.equal(enriched.applicant, "Example Developments Ltd");
+  assert.match(enriched.evidenceExcerpt, /acoustic report/i);
+});
+
+test("party routing uses exact evidence and balanced batch assignment for everything else", () => {
+  const lookup = buildRelationshipLookup([
+    { name: "Example Developments Ltd", evidence_refs: ["[E:glen:100]"] },
+    { name: "Dual Contact", evidence_refs: ["[E:glen:101]", "[E:owen:202]"] },
+  ]);
+  const base = {
+    id: "confirmed",
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    sourceRecordId: "WEB1/26",
+    title: "Confirmed lead",
+    description: "Residential development",
+    sourceUrl: "https://example.test/decision.pdf",
+    evidenceStatus: "official-text",
+    classification: "noise-related-rfi",
+    cpvCodes: [],
+    matchedTerms: ["noise"],
+    fitScore: 95,
+  };
+  const routed = routeOpportunityByRelationships({ ...base, applicant: "Example Developments Limited" }, lookup);
+  assert.equal(routed.routedTo, "Glen");
+  assert.equal(routed.routingEvidence[0].evidenceRefs[0], "[E:glen:100]");
+  const ambiguous = routeOpportunityByRelationships({ ...base, applicant: "Dual Contact" }, lookup);
+  assert.equal(ambiguous.routedTo, "unassigned");
+  assert.equal(ambiguous.routingStatus, "needs-triage");
+
+  const distributed = routeOpportunitiesByRelationships([
+    { ...base, id: "exact", applicant: "Example Developments Limited" },
+    { ...base, id: "unmatched-1", applicant: "Unknown One" },
+    { ...base, id: "unmatched-2", applicant: "Unknown Two" },
+    { ...base, id: "ambiguous", applicant: "Dual Contact" },
+  ], lookup);
+  assert.equal(distributed.filter((record) => record.routedTo === "Glen").length, 2);
+  assert.equal(distributed.filter((record) => record.routedTo === "Owen").length, 2);
+  assert.equal(distributed.filter((record) => record.routingStatus === "needs-triage").length, 0);
+  assert.equal(distributed.find((record) => record.id === "exact").routingReason, "exact-party-match-supported-by-glen-email-evidence");
+  assert.ok(distributed.filter((record) => record.id !== "exact").every((record) => record.routingReason.startsWith("balanced-assignment-")));
+});
+
+test("PlanningLeads free connector stays within the bounded search contract", () => {
+  const urls = buildPlanningLeadsSearchUrls({
+    enabled: true,
+    endpoint: "https://planningleads.ie/api/v1/",
+    pageSize: 500,
+  });
+  assert.equal(urls.length, 3);
+  assert.ok(urls.every((url) => url.startsWith("https://planningleads.ie/api/v1/leads?")));
+  assert.ok(urls.every((url) => url.includes("page_size=100")));
+  assert.ok(urls.some((url) => url.includes("q=noise")));
+  assert.ok(urls.some((url) => url.includes("q=acoustic")));
+  assert.ok(urls.some((url) => url.includes("q=vibration")));
+});
+
+test("PlanningLeads records are discovery-only even when their summary sounds conclusive", () => {
+  const records = parsePlanningLeads({
+    results: [{
+      planning_reference: "WEB1234/26",
+      project_name: "Mixed-use development at Example Quay",
+      development_description: "Permission granted subject to a detailed acoustic and noise condition.",
+      planning_authority: "Dublin City Council",
+      application_status: "GRANT PERMISSION WITH CONDITIONS",
+      source_url: "https://planning.agileapplications.ie/dublincity/application-details/WEB1234-26",
+      updated_at: "2026-09-22",
+    }],
+  });
+  assert.equal(records.length, 1);
+  assert.equal(records[0].sourceSystem, "PlanningLeads");
+  assert.equal(records[0].evidenceStatus, "discovery-only");
+  assert.equal(records[0].classification, "design-construction-potential");
+  assert.notEqual(records[0].classification, "granted-with-noise-conditions");
+});
+
+test("PlanningLeads parser accepts a bare array and filters irrelevant records", () => {
+  const records = parsePlanningLeads([
+    {
+      id: 42,
+      address: "Example School",
+      description: "New education building requiring vibration assessment",
+      authority: "Example County Council",
+      url: "https://example.test/42",
+    },
+    {
+      id: 43,
+      address: "Farm shed",
+      description: "Agricultural storage building",
+      authority: "Example County Council",
+    },
+    {
+      id: 44,
+      address: "Unlinked hotel",
+      description: "Noise assessment required",
+      authority: "Example County Council",
+    },
+  ]);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].sourceRecordId, "42");
+  assert.deepEqual(records[0].matchedTerms, ["vibration"]);
+});
+
+test("PlanningLeads live field names preserve the council reference and authoritative link", () => {
+  const records = parsePlanningLeads({ results: [{
+    id: "opaque-internal-id",
+    application_reference: "F23A/0258",
+    planning_authority: "Fingal County Council",
+    development_description: "Installation of an aircraft noise monitoring terminal.",
+    decision_status: "granted",
+    date_received: "2023-05-16",
+    decision_due_date: "2023-07-10",
+    public_url: "https://planningleads.ie/planning/fingal/F23A-0258",
+    raw_source_url: "https://planning.agileapplications.ie/fingal/application-details/F23A-0258",
+  }] });
+  assert.equal(records.length, 1);
+  assert.equal(records[0].sourceRecordId, "F23A/0258");
+  assert.equal(records[0].title, "Fingal County Council · F23A/0258");
+  assert.match(records[0].sourceUrl, /^https:\/\/planning\.agileapplications\.ie\//);
+  assert.equal(records[0].publishedAt, "2023-05-16");
+  assert.equal(records[0].deadline, "2023-07-10");
+  assert.equal(records[0].evidenceStatus, "discovery-only");
+});
+
+test("PlanningLeads weekly discovery excludes historical and undated records", () => {
+  const now = Date.parse("2026-09-23T12:00:00Z");
+  const records = [
+    { id: "recent", publishedAt: "2026-09-21" },
+    { id: "boundary", publishedAt: "2026-05-26T12:00:00Z" },
+    { id: "historical", publishedAt: "2023-07-06" },
+    { id: "undated" },
+  ];
+  assert.deepEqual(
+    filterRecentPlanningLeads(records, 120, now).map((record) => record.id),
+    ["recent", "boundary"],
+  );
+});
+
+test("confirmed records missing from the new window are retained with prior evidence", () => {
+  const prior = {
+    id: "prior-dcc",
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    sourceRecordId: "WEB1749/26",
+    title: "Prior DCC lead",
+    description: "Residential development",
+    sourceUrl: "https://example.test/decision.pdf",
+    evidenceStatus: "official-text",
+    evidenceExcerpt: "Condition 8 requires an acoustic report for plant noise.",
+    evidenceDocuments: [{
+      id: "decision",
+      documentType: "Decision Notice",
+      sourceUrl: "https://example.test/decision.pdf",
+      fetchStatus: "fetched",
+      matchedTerms: ["acoustic", "noise"],
+      excerpt: "Condition 8 requires an acoustic report for plant noise.",
+      classification: "granted-with-noise-conditions",
+    }],
+    classification: "granted-with-noise-conditions",
+    cpvCodes: [],
+    matchedTerms: ["acoustic", "noise"],
+    fitScore: 94,
+    routedTo: "Glen",
+    routingStatus: "routed",
+    routingReason: "balanced-assignment-to-glen-without-confirmed-warm-connection",
+    lastConfirmedAt: "2026-09-25T12:17:44.917Z",
+  };
+  const [merged] = mergeCurrentSnapshotWithLedger({
+    current: [],
+    priorConfirmed: [prior],
+    now: new Date("2026-09-28T09:00:00Z"),
+  });
+  assert.equal(merged.cycleStatus, "unconfirmed-this-cycle");
+  assert.equal(merged.carryForwardReason, "absent-from-current-discovery-window");
+  assert.equal(merged.evidenceExcerpt, prior.evidenceExcerpt);
+  assert.deepEqual(merged.evidenceDocuments, prior.evidenceDocuments);
+  assert.equal(merged.routedTo, "Glen");
+  assert.equal(confirmedLedgerRecords([merged]).length, 1);
+});
+
+test("weaker current evidence cannot erase a previously proven opportunity", () => {
+  const prior = {
+    id: "prior-dcc",
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    sourceRecordId: "WEB2137/26",
+    title: "Prior title",
+    description: "Prior description",
+    sourceUrl: "https://example.test/decision.pdf",
+    evidenceStatus: "official-text",
+    evidenceExcerpt: "An acoustic report shall be submitted.",
+    classification: "granted-with-noise-conditions",
+    cpvCodes: [],
+    matchedTerms: ["acoustic"],
+    fitScore: 91,
+  };
+  const current = {
+    ...prior,
+    title: "Refreshed title",
+    sourceUrl: "https://example.test/application",
+    evidenceStatus: "evidence-unavailable",
+    evidenceExcerpt: undefined,
+    evidenceUnavailableReason: "document-index-timeout",
+    classification: "needs-council-evidence",
+    matchedTerms: [],
+    fitScore: 48,
+  };
+  const [merged] = mergeCurrentSnapshotWithLedger({
+    current: [current],
+    priorConfirmed: [prior],
+    now: new Date("2026-09-28T09:00:00Z"),
+  });
+  assert.equal(merged.title, "Refreshed title");
+  assert.equal(merged.evidenceStatus, "official-text");
+  assert.equal(merged.classification, "granted-with-noise-conditions");
+  assert.equal(merged.sourceUrl, prior.sourceUrl);
+  assert.equal(merged.cycleStatus, "unconfirmed-this-cycle");
+  assert.equal(merged.routedTo, prior.routedTo);
+});
+
+test("records resolve only from explicit source status or an applicable expired deadline", () => {
+  const base = {
+    id: "tender",
+    type: "formal-public-tender",
+    sourceSystem: "TED",
+    sourceRecordId: "1-2026",
+    title: "Tender",
+    description: "Acoustic consultancy",
+    sourceUrl: "https://example.test/tender",
+    evidenceStatus: "official-text",
+    cpvCodes: ["71313200"],
+    matchedTerms: ["acoustic"],
+    fitScore: 90,
+  };
+  assert.equal(positiveResolution({ ...base, deadline: "2026-09-27" }, new Date("2026-09-28T09:00:00Z")), "confirmed-deadline-expired");
+  assert.equal(positiveResolution({ ...base, deadline: "2026-09-29" }, new Date("2026-09-28T09:00:00Z")), undefined);
+  assert.equal(positiveResolution({ ...base, deadline: "2026-09-29", sourceStatus: "withdrawn" }, new Date("2026-09-28T09:00:00Z")), "source-status-withdrawn");
+
+  const planning = {
+    ...base,
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    classification: "granted-with-noise-conditions",
+    deadline: "2020-01-01",
+  };
+  assert.equal(positiveResolution(planning, new Date("2026-09-28T09:00:00Z")), undefined);
+});
