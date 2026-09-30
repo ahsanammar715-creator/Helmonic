@@ -16,6 +16,7 @@ const closedStatuses = new Set([
   "resolved",
   "withdrawn",
   "expired",
+  "plans withdrawn/invalid",
 ]);
 
 const highIntentPatterns = [
@@ -54,6 +55,7 @@ const attachedPatterns = [
 ];
 
 const smallResidentialPatterns = [
+  /\bself[ -]?build\b/i,
   /\bone[ -]?off\s+(?:house|home|dwelling)\b/i,
   /\bsingle\s+(?:house|home|dwelling)\b/i,
   /\b(?:domestic|residential)\s+extension\b/i,
@@ -262,6 +264,15 @@ export function assessLeadFreshness(record: TenderOpportunity, now = new Date())
   ageDays?: number;
   reason: string;
 } {
+  const updated = validTimestamp(record.sourceUpdatedAt);
+  if (updated !== undefined) {
+    const ageDays = Math.max(0, Math.floor((now.getTime() - updated) / 86_400_000));
+    if (ageDays === 0) return { freshness: "updated-today", ageDays, reason: "Source data changed today; immediate change-detection priority applied." };
+    if (ageDays <= 3) return { freshness: "updated-1-3-days", ageDays, reason: "Source data changed within the last three days; high change-detection priority." };
+    if (ageDays <= 7) return { freshness: "updated-4-7-days", ageDays, reason: "Source data changed within the last week; current changed opportunity." };
+    if (ageDays <= 30) return { freshness: "updated-8-30-days", ageDays, reason: "Source data changed within the last month; retained as a current opportunity." };
+    return { freshness: "updated-over-30-days", ageDays, reason: "Older source update retained because the project may remain commercially actionable or have been overlooked." };
+  }
   const published = validTimestamp(record.publishedAt);
   if (published !== undefined) {
     const ageDays = Math.max(0, Math.floor((now.getTime() - published) / 86_400_000));
@@ -287,11 +298,16 @@ export function assessLeadFreshness(record: TenderOpportunity, now = new Date())
 
 export function freshnessPriority(record: TenderOpportunity) {
   switch (record.leadFreshness) {
+    case "updated-today":
     case "published-today": return 6;
+    case "updated-1-3-days":
     case "published-1-3-days": return 5;
+    case "updated-4-7-days":
     case "published-4-7-days": return 4;
+    case "updated-8-30-days":
     case "published-8-30-days": return 3;
     case "newly-detected-date-unknown": return 2;
+    case "updated-over-30-days":
     case "published-over-30-days": return 1;
     default: return 0;
   }
@@ -314,7 +330,8 @@ export function qualifyLead(record: TenderOpportunity, now = new Date()): Tender
 }
 
 export function isSalesRouteable(record: TenderOpportunity) {
-  return record.leadQuality !== "poor"
+  return record.deduplicationStatus !== "duplicate"
+    && record.leadQuality !== "poor"
     && record.leadQuality !== "closed-background"
     && record.leadDisposition !== "background";
 }

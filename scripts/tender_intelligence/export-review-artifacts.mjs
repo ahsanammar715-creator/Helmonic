@@ -19,6 +19,7 @@ const confirmedPlanningClasses = new Set([
 
 function isQualified(record) {
   if (record.cycleStatus === "resolved" || record.evidenceStatus !== "official-text") return false;
+  if (record.deduplicationStatus === "duplicate") return false;
   if (["poor", "closed-background"].includes(record.leadQuality) || record.leadDisposition === "background") return false;
   if (record.type === "formal-public-tender") return record.classification !== "no-relevant-opportunity";
   return confirmedPlanningClasses.has(record.classification ?? "");
@@ -61,11 +62,16 @@ function qualityWeight(record) {
 
 function freshnessWeight(record) {
   return {
+    "updated-today": 6,
     "published-today": 6,
+    "updated-1-3-days": 5,
     "published-1-3-days": 5,
+    "updated-4-7-days": 4,
     "published-4-7-days": 4,
+    "updated-8-30-days": 3,
     "published-8-30-days": 3,
     "newly-detected-date-unknown": 2,
+    "updated-over-30-days": 1,
     "published-over-30-days": 1,
     "date-unknown": 0,
   }[record.leadFreshness] ?? 0;
@@ -118,9 +124,18 @@ const headers = [
   "residential_scale",
   "evidence_status",
   "source_published_at",
+  "source_updated_at",
+  "source_major_updated_at",
   "source_age_days",
   "freshness_band",
   "freshness_reason",
+  "deduplication_status",
+  "deduplication_group_id",
+  "crm_external_id",
+  "canonical_opportunity_id",
+  "deduplication_reason",
+  "duplicate_sources",
+  "possible_duplicate_ids",
   "urgency",
   "deadline",
   "deadline_type",
@@ -158,9 +173,18 @@ const rows = qualified
       record.residentialScale ?? "",
       record.evidenceStatus ?? "",
       record.publishedAt ?? "",
+      record.sourceUpdatedAt ?? "",
+      record.sourceMajorUpdatedAt ?? "",
       record.sourceAgeDays ?? "",
       record.leadFreshness ?? "",
       record.freshnessReason ?? "",
+      record.deduplicationStatus ?? "unique",
+      record.deduplicationGroupId ?? "",
+      record.crmExternalId ?? "",
+      record.canonicalOpportunityId ?? record.id,
+      record.deduplicationReason ?? "",
+      JSON.stringify(record.duplicateSources ?? []),
+      (record.possibleDuplicateIds ?? []).join(";"),
       urgency(record),
       deadline,
       deadline ? (record.classification === "noise-related-rfi" ? "RFI response deadline" : "tender submission deadline") : "",
@@ -199,9 +223,18 @@ const allLeadRows = (state.opportunities ?? [])
       record.residentialScale ?? "",
       record.evidenceStatus ?? "",
       record.publishedAt ?? "",
+      record.sourceUpdatedAt ?? "",
+      record.sourceMajorUpdatedAt ?? "",
       record.sourceAgeDays ?? "",
       record.leadFreshness ?? "",
       record.freshnessReason ?? "",
+      record.deduplicationStatus ?? "unique",
+      record.deduplicationGroupId ?? "",
+      record.crmExternalId ?? "",
+      record.canonicalOpportunityId ?? record.id,
+      record.deduplicationReason ?? "",
+      JSON.stringify(record.duplicateSources ?? []),
+      (record.possibleDuplicateIds ?? []).join(";"),
       urgency(record),
       deadline,
       deadline ? (record.classification === "noise-related-rfi" ? "RFI response deadline" : "tender submission deadline") : "",

@@ -52,6 +52,19 @@ import {
   targetRegionStatus,
 } from "../../src/lib/tender-intelligence/source-scope.ts";
 import {
+  annotateOpportunityDuplicates,
+  deduplicationSummary,
+} from "../../src/lib/tender-intelligence/deduplication.ts";
+import {
+  buildOdooDryRun,
+  summarizeOdooDryRun,
+} from "../../src/lib/tender-intelligence/odoo-payload.ts";
+import {
+  buildBuildingInfoPageUrl,
+  collectBuildingInfoProjects,
+  parseBuildingInfoProjects,
+} from "../../src/lib/tender-intelligence/building-info.ts";
+import {
   assessLeadFreshness,
   assessLeadQuality,
   freshnessPriority,
@@ -148,6 +161,179 @@ test("newly detected records without a source date are not mislabelled as newly 
   const assessed = assessLeadFreshness(planningLead({ firstSeenAt: "2026-09-29T12:00:00.000Z" }), new Date("2026-09-30T12:00:00.000Z"));
   assert.equal(assessed.freshness, "newly-detected-date-unknown");
   assert.match(assessed.reason, /not claimed to be newly published/i);
+});
+
+test("strict cross-source duplicates share one CRM identity without losing either source record", () => {
+  const records = annotateOpportunityDuplicates([
+    planningLead({
+      id: "planning-leads-1",
+      sourceSystem: "PlanningLeads",
+      sourceRecordId: "2660971",
+      projectReference: "2660971",
+      planningAuthority: "Meath County Council",
+      evidenceStatus: "discovery-only",
+    }),
+    planningLead({
+      id: "national-1",
+      sourceSystem: "National Planning Register",
+      sourceRecordId: "Meath County Council:2660971",
+      projectReference: "2660971",
+      planningAuthority: "Meath County Council",
+      evidenceStatus: "evidence-unavailable",
+    }),
+  ]);
+  assert.equal(records.length, 2);
+  const canonical = records.find((record) => record.deduplicationStatus === "canonical");
+  const duplicate = records.find((record) => record.deduplicationStatus === "duplicate");
+  assert.equal(canonical.id, "national-1");
+  assert.equal(duplicate.id, "planning-leads-1");
+  assert.equal(canonical.crmExternalId, duplicate.crmExternalId);
+  assert.equal(canonical.duplicateSources.length, 2);
+  assert.deepEqual(deduplicationSummary(records), {
+    retainedRecords: 2,
+    uniqueRecords: 0,
+    canonicalGroups: 1,
+    duplicateSourceRecords: 1,
+    possibleDuplicateRecords: 0,
+    crmOpportunityKeys: 1,
+  });
+});
+
+test("same-address applications with different references are flagged but retained as separate CRM opportunities", () => {
+  const records = annotateOpportunityDuplicates([
+    planningLead({
+      id: "dcc-a",
+      sourceRecordId: "WEB3249/26",
+      projectReference: "WEB3249/26",
+      planningAuthority: "Dublin City Council",
+      location: "19 Berkeley Street & Blessington Street, Dublin 7",
+    }),
+    planningLead({
+      id: "dcc-b",
+      sourceRecordId: "WEB3307/26",
+      projectReference: "WEB3307/26",
+      planningAuthority: "Dublin City Council",
+      location: "19, Berkeley Street & Blessington Street Dublin 7",
+    }),
+  ]);
+  assert.ok(records.every((record) => record.deduplicationStatus === "possible-duplicate"));
+  assert.notEqual(records[0].crmExternalId, records[1].crmExternalId);
+  assert.deepEqual(records[0].possibleDuplicateIds, ["dcc-b"]);
+});
+
+test("Odoo dry-run upserts once per deduplicated CRM identity and retains every contributing source", () => {
+  const records = annotateOpportunityDuplicates([
+    qualifyLead(planningLead({
+      id: "planning-leads-odoo",
+      sourceSystem: "PlanningLeads",
+      sourceRecordId: "2661127",
+      projectReference: "2661127",
+      planningAuthority: "Meath County Council",
+      evidenceStatus: "discovery-only",
+    }), new Date("2026-09-30T12:00:00.000Z")),
+    qualifyLead(planningLead({
+      id: "national-odoo",
+      sourceSystem: "National Planning Register",
+      sourceRecordId: "Meath County Council:2661127",
+      projectReference: "2661127",
+      planningAuthority: "Meath County Council",
+      evidenceStatus: "evidence-unavailable",
+    }), new Date("2026-09-30T12:00:00.000Z")),
+  ]);
+  const payloads = buildOdooDryRun(records);
+  assert.equal(payloads.length, 1);
+  assert.match(payloads[0].values.x_source_systems, /National Planning Register/);
+  assert.match(payloads[0].values.x_source_systems, /PlanningLeads/);
+  assert.equal(payloads[0].operation, "upsert");
+  assert.equal(payloads[0].matchField, "x_helmonic_external_id");
+  assert.equal(summarizeOdooDryRun(payloads).uniqueExternalIds, 1);
+});
+
+test("BuildingInfo parser retains commercial enrichment and company contacts as discovery evidence", () => {
+  const [record] = parseBuildingInfoProjects({ data: [{
+    planning_id: "364777",
+    planning_number: "2443414",
+    planning_title: "Residential Development in Dublin",
+    planning_category: "Residential",
+    planning_subcategory: "Apartments",
+    planning_type: "New Build",
+    planning_stage: "Commencement",
+    planning_value: "88000000",
+    planning_units: "550",
+    planning_region: "Leinster",
+    planning_county: "Dublin",
+    council_name: "Dublin City",
+    planning_description: "Large Residential Development comprising 550 residential units.",
+    planning_url: "https://planning.example.test/2443414",
+    planning_application_date: "2026-01-05",
+    planning_public_updated: "2026-09-21",
+    api_date: "2026-09-21 12:36:58",
+    companies: [{
+      company_name: "Example Architects Ltd",
+      planning_company_type_name: { company_type_name: "Architect" },
+      planning_company_contact_name: "A. Architect",
+      company_email: "contact@example.test",
+    }],
+  }] });
+  assert.equal(record.sourceSystem, "BuildingInfo");
+  assert.equal(record.evidenceStatus, "discovery-only");
+  assert.equal(record.projectReference, "2443414");
+  assert.equal(record.projectUnits, 550);
+  assert.equal(record.projectValue, 88_000_000);
+  assert.equal(record.projectStage, "Commencement");
+  assert.equal(record.sourceUpdatedAt, "2026-09-21 12:36:58");
+  assert.equal(record.parties[0].role, "architect");
+  assert.equal(record.parties[0].organisation, "Example Architects Ltd");
+});
+
+test("BuildingInfo request builder uses bounded 1000-record pagination and environment-supplied credentials", async () => {
+  const config = {
+    enabled: true,
+    endpoint: "https://api.example.test/projects",
+    apiKey: "test-api-key",
+    userKey: "test-user-key",
+    updateWindow: "0.7",
+    pageSize: 2,
+    maxPages: 3,
+  };
+  const url = buildBuildingInfoPageUrl(config, 2);
+  assert.equal(url.searchParams.get("api_key"), "test-api-key");
+  assert.equal(url.searchParams.get("ukey"), "test-user-key");
+  assert.equal(url.searchParams.get("_apion"), "0.7");
+  assert.equal(url.searchParams.get("more"), "limit 2,2");
+  const offsets = [];
+  const result = await collectBuildingInfoProjects(config, async (request) => {
+    const requested = new URL(request);
+    offsets.push(requested.searchParams.get("more"));
+    const offset = Number.parseInt(requested.searchParams.get("more").split(/[ ,]/)[1], 10);
+    const count = offset === 0 ? 2 : 1;
+    return Response.json({ data: Array.from({ length: count }, (_, index) => ({
+      planning_id: String(offset + index + 1),
+      planning_title: "Dublin apartment project",
+      planning_category: "Residential",
+      planning_subcategory: "Apartments",
+      planning_url: `https://planning.example.test/${offset + index + 1}`,
+    })) });
+  });
+  assert.deepEqual(offsets, ["limit 0,2", "limit 2,2"]);
+  assert.equal(result.records.length, 3);
+  assert.equal(result.pagesFetched, 2);
+});
+
+test("BuildingInfo agriculture stays excluded and self-build housing remains retained as background", () => {
+  const [agriculture] = parseBuildingInfoProjects([{ planning_id: "ag-1", planning_category: "Agriculture", planning_title: "Farm building" }]);
+  assert.equal(applyTargetScope(agriculture).scopeStatus, "excluded");
+  assert.equal(applyTargetScope(agriculture).scopeExclusionReason, "excluded-agriculture");
+  const [selfBuild] = parseBuildingInfoProjects([{
+    planning_id: "self-1",
+    planning_category: "Self Build",
+    planning_subcategory: "House",
+    planning_title: "Self-build house in Dublin",
+    planning_county: "Dublin",
+  }]);
+  const qualified = qualifyLead(selfBuild, new Date("2026-09-30T12:00:00.000Z"));
+  assert.equal(qualified.leadQuality, "poor");
+  assert.equal(qualified.leadDisposition, "background");
 });
 
 test("TED collector uses the official Irish acoustic query and retains official links", () => {

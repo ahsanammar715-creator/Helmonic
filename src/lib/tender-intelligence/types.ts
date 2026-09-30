@@ -23,6 +23,11 @@ export type LeadQuality = "excellent" | "good" | "medium" | "poor" | "closed-bac
 export type LeadDisposition = "active" | "nurture" | "monitor" | "background";
 
 export type LeadFreshness =
+  | "updated-today"
+  | "updated-1-3-days"
+  | "updated-4-7-days"
+  | "updated-8-30-days"
+  | "updated-over-30-days"
   | "published-today"
   | "published-1-3-days"
   | "published-4-7-days"
@@ -37,6 +42,16 @@ export type ResidentialScale =
   | "multi-unit-unconfirmed-attachment"
   | "small-residential"
   | "not-residential";
+
+export type DeduplicationStatus = "unique" | "canonical" | "duplicate" | "possible-duplicate";
+
+export type DuplicateSourceReference = {
+  id: string;
+  sourceSystem: TenderOpportunity["sourceSystem"];
+  sourceRecordId: string;
+  sourceUrl: string;
+  evidenceStatus: EvidenceStatus;
+};
 
 export type LeadParty = {
   name: string;
@@ -68,7 +83,7 @@ export type PlanningDocumentEvidence = {
 export type TenderOpportunity = {
   id: string;
   type: OpportunityType;
-  sourceSystem: "TED" | "eTenders" | "National Planning Register" | "DCC" | "PlanningLeads";
+  sourceSystem: "TED" | "eTenders" | "National Planning Register" | "DCC" | "PlanningLeads" | "BuildingInfo";
   sourceRecordId: string;
   title: string;
   description: string;
@@ -85,6 +100,8 @@ export type TenderOpportunity = {
   parties?: LeadParty[];
   location?: string;
   publishedAt?: string;
+  sourceUpdatedAt?: string;
+  sourceMajorUpdatedAt?: string;
   deadline?: string;
   responseDeadline?: string;
   cpvCodes: string[];
@@ -96,8 +113,18 @@ export type TenderOpportunity = {
   leadFreshness?: LeadFreshness;
   sourceAgeDays?: number;
   freshnessReason?: string;
+  deduplicationStatus?: DeduplicationStatus;
+  deduplicationGroupId?: string;
+  canonicalOpportunityId?: string;
+  crmExternalId?: string;
+  deduplicationReason?: string;
+  duplicateSources?: DuplicateSourceReference[];
+  possibleDuplicateIds?: string[];
   residentialUnitCount?: number;
   residentialScale?: ResidentialScale;
+  projectValue?: number;
+  projectUnits?: number;
+  projectStage?: string;
   sourceStatus?: string;
   scopeStatus?: "eligible" | "excluded" | "unknown";
   scopeExclusionReason?: string;

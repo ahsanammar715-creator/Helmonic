@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { collectOfficialSourceSnapshot } from "../../src/lib/tender-intelligence/official-sources.ts";
+import { annotateOpportunityDuplicates, deduplicationSummary } from "../../src/lib/tender-intelligence/deduplication.ts";
 import { enrichFormalTenderOpportunities } from "../../src/lib/tender-intelligence/formal-document-evidence.ts";
 import { enrichNationalPlanningOpportunities } from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
 import { isSalesRouteable, qualifyLead } from "../../src/lib/tender-intelligence/lead-qualification.ts";
@@ -174,6 +175,15 @@ if (!state) {
       pageSize: Number.parseInt(value("HELMONIC_PLANNINGLEADS_PAGE_SIZE") || "100", 10),
       cacheHours: 1,
     },
+    buildingInfo: {
+      enabled: value("HELMONIC_BUILDINGINFO_ENABLED") === "true",
+      endpoint: value("BUILDINGINFO_API_ENDPOINT") || "https://api12.buildinginfo.com/api/v2/bi/projects/t-projects_1.4",
+      apiKey: value("BUILDINGINFO_API_KEY"),
+      userKey: value("BUILDINGINFO_USER_KEY"),
+      updateWindow: value("HELMONIC_BUILDINGINFO_UPDATE_WINDOW") || "0.7",
+      pageSize: Number.parseInt(value("HELMONIC_BUILDINGINFO_PAGE_SIZE") || "1000", 10),
+      maxPages: Number.parseInt(value("HELMONIC_BUILDINGINFO_MAX_PAGES") || "50", 10),
+    },
     documentEvidence: { formal: true, nationalPlanningLimit: 0 },
   });
   const persistedLedger = await readJsonIfPresent(ledgerPath);
@@ -230,14 +240,18 @@ for (let offset = state.nationalProcessed || 0; offset < nationalIndexes.length;
       enriched[batchIndex],
     );
   });
-  state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities.map((record) => qualifyLead(record)));
+  state.opportunities = routeCurrentAndPreserveCarryForward(annotateOpportunityDuplicates(
+    state.opportunities.map((record) => qualifyLead(record)),
+  ));
   state.nationalProcessed = offset + indexes.length;
   state.updatedAt = new Date().toISOString();
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
   console.log(`Council document evidence ${state.nationalProcessed}/${nationalIndexes.length}`);
 }
 
-state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities.map((record) => qualifyLead(record)));
+state.opportunities = routeCurrentAndPreserveCarryForward(annotateOpportunityDuplicates(
+  state.opportunities.map((record) => qualifyLead(record)),
+));
 state.status = "complete";
 state.completedAt = new Date().toISOString();
 state.updatedAt = state.completedAt;
@@ -265,13 +279,15 @@ const isConfirmed = (record) => isFormalConfirmed(record) || (
   && record.cycleStatus !== "resolved"
   && confirmedClasses.has(record.classification)
 );
-const sourceNames = ["TED", "eTenders", "National Planning Register", "DCC", "PlanningLeads"];
+const deduplication = deduplicationSummary(state.opportunities);
+const sourceNames = ["TED", "eTenders", "National Planning Register", "DCC", "PlanningLeads", "BuildingInfo"];
 const sources = sourceNames.map((name) => {
   const rows = state.opportunities.filter((record) => record.sourceSystem === name);
   const fetch = state.sources?.find((source) => source.name === name);
+  const defaultFetchStatus = name === "BuildingInfo" ? "not-configured" : "unknown";
   return {
     name,
-    fetchStatus: fetch?.status ?? "unknown",
+    fetchStatus: fetch?.status ?? defaultFetchStatus,
     fetchError: fetch?.error,
     totalCandidates: rows.length,
     officialDocumentsInspected: rows.filter((record) => record.evidenceStatus === "official-text").length,
@@ -285,8 +301,11 @@ const sources = sourceNames.map((name) => {
     mediumLeads: rows.filter((record) => record.leadQuality === "medium").length,
     poorLeads: rows.filter((record) => record.leadQuality === "poor").length,
     closedBackground: rows.filter((record) => record.leadQuality === "closed-background").length,
-    publishedWithinThreeDays: rows.filter((record) => ["published-today", "published-1-3-days"].includes(record.leadFreshness)).length,
-    olderOrUndatedRetained: rows.filter((record) => ["published-over-30-days", "date-unknown", "newly-detected-date-unknown"].includes(record.leadFreshness)).length,
+    publishedOrUpdatedWithinThreeDays: rows.filter((record) => ["updated-today", "updated-1-3-days", "published-today", "published-1-3-days"].includes(record.leadFreshness)).length,
+    olderOrUndatedRetained: rows.filter((record) => ["updated-over-30-days", "published-over-30-days", "date-unknown", "newly-detected-date-unknown"].includes(record.leadFreshness)).length,
+    canonicalDuplicateGroups: new Set(rows.filter((record) => record.deduplicationStatus === "canonical").map((record) => record.deduplicationGroupId)).size,
+    duplicateSourceRecords: rows.filter((record) => record.deduplicationStatus === "duplicate").length,
+    possibleDuplicateRecords: rows.filter((record) => record.deduplicationStatus === "possible-duplicate").length,
     inspectedNotRelevant: rows.filter((record) => record.evidenceStatus === "official-text" && !isConfirmed(record)).length,
     discoveryOnly: rows.filter((record) => record.evidenceStatus === "discovery-only").length,
     evidenceUnavailable: rows.filter((record) => record.evidenceStatus === "evidence-unavailable").length,
@@ -331,8 +350,9 @@ const report = {
     nurtureWatchList: state.opportunities.filter((record) => record.leadDisposition === "nurture").length,
     monitored: state.opportunities.filter((record) => record.leadDisposition === "monitor").length,
     background: state.opportunities.filter((record) => record.leadDisposition === "background").length,
-    publishedWithinThreeDays: state.opportunities.filter((record) => ["published-today", "published-1-3-days"].includes(record.leadFreshness)).length,
-    olderOrUndatedRetained: state.opportunities.filter((record) => ["published-over-30-days", "date-unknown", "newly-detected-date-unknown"].includes(record.leadFreshness)).length,
+    ...deduplication,
+    publishedOrUpdatedWithinThreeDays: state.opportunities.filter((record) => ["updated-today", "updated-1-3-days", "published-today", "published-1-3-days"].includes(record.leadFreshness)).length,
+    olderOrUndatedRetained: state.opportunities.filter((record) => ["updated-over-30-days", "published-over-30-days", "date-unknown", "newly-detected-date-unknown"].includes(record.leadFreshness)).length,
     routedToGlen: confirmed.filter((record) => record.routedTo === "Glen").length,
     routedToOwen: confirmed.filter((record) => record.routedTo === "Owen").length,
     exactRelationshipRoutes: confirmed.filter((record) => record.routingReason?.startsWith("exact-party-match-supported-by-")).length,
@@ -358,6 +378,13 @@ const report = {
     leadFreshness: record.leadFreshness,
     sourceAgeDays: record.sourceAgeDays,
     freshnessReason: record.freshnessReason,
+    deduplicationStatus: record.deduplicationStatus,
+    deduplicationGroupId: record.deduplicationGroupId,
+    canonicalOpportunityId: record.canonicalOpportunityId,
+    crmExternalId: record.crmExternalId,
+    deduplicationReason: record.deduplicationReason,
+    duplicateSources: record.duplicateSources,
+    possibleDuplicateIds: record.possibleDuplicateIds,
     residentialUnitCount: record.residentialUnitCount,
     residentialScale: record.residentialScale,
     cycleStatus: record.cycleStatus,
@@ -372,10 +399,11 @@ const weeklyLists = {
   triage: confirmed.filter((record) => record.routedTo === "unassigned"),
   dailyUrgentRfi: confirmed.filter((record) => record.classification === "noise-related-rfi"),
   dailyFreshLeads: state.opportunities.filter((record) =>
-    ["published-today", "published-1-3-days"].includes(record.leadFreshness)
+    ["updated-today", "updated-1-3-days", "published-today", "published-1-3-days"].includes(record.leadFreshness)
     && record.cycleStatus !== "resolved"
     && record.leadQuality !== "poor"
-    && record.leadQuality !== "closed-background"),
+    && record.leadQuality !== "closed-background"
+    && record.deduplicationStatus !== "duplicate"),
 };
 
 function deliveryNote(record) {
@@ -392,6 +420,7 @@ function renderRecipientDigest(owner, records) {
     `- Qualification: ${record.qualificationReason ?? "No commercial qualification reason retained."}`,
     `- Freshness: ${record.leadFreshness ?? "date-unknown"}${Number.isFinite(record.sourceAgeDays) ? ` · ${record.sourceAgeDays} day(s) since publication` : ""}`,
     `- Freshness note: ${record.freshnessReason ?? "No reliable source publication date was retained."}`,
+    `- CRM identity: ${record.crmExternalId ?? record.id} · ${record.deduplicationStatus ?? "unique"}`,
     `- Source: ${record.sourceSystem} · ${record.sourceRecordId}`,
     `- Deadline: ${record.responseDeadline || record.deadline || "Not published"}`,
     `- Fit: ${record.fitScore}`,

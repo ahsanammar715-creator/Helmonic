@@ -53,6 +53,7 @@ export function targetRegionStatus(record: TenderOpportunity) {
 }
 
 export function applyTargetScope(record: TenderOpportunity): TenderOpportunity {
+  if (record.scopeStatus === "excluded" && record.scopeExclusionReason) return record;
   if (record.type === "formal-public-tender" && !approvedTenderBuyer(record.buyer)) {
     return {
       ...record,

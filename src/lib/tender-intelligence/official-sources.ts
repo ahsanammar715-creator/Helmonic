@@ -10,6 +10,10 @@ import {
   scoreOpportunity,
   stableOpportunityId,
 } from "./policy.ts";
+import {
+  collectBuildingInfoProjects,
+  type BuildingInfoConfig,
+} from "./building-info.ts";
 import { parseCsv, pick } from "./csv.ts";
 import type {
   OfficialSourceSnapshot,
@@ -699,6 +703,7 @@ async function collectPlanningLeads(config: PlanningLeadsConnectorConfig) {
 
 export async function collectOfficialSourceSnapshot(options: {
   planningLeads?: PlanningLeadsConnectorConfig;
+  buildingInfo?: BuildingInfoConfig;
   documentEvidence?: {
     formal?: boolean;
     nationalPlanningLimit?: number;
@@ -804,6 +809,39 @@ export async function collectOfficialSourceSnapshot(options: {
       } catch (error) {
         sources.push({
           name: "PlanningLeads",
+          status: "failed",
+          records: 0,
+          error: error instanceof Error ? error.message : "unknown",
+        });
+      }
+    })());
+  }
+  const buildingInfo = options.buildingInfo;
+  if (!buildingInfo?.enabled || !buildingInfo.apiKey || !buildingInfo.userKey) {
+    sources.push({
+      name: "BuildingInfo",
+      status: "not-configured",
+      records: 0,
+      error: buildingInfo?.enabled
+        ? "BuildingInfo API credentials are not configured"
+        : "Optional licensed enrichment connector disabled",
+    });
+  } else {
+    tasks.push((async () => {
+      try {
+        const result = await collectBuildingInfoProjects(buildingInfo);
+        const parsed = result.records.map(applyTargetScope).filter(withinTargetScope);
+        records.push(...parsed);
+        sources.push({
+          name: "BuildingInfo",
+          status: "ok",
+          records: parsed.length,
+          scannedRecords: result.scannedRecords,
+          pagesFetched: result.pagesFetched,
+        });
+      } catch (error) {
+        sources.push({
+          name: "BuildingInfo",
           status: "failed",
           records: 0,
           error: error instanceof Error ? error.message : "unknown",
