@@ -76,6 +76,16 @@ function preferPriorEvidence(current: TenderOpportunity, prior: TenderOpportunit
   } satisfies TenderOpportunity;
 }
 
+function exactRelationshipRoute(record: TenderOpportunity) {
+  return /^exact-party-match-supported-by-(?:glen|owen)-email-evidence$/i.test(record.routingReason ?? "");
+}
+
+function hasPreservableRoute(record: TenderOpportunity) {
+  return record.routingStatus === "routed"
+    && (record.routedTo === "Glen" || record.routedTo === "Owen")
+    && Boolean(record.routingReason);
+}
+
 export function mergeCurrentSnapshotWithLedger(input: {
   current: TenderOpportunity[];
   priorConfirmed: TenderOpportunity[];
@@ -135,9 +145,17 @@ export function mergeCurrentSnapshotWithLedger(input: {
     }
 
     if (current && isConfirmedOpportunity(current)) {
+      const currentMerged = merged.get(key)!;
+      const preservePriorRoute = hasPreservableRoute(prior) && !exactRelationshipRoute(currentMerged);
       merged.set(key, {
-        ...merged.get(key)!,
+        ...currentMerged,
         firstSeenAt: prior.firstSeenAt ?? prior.lastConfirmedAt ?? timestamp,
+        ...(preservePriorRoute ? {
+          routedTo: prior.routedTo,
+          routingStatus: prior.routingStatus,
+          routingEvidence: prior.routingEvidence,
+          routingReason: prior.routingReason,
+        } : {}),
       });
       continue;
     }

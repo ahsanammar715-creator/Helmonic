@@ -368,6 +368,47 @@ function lastNDaysDate(days: number) {
 const nationalPlanningLookbackDays = 35;
 const nationalPlanningPageSize = 1_000;
 
+function transientHttpStatus(status: number) {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function transientFetchError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return error.name === "AbortError"
+    || error.name === "TimeoutError"
+    || /aborted due to timeout|fetch failed|network/i.test(error.message);
+}
+
+async function fetchWithBoundedRetry(
+  fetcher: typeof fetch,
+  url: string,
+  init: Omit<RequestInit, "signal">,
+  options: { attempts?: number; timeoutMs?: number; retryDelayMs?: number } = {},
+) {
+  const attempts = Math.max(1, options.attempts ?? 3);
+  const timeoutMs = Math.max(1, options.timeoutMs ?? 25_000);
+  const retryDelayMs = Math.max(0, options.retryDelayMs ?? 250);
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetcher(url, {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!transientHttpStatus(response.status) || attempt === attempts) return response;
+      lastError = new Error(`${new URL(url).hostname}-${response.status}`);
+    } catch (error) {
+      lastError = error;
+      if (!transientFetchError(error) || attempt === attempts) throw error;
+    }
+    if (retryDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
+    }
+  }
+  throw lastError;
+}
+
 export function buildNationalPlanningWhere(now = Date.now()) {
   const since = new Date(now - nationalPlanningLookbackDays * 86_400_000)
     .toISOString()
@@ -396,10 +437,9 @@ export async function collectNationalPlanningFeatures(
       returnGeometry: "false",
       f: "json",
     });
-    const response = await fetcher(`${officialSourceUrls.nationalPlanning}?${query}`, {
+    const response = await fetchWithBoundedRetry(fetcher, `${officialSourceUrls.nationalPlanning}?${query}`, {
       cache: "no-store",
       headers: { "User-Agent": "Helmonic-Tender-Intelligence/1.0" },
-      signal: AbortSignal.timeout(25_000),
     });
     if (!response.ok) throw new Error(`National-Planning-${response.status}`);
     const payload = await response.json();
@@ -447,12 +487,11 @@ export async function collectTedOpportunities(
   let totalNoticeCount: number | undefined;
   const maximumPages = 1_000;
   for (let page = 1; page <= maximumPages; page += 1) {
-    const response = await fetcher(officialSourceUrls.ted, {
+    const response = await fetchWithBoundedRetry(fetcher, officialSourceUrls.ted, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(buildTedSearchRequest(page, pageSize)),
       cache: "no-store",
-      signal: AbortSignal.timeout(25_000),
     });
     if (!response.ok) throw new Error(`TED-${response.status}`);
     const payload = await response.json() as { notices?: unknown[]; totalNoticeCount?: number; timedOut?: boolean };

@@ -185,8 +185,16 @@ export function routeOpportunityByRelationships(
 export function routeOpportunitiesByRelationships(
   records: TenderOpportunity[],
   lookup: RelationshipLookup | undefined = loadRelationshipLookup(),
+  options: { preserveExistingRoutes?: boolean } = {},
 ): TenderOpportunity[] {
-  const routed = records.map((record) => routeOpportunityByRelationships(record, lookup));
+  const routed = records.map((record) => {
+    const preserveExistingRoute = options.preserveExistingRoutes
+      && isQualified(record)
+      && record.routingStatus === "routed"
+      && (record.routedTo === "Glen" || record.routedTo === "Owen")
+      && Boolean(record.routingReason);
+    return preserveExistingRoute ? record : routeOpportunityByRelationships(record, lookup);
+  });
   const ownerCounts = {
     Glen: routed.filter((record) => record.routedTo === "Glen").length,
     Owen: routed.filter((record) => record.routedTo === "Owen").length,

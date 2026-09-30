@@ -142,7 +142,11 @@ function mergePriorConfirmedRecords(fullRecords, legacyAuditRecords) {
 
 function routeCurrentAndPreserveCarryForward(records) {
   const routeable = records.filter((record) => record.cycleStatus !== "unconfirmed-this-cycle");
-  const routed = new Map(routeOpportunitiesByRelationships(routeable).map((record) => [opportunityIdentity(record), record]));
+  const routed = new Map(routeOpportunitiesByRelationships(
+    routeable,
+    undefined,
+    { preserveExistingRoutes: true },
+  ).map((record) => [opportunityIdentity(record), record]));
   return records.map((record) => routed.get(opportunityIdentity(record)) ?? record);
 }
 

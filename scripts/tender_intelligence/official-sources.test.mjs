@@ -195,6 +195,19 @@ test("national register collector exhausts the ArcGIS transfer limit", async () 
   assert.equal(result.pagesFetched, 2);
 });
 
+test("national register collector retries a transient timeout without widening the query", async () => {
+  const urls = [];
+  const fetcher = async (url) => {
+    urls.push(String(url));
+    if (urls.length === 1) throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    return Response.json({ exceededTransferLimit: false, features: [{ attributes: { OBJECTID: 1 } }] });
+  };
+  const result = await collectNationalPlanningFeatures(fetcher, 1, Date.parse("2026-09-25T12:00:00Z"));
+  assert.equal(urls.length, 2);
+  assert.equal(urls[0], urls[1]);
+  assert.equal(result.features.length, 1);
+});
+
 test("DCC further-information wording can prove a noise-related RFI", () => {
   const base = 'APNID,REG_REF,LONG_PROPOSAL,LOCATION,APPTYPE DECISION\n42,WEB1000/26,"Hotel development",Dublin,"Further Information"\n';
   const fi = 'APNID,REQDATE,RECDDATE,FI_DESC\n42,2026-09-01,2027-03-01,"Submit an acoustic report addressing plant noise and vibration."\n';
@@ -567,6 +580,76 @@ test("confirmed records missing from the new window are retained with prior evid
   assert.deepEqual(merged.evidenceDocuments, prior.evidenceDocuments);
   assert.equal(merged.routedTo, "Glen");
   assert.equal(confirmedLedgerRecords([merged]).length, 1);
+});
+
+test("existing balanced owners stay sticky while only new records are balanced", () => {
+  const existing = {
+    id: "existing",
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    sourceRecordId: "WEB1000/26",
+    title: "Existing lead",
+    description: "Residential development",
+    sourceUrl: "https://example.test/existing",
+    evidenceStatus: "official-text",
+    classification: "design-construction-potential",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 60,
+    routedTo: "Glen",
+    routingStatus: "routed",
+    routingReason: "balanced-assignment-to-glen-without-confirmed-warm-connection",
+  };
+  const incoming = {
+    ...existing,
+    id: "incoming",
+    sourceRecordId: "WEB1001/26",
+    title: "Incoming lead",
+    sourceUrl: "https://example.test/incoming",
+    routedTo: "unassigned",
+    routingStatus: "needs-triage",
+    routingReason: "no-exact-party-level-email-evidence-match",
+  };
+  const routed = routeOpportunitiesByRelationships(
+    [existing, incoming],
+    buildRelationshipLookup([]),
+    { preserveExistingRoutes: true },
+  );
+  assert.equal(routed.find((record) => record.id === "existing").routedTo, "Glen");
+  assert.equal(routed.find((record) => record.id === "incoming").routedTo, "Owen");
+});
+
+test("a prior balanced owner survives a confirmed refresh unless a new exact email route exists", () => {
+  const prior = {
+    id: "prior-route",
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    sourceRecordId: "WEB2000/26",
+    title: "Existing project",
+    description: "Residential development",
+    sourceUrl: "https://example.test/prior",
+    evidenceStatus: "official-text",
+    classification: "design-construction-potential",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 60,
+    routedTo: "Glen",
+    routingStatus: "routed",
+    routingReason: "balanced-assignment-to-glen-without-confirmed-warm-connection",
+  };
+  const current = {
+    ...prior,
+    sourceUrl: "https://example.test/current",
+    routedTo: "Owen",
+    routingReason: "balanced-assignment-to-owen-without-confirmed-warm-connection",
+  };
+  const [merged] = mergeCurrentSnapshotWithLedger({
+    current: [current],
+    priorConfirmed: [prior],
+    now: new Date("2026-09-30T09:00:00Z"),
+  });
+  assert.equal(merged.routedTo, "Glen");
+  assert.equal(merged.routingReason, prior.routingReason);
 });
 
 test("weaker current evidence cannot erase a previously proven opportunity", () => {
