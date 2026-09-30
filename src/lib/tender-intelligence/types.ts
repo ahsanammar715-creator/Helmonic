@@ -71,6 +71,8 @@ export type TenderOpportunity = {
   matchedTerms: string[];
   fitScore: number;
   sourceStatus?: string;
+  scopeStatus?: "eligible" | "excluded" | "unknown";
+  scopeExclusionReason?: string;
   cycleStatus?: OpportunityCycleStatus;
   firstSeenAt?: string;
   lastSeenAt?: string;

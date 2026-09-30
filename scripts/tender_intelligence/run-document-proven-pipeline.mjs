@@ -6,6 +6,7 @@ import { collectOfficialSourceSnapshot } from "../../src/lib/tender-intelligence
 import { enrichFormalTenderOpportunities } from "../../src/lib/tender-intelligence/formal-document-evidence.ts";
 import { enrichNationalPlanningOpportunities } from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
 import { routeOpportunitiesByRelationships } from "../../src/lib/tender-intelligence/relationship-routing.ts";
+import { applyTargetScope } from "../../src/lib/tender-intelligence/source-scope.ts";
 import {
   applyEvidenceRefresh,
   confirmedLedgerRecords,
@@ -179,7 +180,8 @@ if (!state) {
     ...(persistedLedger?.opportunities ?? []),
     ...(previousCompletedState?.opportunities ?? []).filter(isConfirmedOpportunity),
   ];
-  const priorConfirmed = mergePriorConfirmedRecords(fullPriorRecords, await loadHistoricalConfirmedRecords());
+  const priorConfirmed = mergePriorConfirmedRecords(fullPriorRecords, await loadHistoricalConfirmedRecords())
+    .map(applyTargetScope);
   const opportunities = mergeCurrentSnapshotWithLedger({
     current: snapshot.opportunities,
     priorConfirmed,

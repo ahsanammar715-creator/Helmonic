@@ -40,6 +40,9 @@ function parseDate(value: string | undefined) {
 }
 
 export function positiveResolution(record: TenderOpportunity, now = new Date()) {
+  if (record.scopeStatus === "excluded" && record.scopeExclusionReason) {
+    return `target-scope-${record.scopeExclusionReason}`;
+  }
   const sourceStatus = record.sourceStatus?.trim().toLowerCase();
   if (sourceStatus && resolvedSourceStatuses.has(sourceStatus)) {
     return `source-status-${sourceStatus}`;

@@ -46,6 +46,11 @@ import {
   positiveResolution,
   routingMetadataWithDurablePrecedence,
 } from "../../src/lib/tender-intelligence/carry-forward.ts";
+import {
+  applyTargetScope,
+  approvedTenderBuyer,
+  targetRegionStatus,
+} from "../../src/lib/tender-intelligence/source-scope.ts";
 
 test("TED collector uses the official Irish acoustic query and retains official links", () => {
   const request = buildTedSearchRequest();
@@ -122,7 +127,7 @@ test("TED collector follows every result page and reports the scanned scale", as
       notices: notices.map((publicationNumber) => ({
         "publication-number": publicationNumber,
         "notice-title": { eng: ["Noise consultancy"] },
-        "buyer-name": { eng: ["Example Council"] },
+        "buyer-name": { eng: ["Kildare County Council"] },
         "classification-cpv": ["71313100"],
         "description-lot": { eng: ["Environmental noise assessment"] },
       })),
@@ -176,7 +181,32 @@ test("national register live query is bounded to current weekly discovery activi
   assert.match(where, /ReceivedDate >= DATE '2026-08-21'/);
   assert.match(where, /DecisionDate >= DATE '2026-08-21'/);
   assert.match(where, /FIRequestDate >= DATE '2026-08-21'/);
+  assert.match(where, /PlanningAuthority IN/);
+  assert.match(where, /Kildare County Council/);
+  assert.doesNotMatch(where, /Cavan County Council/);
   assert.doesNotMatch(where, /ETL_DATE/);
+});
+
+test("target scope requires Leinster and the approved formal-tender buyer class", () => {
+  const base = {
+    id: "scope-test",
+    type: "formal-public-tender",
+    sourceSystem: "TED",
+    sourceRecordId: "123-2026",
+    title: "Noise consultancy in Kildare",
+    description: "Acoustic consultancy",
+    sourceUrl: "https://example.test/123",
+    evidenceStatus: "discovery-only",
+    cpvCodes: ["71313100"],
+    matchedTerms: ["noise"],
+    fitScore: 60,
+  };
+  assert.equal(approvedTenderBuyer("Office of Public Works"), true);
+  assert.equal(approvedTenderBuyer("Kildare County Council"), true);
+  assert.equal(approvedTenderBuyer("University of Limerick"), false);
+  assert.equal(applyTargetScope({ ...base, buyer: "Kildare County Council" }).scopeStatus, "eligible");
+  assert.equal(applyTargetScope({ ...base, buyer: "University of Limerick" }).scopeExclusionReason, "buyer-is-not-opw-or-a-local-authority");
+  assert.equal(targetRegionStatus({ ...base, buyer: "Limerick City and County Council", title: "Noise consultancy" }), "out-of-region");
 });
 
 test("national register collector exhausts the ArcGIS transfer limit", async () => {
@@ -835,6 +865,7 @@ test("records resolve only from explicit source status or an applicable expired 
   assert.equal(positiveResolution({ ...base, deadline: "2026-09-27" }, new Date("2026-09-28T09:00:00Z")), "confirmed-deadline-expired");
   assert.equal(positiveResolution({ ...base, deadline: "2026-09-29" }, new Date("2026-09-28T09:00:00Z")), undefined);
   assert.equal(positiveResolution({ ...base, deadline: "2026-09-29", sourceStatus: "withdrawn" }, new Date("2026-09-28T09:00:00Z")), "source-status-withdrawn");
+  assert.equal(positiveResolution({ ...base, scopeStatus: "excluded", scopeExclusionReason: "outside-leinster" }), "target-scope-outside-leinster");
 
   const planning = {
     ...base,

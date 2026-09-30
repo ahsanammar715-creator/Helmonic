@@ -19,6 +19,11 @@ import { enrichDccPlanningOpportunities } from "./dcc-document-evidence.ts";
 import { enrichFormalTenderOpportunities } from "./formal-document-evidence.ts";
 import { enrichNationalPlanningOpportunities } from "./national-planning-evidence.ts";
 import { routeOpportunitiesByRelationships } from "./relationship-routing.ts";
+import {
+  applyTargetScope,
+  leinsterPlanningAuthorities,
+  withinTargetScope,
+} from "./source-scope.ts";
 import { strFromU8, unzipSync } from "fflate";
 
 export const officialSourceUrls = {
@@ -413,9 +418,11 @@ export function buildNationalPlanningWhere(now = Date.now()) {
   const since = new Date(now - nationalPlanningLookbackDays * 86_400_000)
     .toISOString()
     .slice(0, 10);
-  return ["ReceivedDate", "DecisionDate", "FIRequestDate"]
+  const activity = ["ReceivedDate", "DecisionDate", "FIRequestDate"]
     .map((field) => `${field} >= DATE '${since}'`)
     .join(" OR ");
+  const authorities = leinsterPlanningAuthorities.map((authority) => `'${authority.replaceAll("'", "''")}'`).join(",");
+  return `(${activity}) AND PlanningAuthority IN (${authorities})`;
 }
 
 export async function collectNationalPlanningFeatures(
@@ -703,11 +710,12 @@ export async function collectOfficialSourceSnapshot(options: {
     (async () => {
       try {
         const result = await collectTedOpportunities();
-        records.push(...result.records);
+        const scoped = result.records.map(applyTargetScope).filter(withinTargetScope);
+        records.push(...scoped);
         sources.push({
           name: "TED",
           status: "ok",
-          records: result.records.length,
+          records: scoped.length,
           scannedRecords: result.scannedRecords,
           pagesFetched: result.pagesFetched,
         });
@@ -718,7 +726,7 @@ export async function collectOfficialSourceSnapshot(options: {
     (async () => {
       try {
         const csv = await fetchText(officialSourceUrls.etenders);
-        const parsed = parseEtendersCsv(csv);
+        const parsed = parseEtendersCsv(csv).map(applyTargetScope).filter(withinTargetScope);
         records.push(...parsed);
         sources.push({ name: "eTenders", status: "ok", records: parsed.length, scannedRecords: parseCsv(csv).length, pagesFetched: 1 });
       } catch (error) {
@@ -728,7 +736,7 @@ export async function collectOfficialSourceSnapshot(options: {
     (async () => {
       try {
         const result = await collectNationalPlanningFeatures();
-        const parsed = parseNationalPlanningFeatures(result);
+        const parsed = parseNationalPlanningFeatures(result).map(applyTargetScope).filter(withinTargetScope);
         records.push(...parsed);
         sources.push({
           name: "National Planning Register",
@@ -762,11 +770,12 @@ export async function collectOfficialSourceSnapshot(options: {
             }),
           )
         ).flat();
-        records.push(...parsed);
+        const scoped = parsed.map(applyTargetScope).filter(withinTargetScope);
+        records.push(...scoped);
         sources.push({
           name: "DCC",
           status: "ok",
-          records: parsed.length,
+          records: scoped.length,
           scannedRecords,
           pagesFetched: 1,
           sourceDocumentsFetched: documentUrls.length,
@@ -789,7 +798,7 @@ export async function collectOfficialSourceSnapshot(options: {
   } else {
     tasks.push((async () => {
       try {
-        const parsed = await collectPlanningLeads(planningLeads);
+        const parsed = (await collectPlanningLeads(planningLeads)).map(applyTargetScope).filter(withinTargetScope);
         records.push(...parsed);
         sources.push({ name: "PlanningLeads", status: "ok", records: parsed.length });
       } catch (error) {
