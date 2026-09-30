@@ -8,6 +8,7 @@ const artifactRoot = path.join(repoRoot, "local-artifacts", "tender-intelligence
 const documentProvenRoot = path.join(artifactRoot, "document-proven");
 const ledgerPath = path.join(documentProvenRoot, "confirmed-ledger.json");
 const auditPath = path.join(documentProvenRoot, "latest-audit.json");
+const statePath = path.join(documentProvenRoot, "pipeline-state.json");
 
 const confirmedPlanningClasses = new Set([
   "noise-related-rfi",
@@ -18,6 +19,7 @@ const confirmedPlanningClasses = new Set([
 
 function isQualified(record) {
   if (record.cycleStatus === "resolved" || record.evidenceStatus !== "official-text") return false;
+  if (["poor", "closed-background"].includes(record.leadQuality) || record.leadDisposition === "background") return false;
   if (record.type === "formal-public-tender") return record.classification !== "no-relevant-opportunity";
   return confirmedPlanningClasses.has(record.classification ?? "");
 }
@@ -76,6 +78,7 @@ function isoDate(value) {
 
 const ledger = JSON.parse(await readFile(ledgerPath, "utf8"));
 const audit = JSON.parse(await readFile(auditPath, "utf8"));
+const state = JSON.parse(await readFile(statePath, "utf8"));
 const qualified = (ledger.opportunities ?? ledger).filter(isQualified);
 const auditCount = audit?.totals?.qualifiedWorkingList;
 if (Number.isFinite(auditCount) && auditCount !== qualified.length) {
@@ -88,6 +91,12 @@ const headers = [
   "source_record_id",
   "title",
   "category",
+  "lead_quality",
+  "pipeline_bucket",
+  "qualification_reason",
+  "residential_unit_count",
+  "residential_scale",
+  "evidence_status",
   "urgency",
   "deadline",
   "deadline_type",
@@ -116,6 +125,12 @@ const rows = qualified
       record.sourceRecordId,
       record.title,
       category(record),
+      record.leadQuality ?? "",
+      record.leadDisposition ?? "",
+      record.qualificationReason ?? "",
+      record.residentialUnitCount ?? "",
+      record.residentialScale ?? "",
+      record.evidenceStatus ?? "",
       urgency(record),
       deadline,
       deadline ? (record.classification === "noise-related-rfi" ? "RFI response deadline" : "tender submission deadline") : "",
@@ -134,17 +149,56 @@ const rows = qualified
   });
 
 const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
+const allLeadRows = (state.opportunities ?? [])
+  .sort((left, right) => (left.leadQuality ?? "").localeCompare(right.leadQuality ?? "")
+    || left.sourceSystem.localeCompare(right.sourceSystem)
+    || left.sourceRecordId.localeCompare(right.sourceRecordId))
+  .map((record) => {
+    const deadline = actionableDeadline(record);
+    return [
+      record.id,
+      record.sourceSystem,
+      record.sourceRecordId,
+      record.title,
+      category(record),
+      record.leadQuality ?? "",
+      record.leadDisposition ?? "",
+      record.qualificationReason ?? "",
+      record.residentialUnitCount ?? "",
+      record.residentialScale ?? "",
+      record.evidenceStatus ?? "",
+      urgency(record),
+      deadline,
+      deadline ? (record.classification === "noise-related-rfi" ? "RFI response deadline" : "tender submission deadline") : "",
+      record.type === "formal-public-tender" || record.classification === "noise-related-rfi" ? "" : record.deadline ?? "",
+      record.evidenceExcerpt ?? "",
+      evidenceNote(record),
+      record.sourceUrl,
+      record.routedTo,
+      record.routingReason,
+      relationshipStatus(record),
+      record.cycleStatus,
+      record.carryForwardReason ?? "",
+      isoDate(record.firstSeenAt),
+      isoDate(record.lastSeenAt),
+    ];
+  });
+const allLeadCsv = [headers, ...allLeadRows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
 const timestamp = new Date().toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z");
 const outputDirectory = path.join(artifactRoot, "review-exports", timestamp);
 const csvPath = path.join(outputDirectory, "tender-intelligence-working-list.csv");
+const allLeadsCsvPath = path.join(outputDirectory, "tender-intelligence-all-leads.csv");
 const auditCopyPath = path.join(outputDirectory, "latest-audit.json");
 await mkdir(outputDirectory, { recursive: true });
 await writeFile(csvPath, csv, "utf8");
+await writeFile(allLeadsCsvPath, allLeadCsv, "utf8");
 await copyFile(auditPath, auditCopyPath);
 
 console.log(JSON.stringify({
   qualifiedRecords: qualified.length,
   csvPath,
+  allLeadsCsvPath,
+  retainedLeadInventory: allLeadRows.length,
   auditCopyPath,
   populatedEvidenceExcerpts: qualified.filter((record) => Boolean(record.evidenceExcerpt)).length,
   actionableDeadlines: qualified.filter((record) => Boolean(actionableDeadline(record))).length,

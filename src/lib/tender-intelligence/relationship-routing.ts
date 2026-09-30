@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { normalizeText } from "./policy.ts";
+import { isSalesRouteable } from "./lead-qualification.ts";
 import type {
   LeadOwner,
   RelationshipRoutingEvidence,
@@ -105,6 +106,7 @@ function recordParties(record: TenderOpportunity) {
 }
 
 function isQualified(record: TenderOpportunity) {
+  if (!isSalesRouteable(record)) return false;
   if (record.evidenceStatus !== "official-text") return false;
   if (record.classification === "no-relevant-opportunity" || record.classification === "needs-council-evidence") return false;
   return record.type === "formal-public-tender" || Boolean(record.classification);
@@ -202,6 +204,9 @@ export function routeOpportunitiesByRelationships(
     Owen: routed.filter((record) => record.routedTo === "Owen").length,
   };
   const priority = (record: TenderOpportunity) => {
+    if (record.leadQuality === "excellent") return 10;
+    if (record.leadQuality === "good") return 8;
+    if (record.leadQuality === "medium") return 6;
     if (record.classification === "noise-related-rfi") return 5;
     if (record.type === "formal-public-tender") return 4;
     if (record.classification === "granted-with-noise-conditions") return 3;

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { collectOfficialSourceSnapshot } from "../../src/lib/tender-intelligence/official-sources.ts";
 import { enrichFormalTenderOpportunities } from "../../src/lib/tender-intelligence/formal-document-evidence.ts";
 import { enrichNationalPlanningOpportunities } from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
+import { isSalesRouteable, qualifyLead } from "../../src/lib/tender-intelligence/lead-qualification.ts";
 import { routeOpportunitiesByRelationships } from "../../src/lib/tender-intelligence/relationship-routing.ts";
 import { applyTargetScope } from "../../src/lib/tender-intelligence/source-scope.ts";
 import {
@@ -229,14 +230,14 @@ for (let offset = state.nationalProcessed || 0; offset < nationalIndexes.length;
       enriched[batchIndex],
     );
   });
-  state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities);
+  state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities.map(qualifyLead));
   state.nationalProcessed = offset + indexes.length;
   state.updatedAt = new Date().toISOString();
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
   console.log(`Council document evidence ${state.nationalProcessed}/${nationalIndexes.length}`);
 }
 
-state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities);
+state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities.map(qualifyLead));
 state.status = "complete";
 state.completedAt = new Date().toISOString();
 state.updatedAt = state.completedAt;
@@ -277,7 +278,13 @@ const sources = sourceNames.map((name) => {
     confirmedFormalTender: rows.filter(isFormalConfirmed).length,
     confirmedPlanningStageOpportunity: rows.filter(isPlanningStageConfirmed).length,
     documentInspectedDesignPotential: rows.filter((record) => record.evidenceStatus === "official-text" && record.classification === "design-construction-potential").length,
-    qualifiedWorkingList: rows.filter(isConfirmed).length,
+    authoritativeEvidenceConfirmed: rows.filter(isConfirmed).length,
+    qualifiedWorkingList: rows.filter((record) => isConfirmed(record) && isSalesRouteable(record)).length,
+    excellentLeads: rows.filter((record) => record.leadQuality === "excellent").length,
+    goodLeads: rows.filter((record) => record.leadQuality === "good").length,
+    mediumLeads: rows.filter((record) => record.leadQuality === "medium").length,
+    poorLeads: rows.filter((record) => record.leadQuality === "poor").length,
+    closedBackground: rows.filter((record) => record.leadQuality === "closed-background").length,
     inspectedNotRelevant: rows.filter((record) => record.evidenceStatus === "official-text" && !isConfirmed(record)).length,
     discoveryOnly: rows.filter((record) => record.evidenceStatus === "discovery-only").length,
     evidenceUnavailable: rows.filter((record) => record.evidenceStatus === "evidence-unavailable").length,
@@ -291,7 +298,8 @@ const sources = sourceNames.map((name) => {
   };
 });
 
-const confirmed = state.opportunities.filter(isConfirmed);
+const evidenceConfirmed = state.opportunities.filter(isConfirmed);
+const confirmed = evidenceConfirmed.filter(isSalesRouteable);
 const report = {
   startedAt: state.startedAt,
   completedAt: state.completedAt,
@@ -305,11 +313,22 @@ const report = {
   sources,
   totals: {
     candidates: state.opportunities.length,
+    retainedLeadInventory: state.opportunities.length,
     officialDocumentsInspected: state.opportunities.filter((record) => record.evidenceStatus === "official-text").length,
-    confirmedFormalTenders: confirmed.filter(isFormalConfirmed).length,
-    confirmedPlanningStageOpportunities: confirmed.filter(isPlanningStageConfirmed).length,
-    documentInspectedDesignPotential: confirmed.filter((record) => record.classification === "design-construction-potential").length,
+    authoritativeEvidenceConfirmed: evidenceConfirmed.length,
+    confirmedFormalTenders: evidenceConfirmed.filter(isFormalConfirmed).length,
+    confirmedPlanningStageOpportunities: evidenceConfirmed.filter(isPlanningStageConfirmed).length,
+    documentInspectedDesignPotential: evidenceConfirmed.filter((record) => record.classification === "design-construction-potential").length,
     qualifiedWorkingList: confirmed.length,
+    excellentLeads: state.opportunities.filter((record) => record.leadQuality === "excellent").length,
+    goodLeads: state.opportunities.filter((record) => record.leadQuality === "good").length,
+    mediumLeads: state.opportunities.filter((record) => record.leadQuality === "medium").length,
+    poorLeads: state.opportunities.filter((record) => record.leadQuality === "poor").length,
+    closedBackground: state.opportunities.filter((record) => record.leadQuality === "closed-background").length,
+    activePipeline: state.opportunities.filter((record) => record.leadDisposition === "active").length,
+    nurtureWatchList: state.opportunities.filter((record) => record.leadDisposition === "nurture").length,
+    monitored: state.opportunities.filter((record) => record.leadDisposition === "monitor").length,
+    background: state.opportunities.filter((record) => record.leadDisposition === "background").length,
     routedToGlen: confirmed.filter((record) => record.routedTo === "Glen").length,
     routedToOwen: confirmed.filter((record) => record.routedTo === "Owen").length,
     exactRelationshipRoutes: confirmed.filter((record) => record.routingReason?.startsWith("exact-party-match-supported-by-")).length,
@@ -319,7 +338,7 @@ const report = {
     carriedForwardUnconfirmed: confirmed.filter((record) => record.cycleStatus === "unconfirmed-this-cycle").length,
     resolved: state.opportunities.filter((record) => record.cycleStatus === "resolved").length,
   },
-  confirmedRecords: confirmed.map((record) => ({
+  confirmedRecords: evidenceConfirmed.map((record) => ({
     id: record.id,
     sourceSystem: record.sourceSystem,
     sourceRecordId: record.sourceRecordId,
@@ -329,6 +348,11 @@ const report = {
     routedTo: record.routedTo,
     routingStatus: record.routingStatus,
     routingReason: record.routingReason,
+    leadQuality: record.leadQuality,
+    leadDisposition: record.leadDisposition,
+    qualificationReason: record.qualificationReason,
+    residentialUnitCount: record.residentialUnitCount,
+    residentialScale: record.residentialScale,
     cycleStatus: record.cycleStatus,
     carryForwardReason: record.carryForwardReason,
     missingSince: record.missingSince,
@@ -352,6 +376,8 @@ function renderRecipientDigest(owner, records) {
   const items = records.map((record, index) => [
     `## ${index + 1}. ${record.title}`,
     `- Category: ${record.classification ?? "formal-public-tender"}`,
+    `- Lead quality: ${record.leadQuality ?? "ungraded"} · ${record.leadDisposition ?? "unassigned"}`,
+    `- Qualification: ${record.qualificationReason ?? "No commercial qualification reason retained."}`,
     `- Source: ${record.sourceSystem} · ${record.sourceRecordId}`,
     `- Deadline: ${record.responseDeadline || record.deadline || "Not published"}`,
     `- Fit: ${record.fitScore}`,

@@ -18,6 +18,17 @@ export type OpportunityCycleStatus =
 
 export type LeadOwner = "Glen" | "Owen" | "unassigned";
 
+export type LeadQuality = "excellent" | "good" | "medium" | "poor" | "closed-background";
+
+export type LeadDisposition = "active" | "nurture" | "monitor" | "background";
+
+export type ResidentialScale =
+  | "lrd-100-plus"
+  | "attached-4-plus"
+  | "multi-unit-unconfirmed-attachment"
+  | "small-residential"
+  | "not-residential";
+
 export type LeadParty = {
   name: string;
   role: "applicant" | "agent" | "architect" | "developer" | "contractor" | "consultant" | "other";
@@ -70,6 +81,11 @@ export type TenderOpportunity = {
   cpvCodes: string[];
   matchedTerms: string[];
   fitScore: number;
+  leadQuality?: LeadQuality;
+  leadDisposition?: LeadDisposition;
+  qualificationReason?: string;
+  residentialUnitCount?: number;
+  residentialScale?: ResidentialScale;
   sourceStatus?: string;
   scopeStatus?: "eligible" | "excluded" | "unknown";
   scopeExclusionReason?: string;

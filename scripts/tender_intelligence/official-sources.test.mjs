@@ -51,6 +51,77 @@ import {
   approvedTenderBuyer,
   targetRegionStatus,
 } from "../../src/lib/tender-intelligence/source-scope.ts";
+import {
+  assessLeadQuality,
+  qualifyLead,
+  residentialUnitCount,
+} from "../../src/lib/tender-intelligence/lead-qualification.ts";
+
+function planningLead(overrides = {}) {
+  return {
+    id: "lead-1",
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    sourceRecordId: "WEB-1",
+    title: "Example project",
+    description: "",
+    sourceUrl: "https://example.test/project",
+    evidenceStatus: "official-text",
+    classification: "design-construction-potential",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 60,
+    ...overrides,
+  };
+}
+
+test("residential commercial grading implements Eoghan's scale thresholds without discarding leads", () => {
+  const lrd = assessLeadQuality(planningLead({ description: "Large Residential Development of 150 apartments" }));
+  assert.equal(lrd.quality, "excellent");
+  assert.equal(lrd.disposition, "nurture");
+  assert.equal(lrd.scale, "lrd-100-plus");
+
+  const partE = assessLeadQuality(planningLead({ description: "Construction of 12 no. apartments in an attached residential block" }));
+  assert.equal(partE.quality, "good");
+  assert.equal(partE.scale, "attached-4-plus");
+
+  const oneOff = qualifyLead(planningLead({ description: "One-off house and domestic residential extension" }));
+  assert.equal(oneOff.leadQuality, "poor");
+  assert.equal(oneOff.leadDisposition, "background");
+  assert.match(oneOff.qualificationReason, /retained/i);
+});
+
+test("four-unit rule requires an attachment signal while 100-plus is always ideal scale", () => {
+  assert.equal(residentialUnitCount("Development of 4 no. dwellings"), 4);
+  assert.equal(assessLeadQuality(planningLead({ description: "Development of 4 no. detached dwellings" })).quality, "medium");
+  assert.equal(assessLeadQuality(planningLead({ description: "Development of 4 no. terraced dwellings" })).quality, "good");
+  assert.equal(assessLeadQuality(planningLead({ description: "Development of 100 no. homes" })).quality, "excellent");
+  assert.equal(assessLeadQuality(planningLead({ sourceRecordId: "WEBLRD9011/26-S3" })).quality, "excellent");
+  assert.equal(assessLeadQuality(planningLead({ sourceRecordId: "Fingal County Council:LRD0066/S3E" })).quality, "excellent");
+});
+
+test("specific official acoustic requirements outrank project scale, while generic air and noise wording is lower weight", () => {
+  const specific = assessLeadQuality(planningLead({
+    classification: "granted-with-noise-conditions",
+    description: "Single dwelling",
+    evidenceExcerpt: "A suitably qualified acoustic consultant shall submit a noise impact assessment.",
+  }));
+  assert.equal(specific.quality, "excellent");
+  assert.equal(specific.disposition, "active");
+
+  const generic = assessLeadQuality(planningLead({
+    classification: "granted-with-noise-conditions",
+    evidenceExcerpt: "The applicant shall comply with the requirements of the Air Quality and Noise Section and codes of practice.",
+  }));
+  assert.equal(generic.quality, "medium");
+  assert.equal(generic.disposition, "monitor");
+});
+
+test("closed leads remain retained as closed background records", () => {
+  const assessed = assessLeadQuality(planningLead({ sourceStatus: "awarded" }));
+  assert.equal(assessed.quality, "closed-background");
+  assert.equal(assessed.disposition, "background");
+});
 
 test("TED collector uses the official Irish acoustic query and retains official links", () => {
   const request = buildTedSearchRequest();

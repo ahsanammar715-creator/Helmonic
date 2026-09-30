@@ -24,6 +24,7 @@ function escapeHtml(value) {
 
 function qualified(record) {
   if (record.cycleStatus === "resolved" || record.evidenceStatus !== "official-text") return false;
+  if (["poor", "closed-background"].includes(record.leadQuality) || record.leadDisposition === "background") return false;
   if (record.type === "formal-public-tender") return record.classification !== "no-relevant-opportunity";
   return planningClasses.has(record.classification ?? "");
 }
@@ -59,7 +60,9 @@ function leadCard(record) {
   return `<article>
     <h3>${escapeHtml(record.title)}</h3>
     <p><strong>${escapeHtml(record.sourceSystem)} · ${escapeHtml(record.sourceRecordId)}</strong></p>
-    <p><strong>Category:</strong> ${escapeHtml(category(record))} · <strong>Status:</strong> ${escapeHtml(record.cycleStatus)}</p>
+    <p><strong>Category:</strong> ${escapeHtml(category(record))} · <strong>Lead quality:</strong> ${escapeHtml(record.leadQuality ?? "ungraded")} · <strong>Pipeline:</strong> ${escapeHtml(record.leadDisposition ?? "unassigned")}</p>
+    <p><strong>Qualification:</strong> ${escapeHtml(record.qualificationReason ?? "No commercial qualification reason retained.")}</p>
+    <p><strong>Status:</strong> ${escapeHtml(record.cycleStatus)}</p>
     ${deadline ? `<p><strong>Deadline:</strong> ${escapeHtml(deadline)}</p>` : ""}
     <p><strong>Routing:</strong> ${escapeHtml(record.routingReason)}</p>
     <p>${connection}</p>
