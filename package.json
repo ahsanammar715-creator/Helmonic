@@ -16,6 +16,7 @@
     "test:tender-intelligence": "node --experimental-strip-types --test --experimental-test-isolation=none scripts/tender_intelligence/official-sources.test.mjs",
     "run:tender-intelligence": "node --experimental-strip-types scripts/tender_intelligence/run-document-proven-pipeline.mjs",
     "export:tender-intelligence": "node scripts/tender_intelligence/export-review-artifacts.mjs",
+    "digest:tender-intelligence": "node scripts/tender_intelligence/generate-review-digest.mjs",
     "verify:runtime": "node scripts/verify-runtime-hardening.mjs",
     "test:e2e": "playwright test"
   },
