@@ -59,6 +59,7 @@ import {
   buildOdooDryRun,
   summarizeOdooDryRun,
 } from "../../src/lib/tender-intelligence/odoo-payload.ts";
+import { syncOdooLeads } from "../../src/lib/tender-intelligence/odoo-client.ts";
 import {
   buildBuildingInfoPageUrl,
   collectBuildingInfoProjects,
@@ -247,6 +248,88 @@ test("Odoo dry-run upserts once per deduplicated CRM identity and retains every 
   assert.equal(payloads[0].operation, "upsert");
   assert.equal(payloads[0].matchField, "x_helmonic_external_id");
   assert.equal(summarizeOdooDryRun(payloads).uniqueExternalIds, 1);
+});
+
+test("Odoo synchronization remains completely inert while disabled", async () => {
+  let calls = 0;
+  const result = await syncOdooLeads([], { enabled: false }, async () => {
+    calls += 1;
+    return Response.json({});
+  });
+  assert.equal(result.status, "disabled");
+  assert.equal(calls, 0);
+});
+
+test("Odoo JSON-2 upsert creates once and updates on a repeated run", async () => {
+  const records = annotateOpportunityDuplicates([qualifyLead(planningLead({
+    id: "odoo-repeatable",
+    sourceRecordId: "WEB1000/26",
+    projectReference: "WEB1000/26",
+    planningAuthority: "Dublin City Council",
+    evidenceStatus: "official-text",
+    classification: "design-construction-potential",
+  }), new Date("2026-09-30T12:00:00.000Z"))]);
+  const payloads = buildOdooDryRun(records);
+  let existingId;
+  let creates = 0;
+  let writes = 0;
+  const requiredFields = Object.keys(payloads[0].values);
+  const fetcher = async (request, options = {}) => {
+    const url = String(request);
+    const body = options.body ? JSON.parse(String(options.body)) : {};
+    if (url.endsWith("/web/version")) return Response.json({ version_info: [19, 0, 0, "final"] });
+    if (url.endsWith("/fields_get")) {
+      return Response.json(Object.fromEntries(requiredFields.map((field) => [field, { type: "char" }])));
+    }
+    if (url.endsWith("/search_read")) return Response.json(existingId ? [{ id: existingId }] : []);
+    if (url.endsWith("/create")) {
+      assert.equal(body.vals_list[0].x_helmonic_external_id, payloads[0].matchValue);
+      creates += 1;
+      existingId = 731;
+      return Response.json([existingId]);
+    }
+    if (url.endsWith("/write")) {
+      assert.deepEqual(body.ids, [existingId]);
+      writes += 1;
+      return Response.json(true);
+    }
+    return new Response("Unexpected request", { status: 500 });
+  };
+  const config = {
+    enabled: true,
+    baseUrl: "https://odoo.example.test",
+    database: "test",
+    apiKey: "test-only-key",
+  };
+  const first = await syncOdooLeads(payloads, config, fetcher);
+  const second = await syncOdooLeads(payloads, config, fetcher);
+  assert.equal(first.created, 1);
+  assert.equal(second.updated, 1);
+  assert.equal(creates, 1);
+  assert.equal(writes, 1);
+});
+
+test("Odoo preflight refuses every write when a required field is missing", async () => {
+  const records = annotateOpportunityDuplicates([qualifyLead(planningLead({
+    id: "odoo-missing-field",
+    sourceRecordId: "WEB1001/26",
+    projectReference: "WEB1001/26",
+    planningAuthority: "Dublin City Council",
+  }), new Date("2026-09-30T12:00:00.000Z"))]);
+  const payloads = buildOdooDryRun(records);
+  let writeCalls = 0;
+  await assert.rejects(() => syncOdooLeads(payloads, {
+    enabled: true,
+    baseUrl: "https://odoo.example.test",
+    apiKey: "test-only-key",
+  }, async (request) => {
+    const url = String(request);
+    if (url.endsWith("/web/version")) return Response.json({ version_info: [19, 0, 0, "final"] });
+    if (url.endsWith("/fields_get")) return Response.json({ name: { type: "char" } });
+    writeCalls += 1;
+    return Response.json({});
+  }), /required fields are missing/i);
+  assert.equal(writeCalls, 0);
 });
 
 test("BuildingInfo parser retains commercial enrichment and company contacts as discovery evidence", () => {

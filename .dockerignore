@@ -7,3 +7,4 @@ playwright-report
 test-results
 .env*
 work
+local-artifacts

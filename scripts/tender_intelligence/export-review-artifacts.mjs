@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
-const artifactRoot = path.join(repoRoot, "local-artifacts", "tender-intelligence");
+const artifactRoot = process.env.HELMONIC_TENDER_ARTIFACT_ROOT
+  ? path.resolve(process.env.HELMONIC_TENDER_ARTIFACT_ROOT)
+  : path.join(repoRoot, "local-artifacts", "tender-intelligence");
 const documentProvenRoot = path.join(artifactRoot, "document-proven");
 const ledgerPath = path.join(documentProvenRoot, "confirmed-ledger.json");
 const auditPath = path.join(documentProvenRoot, "latest-audit.json");

@@ -9,7 +9,9 @@ import {
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
-const artifactRoot = path.join(repoRoot, "local-artifacts", "tender-intelligence");
+const artifactRoot = process.env.HELMONIC_TENDER_ARTIFACT_ROOT
+  ? path.resolve(process.env.HELMONIC_TENDER_ARTIFACT_ROOT)
+  : path.join(repoRoot, "local-artifacts", "tender-intelligence");
 const statePath = path.join(artifactRoot, "document-proven", "pipeline-state.json");
 const state = JSON.parse(await readFile(statePath, "utf8"));
 const payloads = buildOdooDryRun(state.opportunities ?? []);

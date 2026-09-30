@@ -20,7 +20,10 @@ import {
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
-const artifactDirectory = path.join(repoRoot, "local-artifacts", "tender-intelligence", "document-proven");
+const artifactRoot = process.env.HELMONIC_TENDER_ARTIFACT_ROOT
+  ? path.resolve(process.env.HELMONIC_TENDER_ARTIFACT_ROOT)
+  : path.join(repoRoot, "local-artifacts", "tender-intelligence");
+const artifactDirectory = path.join(artifactRoot, "document-proven");
 const statePath = path.join(artifactDirectory, "pipeline-state.json");
 const reportPath = path.join(artifactDirectory, "latest-audit.json");
 const ledgerPath = path.join(artifactDirectory, "confirmed-ledger.json");

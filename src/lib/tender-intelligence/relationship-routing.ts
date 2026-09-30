@@ -70,7 +70,8 @@ function parseJsonLinesGzip(path: string) {
   });
 }
 
-export function loadRelationshipLookup(directory = join(process.cwd(), "local-artifacts", "pst-index", "relationships")) {
+export function loadRelationshipLookup(directory = process.env.HELMONIC_RELATIONSHIP_INDEX_DIR
+  || join(process.env.HELMONIC_TENDER_ARTIFACT_ROOT || join(process.cwd(), "local-artifacts", "tender-intelligence"), "..", "pst-index", "relationships")) {
   const files = ["people.jsonl.gz", "firms.jsonl.gz"]
     .map((name) => join(directory, name))
     .filter(existsSync);
