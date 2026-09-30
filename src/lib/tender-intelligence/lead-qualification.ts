@@ -1,6 +1,7 @@
 import { normalizeText } from "./policy.ts";
 import type {
   LeadDisposition,
+  LeadFreshness,
   LeadQuality,
   ResidentialScale,
   TenderOpportunity,
@@ -250,13 +251,63 @@ export function assessLeadQuality(record: TenderOpportunity) {
   );
 }
 
-export function qualifyLead(record: TenderOpportunity): TenderOpportunity {
+function validTimestamp(value: string | undefined) {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+export function assessLeadFreshness(record: TenderOpportunity, now = new Date()): {
+  freshness: LeadFreshness;
+  ageDays?: number;
+  reason: string;
+} {
+  const published = validTimestamp(record.publishedAt);
+  if (published !== undefined) {
+    const ageDays = Math.max(0, Math.floor((now.getTime() - published) / 86_400_000));
+    if (ageDays === 0) return { freshness: "published-today", ageDays, reason: "Published by the source today; first-mover priority boost applied." };
+    if (ageDays <= 3) return { freshness: "published-1-3-days", ageDays, reason: "Published by the source within the last three days; high first-mover priority." };
+    if (ageDays <= 7) return { freshness: "published-4-7-days", ageDays, reason: "Published by the source within the last week; current opportunity." };
+    if (ageDays <= 30) return { freshness: "published-8-30-days", ageDays, reason: "Published within the last month; retained as a current opportunity." };
+    return { freshness: "published-over-30-days", ageDays, reason: "Older source publication retained because it may still be open, newly actionable or previously overlooked." };
+  }
+
+  const firstDetected = validTimestamp(record.firstSeenAt);
+  if (firstDetected !== undefined && now.getTime() - firstDetected <= 3 * 86_400_000) {
+    return {
+      freshness: "newly-detected-date-unknown",
+      reason: "Newly detected by Helmonic, but the source publication date is unavailable; it is not claimed to be newly published.",
+    };
+  }
+  return {
+    freshness: "date-unknown",
+    reason: "Source publication date is unavailable; retained and ranked from evidence, project value, status and relationship signals instead of assumed age.",
+  };
+}
+
+export function freshnessPriority(record: TenderOpportunity) {
+  switch (record.leadFreshness) {
+    case "published-today": return 6;
+    case "published-1-3-days": return 5;
+    case "published-4-7-days": return 4;
+    case "published-8-30-days": return 3;
+    case "newly-detected-date-unknown": return 2;
+    case "published-over-30-days": return 1;
+    default: return 0;
+  }
+}
+
+export function qualifyLead(record: TenderOpportunity, now = new Date()): TenderOpportunity {
   const assessment = assessLeadQuality(record);
+  const freshness = assessLeadFreshness(record, now);
   return {
     ...record,
     leadQuality: assessment.quality,
     leadDisposition: assessment.disposition,
     qualificationReason: assessment.reason,
+    leadFreshness: freshness.freshness,
+    sourceAgeDays: freshness.ageDays,
+    freshnessReason: freshness.reason,
     residentialUnitCount: assessment.count,
     residentialScale: assessment.scale,
   };

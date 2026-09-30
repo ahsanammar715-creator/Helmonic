@@ -22,6 +22,15 @@ export type LeadQuality = "excellent" | "good" | "medium" | "poor" | "closed-bac
 
 export type LeadDisposition = "active" | "nurture" | "monitor" | "background";
 
+export type LeadFreshness =
+  | "published-today"
+  | "published-1-3-days"
+  | "published-4-7-days"
+  | "published-8-30-days"
+  | "published-over-30-days"
+  | "newly-detected-date-unknown"
+  | "date-unknown";
+
 export type ResidentialScale =
   | "lrd-100-plus"
   | "attached-4-plus"
@@ -84,6 +93,9 @@ export type TenderOpportunity = {
   leadQuality?: LeadQuality;
   leadDisposition?: LeadDisposition;
   qualificationReason?: string;
+  leadFreshness?: LeadFreshness;
+  sourceAgeDays?: number;
+  freshnessReason?: string;
   residentialUnitCount?: number;
   residentialScale?: ResidentialScale;
   sourceStatus?: string;

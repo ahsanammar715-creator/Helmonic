@@ -41,6 +41,18 @@ function urgencyRank(record) {
   return 4;
 }
 
+function freshnessRank(record) {
+  return {
+    "published-today": 0,
+    "published-1-3-days": 1,
+    "published-4-7-days": 2,
+    "published-8-30-days": 3,
+    "newly-detected-date-unknown": 4,
+    "published-over-30-days": 5,
+    "date-unknown": 6,
+  }[record.leadFreshness] ?? 6;
+}
+
 function exactEvidenceRefs(record) {
   if (!/^exact-party-match-supported-by-(?:glen|owen)-email-evidence$/i.test(record.routingReason ?? "")) return [];
   return [...new Set((record.routingEvidence ?? []).flatMap((evidence) => evidence.evidenceRefs ?? []))];
@@ -62,6 +74,8 @@ function leadCard(record) {
     <p><strong>${escapeHtml(record.sourceSystem)} · ${escapeHtml(record.sourceRecordId)}</strong></p>
     <p><strong>Category:</strong> ${escapeHtml(category(record))} · <strong>Lead quality:</strong> ${escapeHtml(record.leadQuality ?? "ungraded")} · <strong>Pipeline:</strong> ${escapeHtml(record.leadDisposition ?? "unassigned")}</p>
     <p><strong>Qualification:</strong> ${escapeHtml(record.qualificationReason ?? "No commercial qualification reason retained.")}</p>
+    <p><strong>Freshness:</strong> ${escapeHtml(record.leadFreshness ?? "date-unknown")}${Number.isFinite(record.sourceAgeDays) ? ` · ${escapeHtml(record.sourceAgeDays)} day(s) since source publication` : ""}</p>
+    <p>${escapeHtml(record.freshnessReason ?? "No reliable source publication date was retained.")}</p>
     <p><strong>Status:</strong> ${escapeHtml(record.cycleStatus)}</p>
     ${deadline ? `<p><strong>Deadline:</strong> ${escapeHtml(deadline)}</p>` : ""}
     <p><strong>Routing:</strong> ${escapeHtml(record.routingReason)}</p>
@@ -78,6 +92,7 @@ const sections = owners.map((owner) => {
   const owned = records
     .filter((record) => record.routedTo === owner)
     .sort((left, right) => urgencyRank(left) - urgencyRank(right)
+      || freshnessRank(left) - freshnessRank(right)
       || left.sourceSystem.localeCompare(right.sourceSystem)
       || left.sourceRecordId.localeCompare(right.sourceRecordId));
   return `<section><h2>${owner} (${owned.length})</h2>${owned.map(leadCard).join("\n")}</section>`;

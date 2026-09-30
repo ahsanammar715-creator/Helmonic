@@ -52,7 +52,9 @@ import {
   targetRegionStatus,
 } from "../../src/lib/tender-intelligence/source-scope.ts";
 import {
+  assessLeadFreshness,
   assessLeadQuality,
+  freshnessPriority,
   qualifyLead,
   residentialUnitCount,
 } from "../../src/lib/tender-intelligence/lead-qualification.ts";
@@ -121,6 +123,31 @@ test("closed leads remain retained as closed background records", () => {
   const assessed = assessLeadQuality(planningLead({ sourceStatus: "awarded" }));
   assert.equal(assessed.quality, "closed-background");
   assert.equal(assessed.disposition, "background");
+});
+
+test("recency boosts priority but never excludes an older worthwhile job", () => {
+  const now = new Date("2026-09-30T12:00:00.000Z");
+  const fresh = qualifyLead(planningLead({
+    description: "Large Residential Development of 120 homes",
+    publishedAt: "2026-09-30T08:00:00.000Z",
+  }), now);
+  const older = qualifyLead(planningLead({
+    description: "Large Residential Development of 120 homes",
+    publishedAt: "2026-07-01T08:00:00.000Z",
+  }), now);
+  assert.equal(fresh.leadFreshness, "published-today");
+  assert.equal(older.leadFreshness, "published-over-30-days");
+  assert.equal(fresh.leadQuality, "excellent");
+  assert.equal(older.leadQuality, "excellent");
+  assert.equal(older.leadDisposition, "nurture");
+  assert.ok(freshnessPriority(fresh) > freshnessPriority(older));
+  assert.match(older.freshnessReason, /retained/i);
+});
+
+test("newly detected records without a source date are not mislabelled as newly published", () => {
+  const assessed = assessLeadFreshness(planningLead({ firstSeenAt: "2026-09-29T12:00:00.000Z" }), new Date("2026-09-30T12:00:00.000Z"));
+  assert.equal(assessed.freshness, "newly-detected-date-unknown");
+  assert.match(assessed.reason, /not claimed to be newly published/i);
 });
 
 test("TED collector uses the official Irish acoustic query and retains official links", () => {

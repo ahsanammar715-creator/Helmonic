@@ -230,14 +230,14 @@ for (let offset = state.nationalProcessed || 0; offset < nationalIndexes.length;
       enriched[batchIndex],
     );
   });
-  state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities.map(qualifyLead));
+  state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities.map((record) => qualifyLead(record)));
   state.nationalProcessed = offset + indexes.length;
   state.updatedAt = new Date().toISOString();
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
   console.log(`Council document evidence ${state.nationalProcessed}/${nationalIndexes.length}`);
 }
 
-state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities.map(qualifyLead));
+state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities.map((record) => qualifyLead(record)));
 state.status = "complete";
 state.completedAt = new Date().toISOString();
 state.updatedAt = state.completedAt;
@@ -285,6 +285,8 @@ const sources = sourceNames.map((name) => {
     mediumLeads: rows.filter((record) => record.leadQuality === "medium").length,
     poorLeads: rows.filter((record) => record.leadQuality === "poor").length,
     closedBackground: rows.filter((record) => record.leadQuality === "closed-background").length,
+    publishedWithinThreeDays: rows.filter((record) => ["published-today", "published-1-3-days"].includes(record.leadFreshness)).length,
+    olderOrUndatedRetained: rows.filter((record) => ["published-over-30-days", "date-unknown", "newly-detected-date-unknown"].includes(record.leadFreshness)).length,
     inspectedNotRelevant: rows.filter((record) => record.evidenceStatus === "official-text" && !isConfirmed(record)).length,
     discoveryOnly: rows.filter((record) => record.evidenceStatus === "discovery-only").length,
     evidenceUnavailable: rows.filter((record) => record.evidenceStatus === "evidence-unavailable").length,
@@ -329,6 +331,8 @@ const report = {
     nurtureWatchList: state.opportunities.filter((record) => record.leadDisposition === "nurture").length,
     monitored: state.opportunities.filter((record) => record.leadDisposition === "monitor").length,
     background: state.opportunities.filter((record) => record.leadDisposition === "background").length,
+    publishedWithinThreeDays: state.opportunities.filter((record) => ["published-today", "published-1-3-days"].includes(record.leadFreshness)).length,
+    olderOrUndatedRetained: state.opportunities.filter((record) => ["published-over-30-days", "date-unknown", "newly-detected-date-unknown"].includes(record.leadFreshness)).length,
     routedToGlen: confirmed.filter((record) => record.routedTo === "Glen").length,
     routedToOwen: confirmed.filter((record) => record.routedTo === "Owen").length,
     exactRelationshipRoutes: confirmed.filter((record) => record.routingReason?.startsWith("exact-party-match-supported-by-")).length,
@@ -351,6 +355,9 @@ const report = {
     leadQuality: record.leadQuality,
     leadDisposition: record.leadDisposition,
     qualificationReason: record.qualificationReason,
+    leadFreshness: record.leadFreshness,
+    sourceAgeDays: record.sourceAgeDays,
+    freshnessReason: record.freshnessReason,
     residentialUnitCount: record.residentialUnitCount,
     residentialScale: record.residentialScale,
     cycleStatus: record.cycleStatus,
@@ -364,6 +371,11 @@ const weeklyLists = {
   owen: confirmed.filter((record) => record.routedTo === "Owen"),
   triage: confirmed.filter((record) => record.routedTo === "unassigned"),
   dailyUrgentRfi: confirmed.filter((record) => record.classification === "noise-related-rfi"),
+  dailyFreshLeads: state.opportunities.filter((record) =>
+    ["published-today", "published-1-3-days"].includes(record.leadFreshness)
+    && record.cycleStatus !== "resolved"
+    && record.leadQuality !== "poor"
+    && record.leadQuality !== "closed-background"),
 };
 
 function deliveryNote(record) {
@@ -378,6 +390,8 @@ function renderRecipientDigest(owner, records) {
     `- Category: ${record.classification ?? "formal-public-tender"}`,
     `- Lead quality: ${record.leadQuality ?? "ungraded"} · ${record.leadDisposition ?? "unassigned"}`,
     `- Qualification: ${record.qualificationReason ?? "No commercial qualification reason retained."}`,
+    `- Freshness: ${record.leadFreshness ?? "date-unknown"}${Number.isFinite(record.sourceAgeDays) ? ` · ${record.sourceAgeDays} day(s) since publication` : ""}`,
+    `- Freshness note: ${record.freshnessReason ?? "No reliable source publication date was retained."}`,
     `- Source: ${record.sourceSystem} · ${record.sourceRecordId}`,
     `- Deadline: ${record.responseDeadline || record.deadline || "Not published"}`,
     `- Fit: ${record.fitScore}`,

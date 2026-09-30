@@ -51,6 +51,26 @@ function urgency(record, now = new Date()) {
   return "normal";
 }
 
+function urgencyWeight(record) {
+  return { urgent: 3, high: 2, normal: 1 }[urgency(record)] ?? 0;
+}
+
+function qualityWeight(record) {
+  return { excellent: 5, good: 4, medium: 3, poor: 2, "closed-background": 1 }[record.leadQuality] ?? 0;
+}
+
+function freshnessWeight(record) {
+  return {
+    "published-today": 6,
+    "published-1-3-days": 5,
+    "published-4-7-days": 4,
+    "published-8-30-days": 3,
+    "newly-detected-date-unknown": 2,
+    "published-over-30-days": 1,
+    "date-unknown": 0,
+  }[record.leadFreshness] ?? 0;
+}
+
 function evidenceNote(record) {
   if (record.evidenceExcerpt) return "exact excerpt retained";
   if (record.classification === "design-construction-potential") {
@@ -97,6 +117,10 @@ const headers = [
   "residential_unit_count",
   "residential_scale",
   "evidence_status",
+  "source_published_at",
+  "source_age_days",
+  "freshness_band",
+  "freshness_reason",
   "urgency",
   "deadline",
   "deadline_type",
@@ -114,7 +138,9 @@ const headers = [
 ];
 
 const rows = qualified
-  .sort((left, right) => urgency(left).localeCompare(urgency(right))
+  .sort((left, right) => urgencyWeight(right) - urgencyWeight(left)
+    || qualityWeight(right) - qualityWeight(left)
+    || freshnessWeight(right) - freshnessWeight(left)
     || left.sourceSystem.localeCompare(right.sourceSystem)
     || left.sourceRecordId.localeCompare(right.sourceRecordId))
   .map((record) => {
@@ -131,6 +157,10 @@ const rows = qualified
       record.residentialUnitCount ?? "",
       record.residentialScale ?? "",
       record.evidenceStatus ?? "",
+      record.publishedAt ?? "",
+      record.sourceAgeDays ?? "",
+      record.leadFreshness ?? "",
+      record.freshnessReason ?? "",
       urgency(record),
       deadline,
       deadline ? (record.classification === "noise-related-rfi" ? "RFI response deadline" : "tender submission deadline") : "",
@@ -150,7 +180,8 @@ const rows = qualified
 
 const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
 const allLeadRows = (state.opportunities ?? [])
-  .sort((left, right) => (left.leadQuality ?? "").localeCompare(right.leadQuality ?? "")
+  .sort((left, right) => qualityWeight(right) - qualityWeight(left)
+    || freshnessWeight(right) - freshnessWeight(left)
     || left.sourceSystem.localeCompare(right.sourceSystem)
     || left.sourceRecordId.localeCompare(right.sourceRecordId))
   .map((record) => {
@@ -167,6 +198,10 @@ const allLeadRows = (state.opportunities ?? [])
       record.residentialUnitCount ?? "",
       record.residentialScale ?? "",
       record.evidenceStatus ?? "",
+      record.publishedAt ?? "",
+      record.sourceAgeDays ?? "",
+      record.leadFreshness ?? "",
+      record.freshnessReason ?? "",
       urgency(record),
       deadline,
       deadline ? (record.classification === "noise-related-rfi" ? "RFI response deadline" : "tender submission deadline") : "",
