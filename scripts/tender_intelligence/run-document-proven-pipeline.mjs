@@ -7,6 +7,7 @@ import { enrichFormalTenderOpportunities } from "../../src/lib/tender-intelligen
 import { enrichNationalPlanningOpportunities } from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
 import { routeOpportunitiesByRelationships } from "../../src/lib/tender-intelligence/relationship-routing.ts";
 import {
+  applyEvidenceRefresh,
   confirmedLedgerRecords,
   isConfirmedOpportunity,
   mergeCurrentSnapshotWithLedger,
@@ -212,7 +213,7 @@ const nationalIndexes = summarizeOnly ? [] : state.opportunities
   .map((record, index) => ({ record, index }))
   .filter(({ record }) => record.sourceSystem === "National Planning Register" && (
     !retryUnavailable || record.evidenceStatus === "evidence-unavailable"
-  ) && record.cycleStatus !== "unconfirmed-this-cycle" && record.cycleStatus !== "resolved")
+  ) && record.cycleStatus !== "resolved")
   .map(({ index }) => index);
 
 for (let offset = state.nationalProcessed || 0; offset < nationalIndexes.length; offset += batchSize) {
@@ -223,7 +224,10 @@ for (let offset = state.nationalProcessed || 0; offset < nationalIndexes.length;
     concurrency: 3,
   });
   indexes.forEach((index, batchIndex) => {
-    state.opportunities[index] = enriched[batchIndex];
+    state.opportunities[index] = applyEvidenceRefresh(
+      state.opportunities[index],
+      enriched[batchIndex],
+    );
   });
   state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities);
   state.nationalProcessed = offset + indexes.length;

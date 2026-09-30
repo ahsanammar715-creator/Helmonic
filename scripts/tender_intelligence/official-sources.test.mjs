@@ -40,6 +40,7 @@ import {
   routeOpportunitiesByRelationships,
 } from "../../src/lib/tender-intelligence/relationship-routing.ts";
 import {
+  applyEvidenceRefresh,
   confirmedLedgerRecords,
   mergeCurrentSnapshotWithLedger,
   positiveResolution,
@@ -650,6 +651,71 @@ test("a prior balanced owner survives a confirmed refresh unless a new exact ema
   });
   assert.equal(merged.routedTo, "Glen");
   assert.equal(merged.routingReason, prior.routingReason);
+});
+
+test("a retained national lead becomes confirmed again only after fresh official evidence", () => {
+  const previous = {
+    id: "national-prior",
+    type: "planning-pipeline-lead",
+    sourceSystem: "National Planning Register",
+    sourceRecordId: "Council:26/100",
+    title: "Retained project",
+    description: "Residential development",
+    sourceUrl: "https://example.test/prior-document",
+    evidenceStatus: "official-text",
+    evidenceExcerpt: "An acoustic assessment shall be submitted.",
+    classification: "design-construction-potential",
+    cpvCodes: [],
+    matchedTerms: ["acoustic"],
+    fitScore: 60,
+    cycleStatus: "unconfirmed-this-cycle",
+    firstSeenAt: "2026-09-25T09:00:00.000Z",
+    missingSince: "2026-09-28T09:00:00.000Z",
+  };
+  const refreshed = {
+    ...previous,
+    sourceUrl: "https://example.test/current-document",
+    evidenceExcerpt: "Current acoustic assessment wording.",
+  };
+  const result = applyEvidenceRefresh(previous, refreshed, new Date("2026-09-30T09:00:00.000Z"));
+  assert.equal(result.cycleStatus, "confirmed-this-cycle");
+  assert.equal(result.firstSeenAt, previous.firstSeenAt);
+  assert.equal(result.lastConfirmedAt, "2026-09-30T09:00:00.000Z");
+  assert.equal(result.sourceUrl, refreshed.sourceUrl);
+  assert.equal(result.missingSince, undefined);
+});
+
+test("failed re-verification keeps prior official evidence in carry-forward", () => {
+  const previous = {
+    id: "national-prior",
+    type: "planning-pipeline-lead",
+    sourceSystem: "National Planning Register",
+    sourceRecordId: "Council:26/101",
+    title: "Retained project",
+    description: "Residential development",
+    sourceUrl: "https://example.test/prior-document",
+    evidenceStatus: "official-text",
+    evidenceExcerpt: "An acoustic assessment shall be submitted.",
+    classification: "design-construction-potential",
+    cpvCodes: [],
+    matchedTerms: ["acoustic"],
+    fitScore: 60,
+    cycleStatus: "unconfirmed-this-cycle",
+  };
+  const refreshed = {
+    ...previous,
+    sourceUrl: "https://example.test/application",
+    evidenceStatus: "evidence-unavailable",
+    evidenceExcerpt: undefined,
+    evidenceUnavailableReason: "document-index-timeout",
+    classification: "needs-council-evidence",
+  };
+  const result = applyEvidenceRefresh(previous, refreshed, new Date("2026-09-30T09:00:00.000Z"));
+  assert.equal(result.cycleStatus, "unconfirmed-this-cycle");
+  assert.equal(result.evidenceStatus, "official-text");
+  assert.equal(result.evidenceExcerpt, previous.evidenceExcerpt);
+  assert.equal(result.sourceUrl, previous.sourceUrl);
+  assert.equal(result.evidenceUnavailableReason, "document-index-timeout");
 });
 
 test("weaker current evidence cannot erase a previously proven opportunity", () => {

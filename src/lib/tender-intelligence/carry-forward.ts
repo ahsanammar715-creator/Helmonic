@@ -179,6 +179,36 @@ export function mergeCurrentSnapshotWithLedger(input: {
   return [...merged.values()];
 }
 
+export function applyEvidenceRefresh(
+  previous: TenderOpportunity,
+  refreshed: TenderOpportunity,
+  now = new Date(),
+) {
+  const timestamp = now.toISOString();
+  if (isConfirmedOpportunity(refreshed)) {
+    return {
+      ...refreshed,
+      cycleStatus: "confirmed-this-cycle",
+      firstSeenAt: previous.firstSeenAt ?? previous.lastConfirmedAt ?? timestamp,
+      lastSeenAt: timestamp,
+      lastConfirmedAt: timestamp,
+      missingSince: undefined,
+      carryForwardReason: undefined,
+    } satisfies TenderOpportunity;
+  }
+  if (isConfirmedOpportunity(previous)) {
+    return {
+      ...previous,
+      cycleStatus: "unconfirmed-this-cycle",
+      lastSeenAt: timestamp,
+      missingSince: previous.missingSince ?? timestamp,
+      carryForwardReason: "current-cycle-did-not-reconfirm-authoritative-evidence",
+      evidenceUnavailableReason: refreshed.evidenceUnavailableReason ?? previous.evidenceUnavailableReason,
+    } satisfies TenderOpportunity;
+  }
+  return refreshed;
+}
+
 export function confirmedLedgerRecords(records: TenderOpportunity[]) {
   return records.filter((record) => isConfirmedOpportunity(record) || record.cycleStatus === "resolved");
 }
