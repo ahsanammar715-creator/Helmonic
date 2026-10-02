@@ -80,7 +80,10 @@ function freshnessWeight(record) {
 }
 
 function evidenceNote(record) {
-  if (record.evidenceExcerpt) return "exact excerpt retained";
+  if (record.evidenceExcerpt && record.classification === "design-construction-potential") {
+    return "exact official project excerpt retained; no acoustic planning-stage condition is claimed";
+  }
+  if (record.evidenceExcerpt) return "exact acoustic excerpt retained";
   if (record.classification === "design-construction-potential") {
     return "design/construction lead; no acoustic planning-stage excerpt required";
   }

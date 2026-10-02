@@ -13,4 +13,4 @@ COPY src/lib/tender-intelligence ./src/lib/tender-intelligence
 
 RUN mkdir -p /var/lib/helmonic/tender-intelligence && chown -R node:node /app /var/lib/helmonic
 USER node
-CMD ["node", "scripts/tender_intelligence/run-daily-automation.mjs"]
+CMD ["node", "--experimental-strip-types", "scripts/tender_intelligence/run-daily-automation.mjs"]

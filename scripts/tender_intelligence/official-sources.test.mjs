@@ -39,6 +39,7 @@ import {
   routeOpportunityByRelationships,
   routeOpportunitiesByRelationships,
 } from "../../src/lib/tender-intelligence/relationship-routing.ts";
+import { loadSearchRelationshipLookup } from "../../src/lib/tender-intelligence/search-relationship-index.ts";
 import {
   applyEvidenceRefresh,
   confirmedLedgerRecords,
@@ -803,6 +804,96 @@ test("Agile council adapter reads the real further-information endpoint and pres
   assert.equal(enriched.classification, "noise-related-rfi");
   assert.equal(enriched.applicant, "Example Developments Ltd");
   assert.match(enriched.evidenceExcerpt, /acoustic report/i);
+});
+
+test("Agile council adapter retains a traceable official excerpt for design-stage opportunities", async () => {
+  const fetcher = async (url) => {
+    const value = String(url);
+    if (value.includes("/api/client/get")) return Response.json({ code: "SD" });
+    if (value.endsWith("/application/70997")) return Response.json({ applicantSurname: "Example Homes Ltd" });
+    if (value.endsWith("/further-info")) return Response.json([]);
+    if (value.endsWith("/conditions")) return Response.json({
+      decisionText: "Permission is granted for a mixed-use development of 120 apartments and retail space.",
+    });
+    if (value.endsWith("/document")) return Response.json([]);
+    return new Response("missing", { status: 404 });
+  };
+  const enriched = await enrichNationalPlanningOpportunity({
+    id: "national-design-1",
+    type: "planning-pipeline-lead",
+    sourceSystem: "National Planning Register",
+    sourceRecordId: "South Dublin:ED26/0100",
+    projectReference: "ED26/0100",
+    planningAuthority: "South Dublin County Council",
+    title: "Example mixed-use development",
+    description: "Mixed-use development of 120 apartments",
+    sourceUrl: "https://planning.agileapplications.ie/southdublin/application-details/70997",
+    evidenceStatus: "discovery-only",
+    classification: "needs-council-evidence",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 0,
+  }, fetcher);
+  assert.equal(enriched.evidenceStatus, "official-text");
+  assert.equal(enriched.classification, "design-construction-potential");
+  assert.match(enriched.evidenceExcerpt, /120 apartments/i);
+});
+
+test("restricted Search lookup uses exact party evidence without exposing message bodies", async () => {
+  const previous = {
+    enabled: process.env.HELMONIC_EMAIL_RELATIONSHIP_SEARCH_ENABLED,
+    endpoint: process.env.AZURE_EMAIL_SEARCH_ENDPOINT,
+    index: process.env.AZURE_EMAIL_SEARCH_INDEX,
+    identity: process.env.AZURE_EMAIL_SEARCH_CLIENT_ID,
+  };
+  process.env.HELMONIC_EMAIL_RELATIONSHIP_SEARCH_ENABLED = "true";
+  process.env.AZURE_EMAIL_SEARCH_ENDPOINT = "https://search.example.test";
+  process.env.AZURE_EMAIL_SEARCH_INDEX = "restricted-email-index";
+  process.env.AZURE_EMAIL_SEARCH_CLIENT_ID = "identity-client-id";
+  try {
+    let requestBody;
+    const fetcher = async (_url, init) => {
+      requestBody = JSON.parse(String(init.body));
+      return Response.json({ value: [{
+        message_id: "remote-1",
+        evidence_ref: "[E:glen:remote-1]",
+        subject: "Example Architect",
+        body_text: "Previous correspondence with contact@example-architect.ie",
+        mailbox_owner: "Glen",
+      }] });
+    };
+    const result = await loadSearchRelationshipLookup([planningLead({
+      applicant: "Example Architect Ltd",
+      parties: [{
+        name: "Example Architect Ltd",
+        role: "architect",
+        email: "contact@example-architect.ie",
+      }],
+    })], { fetcher, accessToken: "test-token" });
+    assert.equal(result.enabled, true);
+    assert.equal(result.queriedParties, 1);
+    assert.equal(result.matchedEntities, 1);
+    assert.match(requestBody.select, /evidence_ref/);
+    const routed = routeOpportunityByRelationships(planningLead({
+      applicant: "Example Architect Ltd",
+      parties: [{
+        name: "Example Architect Ltd",
+        role: "architect",
+        email: "contact@example-architect.ie",
+      }],
+    }), result.lookup);
+    assert.equal(routed.routedTo, "Glen");
+    assert.deepEqual(routed.routingEvidence[0].evidenceRefs, ["[E:glen:remote-1]"]);
+  } finally {
+    if (previous.enabled === undefined) delete process.env.HELMONIC_EMAIL_RELATIONSHIP_SEARCH_ENABLED;
+    else process.env.HELMONIC_EMAIL_RELATIONSHIP_SEARCH_ENABLED = previous.enabled;
+    if (previous.endpoint === undefined) delete process.env.AZURE_EMAIL_SEARCH_ENDPOINT;
+    else process.env.AZURE_EMAIL_SEARCH_ENDPOINT = previous.endpoint;
+    if (previous.index === undefined) delete process.env.AZURE_EMAIL_SEARCH_INDEX;
+    else process.env.AZURE_EMAIL_SEARCH_INDEX = previous.index;
+    if (previous.identity === undefined) delete process.env.AZURE_EMAIL_SEARCH_CLIENT_ID;
+    else process.env.AZURE_EMAIL_SEARCH_CLIENT_ID = previous.identity;
+  }
 });
 
 test("party routing uses exact evidence and balanced batch assignment for everything else", () => {

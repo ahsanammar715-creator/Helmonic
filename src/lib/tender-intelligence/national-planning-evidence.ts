@@ -51,6 +51,19 @@ function officialJsonText(value: unknown): string {
   return "";
 }
 
+function retainedOfficialExcerpt(text: string) {
+  const normalized = normalizeText(text);
+  const lower = normalized.toLowerCase();
+  const anchors = [
+    "apartment", "residential", "commercial", "retail", "school", "education",
+    "hospital", "healthcare", "industrial", "mixed-use", "mixed use", "hotel",
+    "hospitality", "data centre", "data center", "transport", "infrastructure",
+  ];
+  const indexes = anchors.map((term) => lower.indexOf(term)).filter((index) => index >= 0);
+  const index = indexes.length > 0 ? Math.min(...indexes) : 0;
+  return normalized.slice(Math.max(0, index - 250), Math.min(normalized.length, index + 950));
+}
+
 async function fetchJson(fetcher: FetchLike, url: string, headers: HeadersInit) {
   const response = await fetcher(url, {
     headers,
@@ -152,7 +165,7 @@ async function agileCouncilEvidence(record: TenderOpportunity, fetcher: FetchLik
         ...descriptor,
         fetchStatus: "fetched",
         matchedTerms: classified.matchedTerms,
-        excerpt: classified.excerpt,
+        excerpt: classified.excerpt ?? retainedOfficialExcerpt(text),
         classification: classified.classification,
       });
     } catch (error) {
@@ -186,7 +199,12 @@ async function agileCouncilEvidence(record: TenderOpportunity, fetcher: FetchLik
         if (!text) throw new Error("document-has-no-extractable-text");
         const descriptor = evidenceDescriptor(id, label, sourceUrl);
         const classified = classifyDccDocumentText(descriptor, text);
-        documents.push({ ...descriptor, fetchStatus: "fetched", ...classified });
+        documents.push({
+          ...descriptor,
+          fetchStatus: "fetched",
+          ...classified,
+          excerpt: classified.excerpt ?? retainedOfficialExcerpt(text),
+        });
       } catch (error) {
         documents.push({
           id,
@@ -275,7 +293,12 @@ async function eplanningCouncilEvidence(record: TenderOpportunity, fetcher: Fetc
       if (/html/i.test(contentType)) throw new Error("legacy-idocs-viewer-has-no-extractable-source-document");
       const text = normalizeText(await extractDccDocumentText(contentType, bytes));
       const classified = classifyDccDocumentText(descriptor, text);
-      documents.push({ ...descriptor, fetchStatus: "fetched", ...classified });
+      documents.push({
+        ...descriptor,
+        fetchStatus: "fetched",
+        ...classified,
+        excerpt: classified.excerpt ?? retainedOfficialExcerpt(text),
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "document-unavailable";
       documents.push({

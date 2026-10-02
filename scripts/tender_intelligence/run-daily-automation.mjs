@@ -3,6 +3,11 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  hydrateTenderArtifacts,
+  persistTenderArtifacts,
+} from "../../src/lib/tender-intelligence/blob-artifacts.ts";
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
 const artifactRoot = process.env.HELMONIC_TENDER_ARTIFACT_ROOT
@@ -17,7 +22,33 @@ const outputDirectory = path.join(automationRoot, runId);
 const summaryPath = path.join(outputDirectory, "summary.json");
 const summarizeOnly = process.argv.includes("--summarize-only");
 
+function localHour(date, timeZone) {
+  return Number.parseInt(new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(date), 10);
+}
+
+if (process.env.HELMONIC_SCHEDULE_GUARD_ENABLED === "true") {
+  const timeZone = process.env.HELMONIC_SCHEDULE_TIMEZONE || "Europe/Dublin";
+  const targetHour = Number.parseInt(process.env.HELMONIC_SCHEDULE_LOCAL_HOUR || "7", 10);
+  const observedHour = localHour(startedAt, timeZone);
+  if (observedHour !== targetHour) {
+    console.log(JSON.stringify({
+      status: "skipped-outside-local-window",
+      runId,
+      timeZone,
+      targetHour,
+      observedHour,
+    }));
+    process.exit(0);
+  }
+}
+
 await mkdir(outputDirectory, { recursive: true });
+const hydration = await hydrateTenderArtifacts(artifactRoot);
+console.log(JSON.stringify({ artifactHydration: hydration }));
 
 async function acquireLock() {
   try {
@@ -94,5 +125,14 @@ try {
   summary.completedAt = new Date().toISOString();
   await writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
   await unlink(lockPath).catch(() => undefined);
-  console.log(JSON.stringify(summary, null, 2));
+  try {
+    summary.artifactPersistence = await persistTenderArtifacts(artifactRoot, runId);
+  } catch (error) {
+    summary.status = "failed";
+    summary.failedStep = "artifact-persistence";
+    summary.error = error instanceof Error ? error.message : "Tender artifact persistence failed";
+    process.exitCode = 1;
+  }
+  await writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+  console.log(JSON.stringify({ ...summary, artifactHydration: hydration }, null, 2));
 }

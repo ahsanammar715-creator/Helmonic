@@ -107,6 +107,19 @@ function evidenceWindows(text: string) {
   return windows;
 }
 
+function retainedOfficialExcerpt(text: string) {
+  const normalized = normalizeText(text);
+  const lower = normalized.toLowerCase();
+  const anchors = [
+    "apartment", "residential", "commercial", "retail", "school", "education",
+    "hospital", "healthcare", "industrial", "mixed-use", "mixed use", "hotel",
+    "hospitality", "data centre", "data center", "transport", "infrastructure",
+  ];
+  const indexes = anchors.map((term) => lower.indexOf(term)).filter((index) => index >= 0);
+  const index = indexes.length > 0 ? Math.min(...indexes) : 0;
+  return normalized.slice(Math.max(0, index - 250), Math.min(normalized.length, index + 950));
+}
+
 function documentOutcome(text: string) {
   const heading = normalizeText(text).slice(0, 5_000).toLowerCase();
   const refusalMarkers = [
@@ -315,7 +328,7 @@ export async function fetchDccApplicationEvidence(
         sourceUrl: document.sourceUrl,
         fetchStatus: "fetched" as const,
         matchedTerms: classified.matchedTerms,
-        excerpt: classified.excerpt,
+        excerpt: classified.excerpt ?? retainedOfficialExcerpt(text),
         classification: classified.classification,
       };
     } catch (error) {

@@ -8,6 +8,7 @@ import { enrichFormalTenderOpportunities } from "../../src/lib/tender-intelligen
 import { enrichNationalPlanningOpportunities } from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
 import { isSalesRouteable, qualifyLead } from "../../src/lib/tender-intelligence/lead-qualification.ts";
 import { routeOpportunitiesByRelationships } from "../../src/lib/tender-intelligence/relationship-routing.ts";
+import { loadSearchRelationshipLookup } from "../../src/lib/tender-intelligence/search-relationship-index.ts";
 import { applyTargetScope } from "../../src/lib/tender-intelligence/source-scope.ts";
 import {
   applyEvidenceRefresh,
@@ -145,11 +146,11 @@ function mergePriorConfirmedRecords(fullRecords, legacyAuditRecords) {
   return [...byIdentity.values()];
 }
 
-function routeCurrentAndPreserveCarryForward(records) {
+function routeCurrentAndPreserveCarryForward(records, lookup = undefined) {
   const routeable = records.filter((record) => record.cycleStatus !== "unconfirmed-this-cycle");
   const routed = new Map(routeOpportunitiesByRelationships(
     routeable,
-    undefined,
+    lookup,
     { preserveExistingRoutes: true },
   ).map((record) => [opportunityIdentity(record), record]));
   return records.map((record) => routed.get(opportunityIdentity(record)) ?? record);
@@ -255,6 +256,17 @@ for (let offset = state.nationalProcessed || 0; offset < nationalIndexes.length;
 state.opportunities = routeCurrentAndPreserveCarryForward(annotateOpportunityDuplicates(
   state.opportunities.map((record) => qualifyLead(record)),
 ));
+const relationshipSearch = await loadSearchRelationshipLookup(state.opportunities);
+if (relationshipSearch.lookup) {
+  state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities, relationshipSearch.lookup);
+}
+console.log(JSON.stringify({
+  relationshipSearch: {
+    enabled: relationshipSearch.enabled,
+    queriedParties: relationshipSearch.queriedParties,
+    matchedEntities: relationshipSearch.matchedEntities,
+  },
+}));
 state.status = "complete";
 state.completedAt = new Date().toISOString();
 state.updatedAt = state.completedAt;
