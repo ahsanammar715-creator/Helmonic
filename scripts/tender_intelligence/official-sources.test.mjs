@@ -268,7 +268,10 @@ test("Odoo preflight validates the complete contract and routing with zero write
     const url = String(request);
     const body = options.body ? JSON.parse(String(options.body)) : {};
     calls.push({ url, body });
-    if (url.endsWith("/web/version")) return Response.json({ version: "19.0", version_info: [19, 0, 0, "final"] });
+    if (url.endsWith("/web/version")) return Response.json({
+      server_version: "saas~19.4+e",
+      server_version_info: ["saas", 19, 4, 0, "final", 0, "e"],
+    });
     if (url.endsWith("/fields_get")) {
       return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
         type: ODOO_TENDER_FIELD_TYPES[field] ?? ({

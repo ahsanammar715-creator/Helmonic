@@ -97,12 +97,22 @@ async function assertSupportedVersion(config: ReturnType<typeof requiredConfig>,
     signal: AbortSignal.timeout(config.timeoutMs),
   });
   if (!response.ok) throw new Error(await responseError(response));
-  const version = await response.json() as { version_info?: unknown[]; version?: string };
-  const major = Number(version.version_info?.[0] ?? String(version.version ?? "").split(".")[0]);
+  const version = await response.json() as {
+    server_version_info?: unknown[];
+    server_version?: string;
+    version_info?: unknown[];
+    version?: string;
+  };
+  const versionInfo = version.server_version_info ?? version.version_info;
+  const versionLabel = version.server_version ?? version.version;
+  const major = Number(
+    String(versionLabel ?? "").match(/\d+/)?.[0]
+      ?? versionInfo?.find((part) => Number.isFinite(Number(part)) && Number(part) >= 10),
+  );
   if (!Number.isFinite(major) || major < 19) {
     throw new Error("Odoo JSON-2 synchronization requires Odoo 19 or newer; no records were written.");
   }
-  return String(version.version ?? version.version_info?.slice(0, 3).join(".") ?? major);
+  return String(versionLabel ?? versionInfo?.slice(0, 3).join(".") ?? major);
 }
 
 async function assertFieldsExist(
