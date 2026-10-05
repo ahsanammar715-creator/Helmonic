@@ -24,6 +24,22 @@ export type OdooSyncResult = {
   failures: Array<{ externalId: string; error: string }>;
 };
 
+export type OdooPreflightResult = {
+  status: "completed";
+  apiVersion: string;
+  model: string;
+  externalIdField: string;
+  requiredFieldCount: number;
+  salesTeamId: number;
+  initialStageId: number;
+  ownerUserIds: {
+    glen: number;
+    eoghan: number;
+  };
+  checks: ["version", "field-contract", "sales-team", "initial-stage", "owner-users"];
+  writesAttempted: 0;
+};
+
 function requiredConfig(config: OdooJson2Config) {
   if (!config.baseUrl || !config.apiKey) {
     throw new Error("Odoo synchronization is enabled but ODOO_BASE_URL or ODOO_API_KEY is missing.");
@@ -86,6 +102,7 @@ async function assertSupportedVersion(config: ReturnType<typeof requiredConfig>,
   if (!Number.isFinite(major) || major < 19) {
     throw new Error("Odoo JSON-2 synchronization requires Odoo 19 or newer; no records were written.");
   }
+  return String(version.version ?? version.version_info?.slice(0, 3).join(".") ?? major);
 }
 
 async function assertFieldsExist(
@@ -95,6 +112,7 @@ async function assertFieldsExist(
 ) {
   const requiredFields = [...new Set([
     config.externalIdField,
+    ...Object.keys(ODOO_TENDER_FIELD_TYPES),
     ...payloads.flatMap((payload) => Object.keys(payload.values)),
     "type",
     "team_id",
@@ -116,6 +134,7 @@ async function assertFieldsExist(
   if (mismatched.length > 0) {
     throw new Error(`Odoo preflight failed; custom field types do not match: ${mismatched.join("; ")}. No records were written.`);
   }
+  return requiredFields.length;
 }
 
 function assertRoutingConfig(config: ReturnType<typeof requiredConfig>, payloads: OdooLeadDryRun[]) {
@@ -131,6 +150,73 @@ function assertRoutingConfig(config: ReturnType<typeof requiredConfig>, payloads
   if (missing.length > 0) {
     throw new Error(`Odoo preflight failed; native CRM routing is not configured: ${missing.join(", ")}. No records were written.`);
   }
+}
+
+function assertCompletePreflightRoutingConfig(config: ReturnType<typeof requiredConfig>) {
+  const missing: string[] = [];
+  if (!config.salesTeamId) missing.push("ODOO_SALES_TEAM_ID");
+  if (!config.initialStageId) missing.push("ODOO_INITIAL_STAGE_ID");
+  if (!config.glenUserId) missing.push("ODOO_GLEN_USER_ID");
+  if (!config.eoghanUserId) missing.push("ODOO_EOGHAN_USER_ID");
+  if (missing.length > 0) {
+    throw new Error(`Odoo preflight failed; routing configuration is incomplete: ${missing.join(", ")}. No records were written.`);
+  }
+}
+
+async function routingRecord(
+  config: ReturnType<typeof requiredConfig>,
+  model: string,
+  id: number,
+  label: string,
+  fetcher: typeof fetch,
+) {
+  const records = await json2Call(config, model, "search_read", {
+    domain: [["id", "=", id]],
+    fields: ["id", "name"],
+    limit: 2,
+  }, fetcher) as Array<{ id?: number; name?: string }>;
+  if (!Array.isArray(records) || records.length !== 1 || records[0]?.id !== id) {
+    throw new Error(`Odoo preflight failed; ${label} ID ${id} is not readable or does not exist. No records were written.`);
+  }
+  return records[0];
+}
+
+async function assertRoutingRecordsExist(config: ReturnType<typeof requiredConfig>, fetcher: typeof fetch) {
+  const team = await routingRecord(config, "crm.team", config.salesTeamId!, "sales team", fetcher);
+  const stage = await routingRecord(config, "crm.stage", config.initialStageId!, "initial stage", fetcher);
+  const glen = await routingRecord(config, "res.users", config.glenUserId!, "Glen owner user", fetcher);
+  const eoghan = await routingRecord(config, "res.users", config.eoghanUserId!, "Eoghan owner user", fetcher);
+  if (!String(glen.name ?? "").toLowerCase().includes("glen")) {
+    throw new Error(`Odoo preflight failed; user ID ${config.glenUserId} does not resolve to Glen. No records were written.`);
+  }
+  if (!String(eoghan.name ?? "").toLowerCase().includes("eoghan")) {
+    throw new Error(`Odoo preflight failed; user ID ${config.eoghanUserId} does not resolve to Eoghan. No records were written.`);
+  }
+  return { team, stage, glen, eoghan };
+}
+
+export async function preflightOdoo(
+  payloads: OdooLeadDryRun[],
+  inputConfig: OdooJson2Config,
+  fetcher: typeof fetch = fetch,
+): Promise<OdooPreflightResult> {
+  const config = requiredConfig(inputConfig);
+  assertCompletePreflightRoutingConfig(config);
+  const apiVersion = await assertSupportedVersion(config, fetcher);
+  const requiredFieldCount = await assertFieldsExist(config, payloads, fetcher);
+  await assertRoutingRecordsExist(config, fetcher);
+  return {
+    status: "completed",
+    apiVersion,
+    model: config.model,
+    externalIdField: config.externalIdField,
+    requiredFieldCount,
+    salesTeamId: config.salesTeamId!,
+    initialStageId: config.initialStageId!,
+    ownerUserIds: { glen: config.glenUserId!, eoghan: config.eoghanUserId! },
+    checks: ["version", "field-contract", "sales-team", "initial-stage", "owner-users"],
+    writesAttempted: 0,
+  };
 }
 
 function ownerUserId(payload: OdooLeadDryRun, config: ReturnType<typeof requiredConfig>) {

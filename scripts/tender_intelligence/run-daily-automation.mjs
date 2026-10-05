@@ -22,6 +22,11 @@ const outputDirectory = path.join(automationRoot, runId);
 const summaryPath = path.join(outputDirectory, "summary.json");
 const summarizeOnly = process.argv.includes("--summarize-only");
 
+if (process.env.HELMONIC_ODOO_PREFLIGHT_ONLY === "true") {
+  await import("./preflight-odoo.mjs");
+  process.exit(0);
+}
+
 function localHour(date, timeZone) {
   return Number.parseInt(new Intl.DateTimeFormat("en-GB", {
     timeZone,

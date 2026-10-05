@@ -19,6 +19,7 @@
     "digest:tender-intelligence": "node scripts/tender_intelligence/generate-review-digest.mjs",
     "dry-run:odoo-leads": "node --experimental-strip-types scripts/tender_intelligence/build-odoo-dry-run.mjs",
     "sync:odoo-leads": "node --experimental-strip-types scripts/tender_intelligence/sync-odoo-leads.mjs",
+    "preflight:odoo": "node --experimental-strip-types scripts/tender_intelligence/preflight-odoo.mjs",
     "run:tender-automation": "node --experimental-strip-types scripts/tender_intelligence/run-daily-automation.mjs",
     "verify:runtime": "node scripts/verify-runtime-hardening.mjs",
     "test:e2e": "playwright test"
