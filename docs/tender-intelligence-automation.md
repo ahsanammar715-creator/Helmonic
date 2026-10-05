@@ -6,7 +6,9 @@
 - Only one worker may run at a time. A lock prevents overlapping schedules; a lock older than 18 hours is treated as a crashed run and is safely replaced.
 - BuildingInfo and Odoo are disabled by default. Missing credentials never silently enable either connector.
 - Odoo uses the current JSON-2 API and requires Odoo 19 or newer. The connector checks the server version and verifies every required field before the first write.
-- Odoo upserts on `x_helmonic_external_id`. The Odoo team must make this field unique so concurrent or retried jobs cannot create duplicate opportunities.
+- Odoo upserts on the indexed `x_helmonic_external_id` field. Only one worker is allowed to run at a time, and a repeated identity updates the existing record instead of creating another opportunity.
+- The Odoo client also sets the existing iAcoustics Sales Team and native salesperson. The historical internal owner label `Owen` maps to the real Odoo user Eoghan Tyrrell; Glen remains Glen Plunkett.
+- All custom fields and their exact Odoo types are defined in `src/lib/tender-intelligence/odoo-field-contract.ts`. The client verifies the complete schema and routing IDs before its first write.
 - A repeated source record updates the existing Odoo opportunity. Exact cross-source duplicates share the same external ID and therefore cannot create a second opportunity.
 - Similar-address applications with different planning references remain related-but-separate because they may represent phases, amendments or separate permissions.
 - The relationship index location is supplied separately with `HELMONIC_RELATIONSHIP_INDEX_DIR`; it must remain restricted to the approved leadership access boundary.

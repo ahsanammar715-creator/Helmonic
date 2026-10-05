@@ -61,6 +61,7 @@ import {
   summarizeOdooDryRun,
 } from "../../src/lib/tender-intelligence/odoo-payload.ts";
 import { syncOdooLeads } from "../../src/lib/tender-intelligence/odoo-client.ts";
+import { ODOO_TENDER_FIELD_TYPES } from "../../src/lib/tender-intelligence/odoo-field-contract.ts";
 import {
   buildBuildingInfoPageUrl,
   collectBuildingInfoProjects,
@@ -269,22 +270,36 @@ test("Odoo JSON-2 upsert creates once and updates on a repeated run", async () =
     planningAuthority: "Dublin City Council",
     evidenceStatus: "official-text",
     classification: "design-construction-potential",
+    routedTo: "Owen",
   }), new Date("2026-09-30T12:00:00.000Z"))]);
   const payloads = buildOdooDryRun(records);
   let existingId;
   let creates = 0;
   let writes = 0;
-  const requiredFields = Object.keys(payloads[0].values);
   const fetcher = async (request, options = {}) => {
     const url = String(request);
     const body = options.body ? JSON.parse(String(options.body)) : {};
     if (url.endsWith("/web/version")) return Response.json({ version_info: [19, 0, 0, "final"] });
     if (url.endsWith("/fields_get")) {
-      return Response.json(Object.fromEntries(requiredFields.map((field) => [field, { type: "char" }])));
+      return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
+        type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
+          name: "char",
+          description: "html",
+          type: "selection",
+          team_id: "many2one",
+          user_id: "many2one",
+          priority: "selection",
+          stage_id: "many2one",
+        }[field] ?? "char"),
+      }])));
     }
     if (url.endsWith("/search_read")) return Response.json(existingId ? [{ id: existingId }] : []);
     if (url.endsWith("/create")) {
       assert.equal(body.vals_list[0].x_helmonic_external_id, payloads[0].matchValue);
+      assert.equal(body.vals_list[0].team_id, 41);
+      assert.equal(body.vals_list[0].x_assigned_person, "Eoghan Tyrrell");
+      assert.equal(body.vals_list[0].user_id, 6);
+      assert.equal(body.vals_list[0].type, "opportunity");
       creates += 1;
       existingId = 731;
       return Response.json([existingId]);
@@ -301,6 +316,8 @@ test("Odoo JSON-2 upsert creates once and updates on a repeated run", async () =
     baseUrl: "https://odoo.example.test",
     database: "test",
     apiKey: "test-only-key",
+    salesTeamId: 41,
+    eoghanUserId: 6,
   };
   const first = await syncOdooLeads(payloads, config, fetcher);
   const second = await syncOdooLeads(payloads, config, fetcher);
@@ -323,6 +340,7 @@ test("Odoo preflight refuses every write when a required field is missing", asyn
     enabled: true,
     baseUrl: "https://odoo.example.test",
     apiKey: "test-only-key",
+    salesTeamId: 41,
   }, async (request) => {
     const url = String(request);
     if (url.endsWith("/web/version")) return Response.json({ version_info: [19, 0, 0, "final"] });

@@ -6,6 +6,7 @@ import {
   buildOdooDryRun,
   summarizeOdooDryRun,
 } from "../../src/lib/tender-intelligence/odoo-payload.ts";
+import { ODOO_TENDER_FIELD_CONTRACT } from "../../src/lib/tender-intelligence/odoo-field-contract.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -30,7 +31,8 @@ await writeFile(fieldContractPath, `${JSON.stringify({
   operation: "upsert",
   requiredUniqueField: "x_helmonic_external_id",
   note: "Technical custom-field names must be confirmed in the Odoo test database before any write is enabled.",
-  fields: Object.keys(payloads[0]?.values ?? {}),
+  standardFields: ["name", "description", "type", "team_id", "user_id", "stage_id", "priority"],
+  customFields: ODOO_TENDER_FIELD_CONTRACT,
 }, null, 2)}\n`, "utf8");
 
 console.log(JSON.stringify({ ...summary, payloadPath, summaryPath, fieldContractPath }, null, 2));

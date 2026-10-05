@@ -1,4 +1,5 @@
 import type { OdooLeadDryRun } from "./odoo-payload.ts";
+import { ODOO_TENDER_FIELD_TYPES } from "./odoo-field-contract.ts";
 
 export type OdooJson2Config = {
   enabled: boolean;
@@ -7,6 +8,10 @@ export type OdooJson2Config = {
   apiKey?: string;
   model?: string;
   externalIdField?: string;
+  salesTeamId?: number;
+  initialStageId?: number;
+  glenUserId?: number;
+  eoghanUserId?: number;
   timeoutMs?: number;
 };
 
@@ -29,8 +34,16 @@ function requiredConfig(config: OdooJson2Config) {
     database: config.database,
     model: config.model || "crm.lead",
     externalIdField: config.externalIdField || "x_helmonic_external_id",
+    salesTeamId: positiveInteger(config.salesTeamId),
+    initialStageId: positiveInteger(config.initialStageId),
+    glenUserId: positiveInteger(config.glenUserId),
+    eoghanUserId: positiveInteger(config.eoghanUserId),
     timeoutMs: Math.max(1_000, config.timeoutMs || 30_000),
   };
+}
+
+function positiveInteger(value?: number) {
+  return Number.isInteger(value) && value! > 0 ? value : undefined;
 }
 
 async function responseError(response: Response) {
@@ -83,22 +96,68 @@ async function assertFieldsExist(
   const requiredFields = [...new Set([
     config.externalIdField,
     ...payloads.flatMap((payload) => Object.keys(payload.values)),
+    "type",
+    "team_id",
+    "user_id",
+    "priority",
+    ...(config.initialStageId ? ["stage_id"] : []),
   ])];
   const fields = await json2Call(config, config.model, "fields_get", {
     allfields: requiredFields,
     attributes: ["type", "readonly"],
-  }, fetcher) as Record<string, unknown>;
+  }, fetcher) as Record<string, { type?: string; readonly?: boolean }>;
   const missing = requiredFields.filter((field) => !Object.hasOwn(fields, field));
   if (missing.length > 0) {
     throw new Error(`Odoo preflight failed; required fields are missing: ${missing.join(", ")}. No records were written.`);
   }
+  const mismatched = Object.entries(ODOO_TENDER_FIELD_TYPES)
+    .filter(([name, type]) => fields[name]?.type !== type)
+    .map(([name, type]) => `${name} expected ${type}, found ${fields[name]?.type ?? "missing"}`);
+  if (mismatched.length > 0) {
+    throw new Error(`Odoo preflight failed; custom field types do not match: ${mismatched.join("; ")}. No records were written.`);
+  }
 }
 
-function valuesForOdoo(payload: OdooLeadDryRun, externalIdField: string) {
-  return {
+function assertRoutingConfig(config: ReturnType<typeof requiredConfig>, payloads: OdooLeadDryRun[]) {
+  if (payloads.length === 0) return;
+  const missing: string[] = [];
+  if (!config.salesTeamId) missing.push("ODOO_SALES_TEAM_ID");
+  if (payloads.some((payload) => payload.values.x_assigned_person === "Glen Plunkett") && !config.glenUserId) {
+    missing.push("ODOO_GLEN_USER_ID");
+  }
+  if (payloads.some((payload) => payload.values.x_assigned_person === "Eoghan Tyrrell") && !config.eoghanUserId) {
+    missing.push("ODOO_EOGHAN_USER_ID");
+  }
+  if (missing.length > 0) {
+    throw new Error(`Odoo preflight failed; native CRM routing is not configured: ${missing.join(", ")}. No records were written.`);
+  }
+}
+
+function ownerUserId(payload: OdooLeadDryRun, config: ReturnType<typeof requiredConfig>) {
+  if (payload.values.x_assigned_person === "Glen Plunkett") return config.glenUserId;
+  if (payload.values.x_assigned_person === "Eoghan Tyrrell") return config.eoghanUserId;
+  return false;
+}
+
+function odooPriority(payload: OdooLeadDryRun) {
+  if (payload.values.x_lead_quality === "excellent") return "3";
+  if (payload.values.x_lead_quality === "good") return "2";
+  if (payload.values.x_lead_quality === "medium") return "1";
+  return "0";
+}
+
+function valuesForOdoo(payload: OdooLeadDryRun, config: ReturnType<typeof requiredConfig>) {
+  const values: Record<string, unknown> = {
     ...payload.values,
-    [externalIdField]: payload.matchValue,
+    [config.externalIdField]: payload.matchValue,
+    type: "opportunity",
+    team_id: config.salesTeamId,
+    user_id: ownerUserId(payload, config),
+    priority: odooPriority(payload),
   };
+  if (config.externalIdField !== "x_helmonic_external_id") delete values.x_helmonic_external_id;
+  if (config.initialStageId) values.stage_id = config.initialStageId;
+  return values;
 }
 
 export async function syncOdooLeads(
@@ -110,6 +169,7 @@ export async function syncOdooLeads(
     return { status: "disabled", attempted: 0, created: 0, updated: 0, unchanged: payloads.length, failures: [] };
   }
   const config = requiredConfig(inputConfig);
+  assertRoutingConfig(config, payloads);
   await assertSupportedVersion(config, fetcher);
   await assertFieldsExist(config, payloads, fetcher);
 
@@ -130,7 +190,7 @@ export async function syncOdooLeads(
       }, fetcher) as Array<{ id?: number }>;
       if (!Array.isArray(matches)) throw new Error("Odoo search_read returned an invalid response.");
       if (matches.length > 1) throw new Error("More than one Odoo lead has the same Helmonic external ID.");
-      const values = valuesForOdoo(payload, config.externalIdField);
+      const values = valuesForOdoo(payload, config);
       if (matches.length === 1 && Number.isFinite(matches[0]?.id)) {
         await json2Call(config, config.model, "write", { ids: [matches[0].id], vals: values }, fetcher);
         result.updated += 1;

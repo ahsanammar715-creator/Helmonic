@@ -16,12 +16,12 @@ export type OdooLeadDryRun = {
     x_source_record_ids: string;
     x_source_urls: string;
     x_evidence_excerpt: string;
-    x_source_published_at: string;
-    x_source_updated_at: string;
-    x_source_major_updated_at: string;
+    x_source_published_at: string | false;
+    x_source_updated_at: string | false;
+    x_source_major_updated_at: string | false;
     x_source_age_days: number | false;
     x_freshness_band: string;
-    x_deadline: string;
+    x_deadline: string | false;
     x_assigned_person: string;
     x_warm_connection_verified: boolean;
     x_routing_reason: string;
@@ -30,6 +30,21 @@ export type OdooLeadDryRun = {
     x_project_value: number | false;
     x_project_units: number | false;
     x_project_stage: string;
+    x_opportunity_type: string;
+    x_location: string;
+    x_planning_authority: string;
+    x_project_reference: string;
+    x_applicant: string;
+    x_party_details: string;
+    x_cpv_codes: string;
+    x_matched_terms: string;
+    x_evidence_document_urls: string;
+    x_residential_scale: string;
+    x_first_seen_at: string | false;
+    x_last_seen_at: string | false;
+    x_last_confirmed_at: string | false;
+    x_cycle_status: string;
+    x_scope_status: string;
   };
 };
 
@@ -37,6 +52,34 @@ function actionableDeadline(record: TenderOpportunity) {
   if (record.classification === "noise-related-rfi") return record.responseDeadline ?? "";
   if (record.type === "formal-public-tender") return record.deadline ?? "";
   return "";
+}
+
+function odooDatetime(value?: string) {
+  if (!value) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  return parsed.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
+}
+
+function ownerDisplayName(record: TenderOpportunity) {
+  if (record.routedTo === "Glen") return "Glen Plunkett";
+  if (record.routedTo === "Owen") return "Eoghan Tyrrell";
+  return "";
+}
+
+function partyDetails(record: TenderOpportunity) {
+  return (record.parties ?? []).map((party) => [
+    party.role,
+    party.name,
+    party.organisation,
+    party.email,
+  ].filter(Boolean).join(" | ")).join("\n");
+}
+
+function evidenceDocumentUrls(record: TenderOpportunity) {
+  return [...new Set((record.evidenceDocuments ?? [])
+    .map((document) => document.sourceUrl)
+    .filter(Boolean))].join("\n");
 }
 
 function verifiedWarmConnection(record: TenderOpportunity) {
@@ -91,20 +134,37 @@ export function buildOdooDryRun(records: TenderOpportunity[]) {
         x_source_record_ids: sources.recordIds,
         x_source_urls: sources.urls,
         x_evidence_excerpt: record.evidenceExcerpt ?? "",
-        x_source_published_at: record.publishedAt ?? "",
-        x_source_updated_at: record.sourceUpdatedAt ?? "",
-        x_source_major_updated_at: record.sourceMajorUpdatedAt ?? "",
+        x_source_published_at: odooDatetime(record.publishedAt),
+        x_source_updated_at: odooDatetime(record.sourceUpdatedAt),
+        x_source_major_updated_at: odooDatetime(record.sourceMajorUpdatedAt),
         x_source_age_days: Number.isFinite(record.sourceAgeDays) ? record.sourceAgeDays! : false,
         x_freshness_band: record.leadFreshness ?? "date-unknown",
-        x_deadline: actionableDeadline(record),
-        x_assigned_person: record.routedTo && record.routedTo !== "unassigned" ? record.routedTo : "",
+        x_deadline: odooDatetime(actionableDeadline(record)),
+        x_assigned_person: ownerDisplayName(record),
         x_warm_connection_verified: verifiedWarmConnection(record),
         x_routing_reason: record.routingReason ?? "",
         x_deduplication_status: record.deduplicationStatus ?? "unique",
         x_possible_duplicate_ids: (record.possibleDuplicateIds ?? []).join(";"),
         x_project_value: Number.isFinite(record.projectValue) ? record.projectValue! : false,
-        x_project_units: Number.isFinite(record.projectUnits) ? record.projectUnits! : false,
+        x_project_units: Number.isFinite(record.projectUnits)
+          ? record.projectUnits!
+          : Number.isFinite(record.residentialUnitCount) ? record.residentialUnitCount! : false,
         x_project_stage: record.projectStage ?? record.sourceStatus ?? "",
+        x_opportunity_type: record.type,
+        x_location: record.location ?? "",
+        x_planning_authority: record.planningAuthority ?? "",
+        x_project_reference: record.projectReference ?? "",
+        x_applicant: record.applicant ?? "",
+        x_party_details: partyDetails(record),
+        x_cpv_codes: record.cpvCodes.join("; "),
+        x_matched_terms: record.matchedTerms.join("; "),
+        x_evidence_document_urls: evidenceDocumentUrls(record),
+        x_residential_scale: record.residentialScale ?? "",
+        x_first_seen_at: odooDatetime(record.firstSeenAt),
+        x_last_seen_at: odooDatetime(record.lastSeenAt),
+        x_last_confirmed_at: odooDatetime(record.lastConfirmedAt),
+        x_cycle_status: record.cycleStatus ?? "",
+        x_scope_status: record.scopeStatus ?? "unknown",
       },
     });
   }
