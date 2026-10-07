@@ -1,6 +1,7 @@
 import { ManagedIdentityCredential } from "@azure/identity";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fetchWithTimeout } from "./fetch-with-timeout.ts";
 
 const storageScope = "https://storage.azure.com/.default";
 const storageApiVersion = "2023-11-03";
@@ -44,7 +45,7 @@ async function accessToken(config: BlobConfig) {
 }
 
 async function request(config: BlobConfig, token: string, blobName: string, init: RequestInit = {}) {
-  return fetch(blobUrl(config, blobName), {
+  return fetchWithTimeout(fetch, blobUrl(config, blobName), {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -52,8 +53,7 @@ async function request(config: BlobConfig, token: string, blobName: string, init
       "x-ms-version": storageApiVersion,
       ...(init.headers ?? {}),
     },
-    signal: AbortSignal.timeout(60_000),
-  });
+  }, 60_000);
 }
 
 function decodeXml(value: string) {
@@ -71,14 +71,13 @@ async function listBlobs(config: BlobConfig, token: string, prefix: string) {
   do {
     const query = new URLSearchParams({ restype: "container", comp: "list", prefix });
     if (marker) query.set("marker", marker);
-    const response = await fetch(`${containerUrl(config)}?${query}`, {
+    const response = await fetchWithTimeout(fetch, `${containerUrl(config)}?${query}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         "x-ms-date": new Date().toUTCString(),
         "x-ms-version": storageApiVersion,
       },
-      signal: AbortSignal.timeout(60_000),
-    });
+    }, 60_000);
     if (!response.ok) throw new Error(`Tender input listing failed with status ${response.status}.`);
     const xml = await response.text();
     names.push(...[...xml.matchAll(/<Name>([\s\S]*?)<\/Name>/g)].map((match) => decodeXml(match[1])));

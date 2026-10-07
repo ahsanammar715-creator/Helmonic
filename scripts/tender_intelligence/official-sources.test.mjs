@@ -78,6 +78,21 @@ import {
   qualifyLead,
   residentialUnitCount,
 } from "../../src/lib/tender-intelligence/lead-qualification.ts";
+import { fetchWithTimeout } from "../../src/lib/tender-intelligence/fetch-with-timeout.ts";
+
+test("referenced timeout aborts a pending fetch instead of leaving top-level await unsettled", async () => {
+  let observedSignal;
+  const pendingFetch = (_input, init) => new Promise((_resolve, reject) => {
+    observedSignal = init?.signal;
+    observedSignal?.addEventListener("abort", () => reject(observedSignal.reason), { once: true });
+  });
+
+  await assert.rejects(
+    () => fetchWithTimeout(pendingFetch, "https://example.test/hanging", {}, 10),
+    { name: "TimeoutError" },
+  );
+  assert.equal(observedSignal?.aborted, true);
+});
 
 function planningLead(overrides = {}) {
   return {

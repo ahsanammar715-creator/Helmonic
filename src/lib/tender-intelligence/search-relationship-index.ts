@@ -3,6 +3,7 @@ import { ManagedIdentityCredential } from "@azure/identity";
 import { buildRelationshipLookup, type RelationshipLookup } from "./relationship-routing.ts";
 import { normalizeText } from "./policy.ts";
 import type { LeadParty, TenderOpportunity } from "./types.ts";
+import { fetchWithTimeout } from "./fetch-with-timeout.ts";
 
 type SearchDocument = {
   message_id?: string;
@@ -94,7 +95,8 @@ export async function loadSearchRelationshipLookup(
       if (index >= targetParties.length) return;
       const party = targetParties[index];
       const searchText = normalizeText(party.email) || normalizeText(party.name);
-      const response = await fetcher(
+      const response = await fetchWithTimeout(
+        fetcher,
         `${configuration.endpoint}/indexes/${encodeURIComponent(configuration.indexName)}/docs/search?api-version=${encodeURIComponent(configuration.apiVersion)}`,
         {
           method: "POST",
@@ -107,8 +109,8 @@ export async function loadSearchRelationshipLookup(
             select: "message_id,evidence_ref,subject,body_text,mailbox_owner",
             top: 20,
           }),
-          signal: AbortSignal.timeout(12_000),
         },
+        12_000,
       );
       if (!response.ok) throw new Error(`Restricted relationship search failed with status ${response.status}.`);
       const payload = await response.json() as { value?: SearchDocument[] };

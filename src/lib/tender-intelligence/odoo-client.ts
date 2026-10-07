@@ -1,5 +1,6 @@
 import type { OdooLeadDryRun } from "./odoo-payload.ts";
 import { ODOO_TENDER_FIELD_TYPES } from "./odoo-field-contract.ts";
+import { fetchWithTimeout } from "./fetch-with-timeout.ts";
 
 export type OdooJson2Config = {
   enabled: boolean;
@@ -81,21 +82,19 @@ async function json2Call(
     "User-Agent": "Helmonic-Tender-Intelligence/1.0",
   };
   if (config.database) headers["X-Odoo-Database"] = config.database;
-  const response = await fetcher(`${config.baseUrl}/json/2/${encodeURIComponent(model)}/${encodeURIComponent(method)}`, {
+  const response = await fetchWithTimeout(fetcher, `${config.baseUrl}/json/2/${encodeURIComponent(model)}/${encodeURIComponent(method)}`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(config.timeoutMs),
-  });
+  }, config.timeoutMs);
   if (!response.ok) throw new Error(await responseError(response));
   return response.json();
 }
 
 async function assertSupportedVersion(config: ReturnType<typeof requiredConfig>, fetcher: typeof fetch) {
-  const response = await fetcher(`${config.baseUrl}/web/version`, {
+  const response = await fetchWithTimeout(fetcher, `${config.baseUrl}/web/version`, {
     headers: { Accept: "application/json", "User-Agent": "Helmonic-Tender-Intelligence/1.0" },
-    signal: AbortSignal.timeout(config.timeoutMs),
-  });
+  }, config.timeoutMs);
   if (!response.ok) throw new Error(await responseError(response));
   const version = await response.json() as {
     server_version_info?: unknown[];

@@ -6,8 +6,7 @@ import {
   scoreOpportunity,
 } from "./policy.ts";
 import type { PlanningDocumentEvidence, TenderOpportunity } from "./types.ts";
-
-type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+import { fetchWithTimeout, type FetchLike } from "./fetch-with-timeout.ts";
 
 const maxNoticeBytes = 12 * 1024 * 1024;
 // TED's direct-document endpoint can throttle much sooner than the Search API.
@@ -16,7 +15,7 @@ const concurrency = 1;
 
 async function fetchWithRetry(fetcher: FetchLike, url: string, init: RequestInit) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const response = await fetcher(url, init);
+    const response = await fetchWithTimeout(fetcher, url, init, 35_000);
     if (response.status !== 429 || attempt === 3) return response;
     const retryAfter = Number(response.headers.get("retry-after") || 0);
     const delay = retryAfter > 0 ? Math.min(retryAfter * 1_000, 10_000) : 750 * (attempt + 1);
@@ -116,7 +115,6 @@ export async function enrichFormalTenderEvidence(
   try {
     const response = await fetchWithRetry(fetcher, sourceUrl, {
       headers: { Accept: "application/xml,text/xml,text/html,*/*", "User-Agent": "Helmonic-Tender-Intelligence/1.0" },
-      signal: AbortSignal.timeout(35_000),
       redirect: "follow",
     });
     if (!response.ok) return failedEvidence(record, `official-document-http-${response.status}`, sourceUrl);

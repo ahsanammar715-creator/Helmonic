@@ -6,6 +6,7 @@ import {
   stableOpportunityId,
 } from "./policy.ts";
 import type { LeadParty, TenderOpportunity } from "./types.ts";
+import { fetchWithTimeout } from "./fetch-with-timeout.ts";
 
 export type BuildingInfoConfig = {
   enabled: boolean;
@@ -168,11 +169,10 @@ export async function collectBuildingInfoProjects(
   const records: TenderOpportunity[] = [];
   let pagesFetched = 0;
   for (let page = 0; page < maxPages; page += 1) {
-    const response = await fetcher(buildBuildingInfoPageUrl(config, page * pageSize), {
+    const response = await fetchWithTimeout(fetcher, buildBuildingInfoPageUrl(config, page * pageSize), {
       cache: "no-store",
       headers: { Accept: "application/json", "User-Agent": "Helmonic-Tender-Intelligence/1.0" },
-      signal: AbortSignal.timeout(25_000),
-    });
+    }, 25_000);
     if (!response.ok) throw new Error(`BuildingInfo-${response.status}`);
     const parsed = parseBuildingInfoProjects(await response.json());
     records.push(...parsed);

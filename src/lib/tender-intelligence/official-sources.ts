@@ -28,6 +28,7 @@ import { enrichDccPlanningOpportunities } from "./dcc-document-evidence.ts";
 import { enrichFormalTenderOpportunities } from "./formal-document-evidence.ts";
 import { enrichNationalPlanningOpportunities } from "./national-planning-evidence.ts";
 import { routeOpportunitiesByRelationships } from "./relationship-routing.ts";
+import { fetchWithTimeout } from "./fetch-with-timeout.ts";
 import {
   applyTargetScope,
   leinsterPlanningAuthorities,
@@ -406,10 +407,9 @@ async function fetchWithBoundedRetry(
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const response = await fetcher(url, {
+      const response = await fetchWithTimeout(fetcher, url, {
         ...init,
-        signal: AbortSignal.timeout(timeoutMs),
-      });
+      }, timeoutMs);
       if (!transientHttpStatus(response.status) || attempt === attempts) return response;
       lastError = new Error(`${new URL(url).hostname}-${response.status}`);
     } catch (error) {
@@ -530,12 +530,11 @@ export async function collectTedOpportunities(
 }
 
 async function fetchText(url: string, init?: RequestInit) {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(fetch, url, {
     ...init,
     cache: "no-store",
     headers: { "User-Agent": "Helmonic-Tender-Intelligence/1.0", ...(init?.headers ?? {}) },
-    signal: AbortSignal.timeout(25_000),
-  });
+  }, 25_000);
   if (!response.ok) throw new Error(`${new URL(url).hostname}-${response.status}`);
   return response.text();
 }
@@ -685,15 +684,14 @@ async function collectPlanningLeads(config: PlanningLeadsConnectorConfig) {
   }
   const responses = await Promise.all(
     buildPlanningLeadsSearchUrls(config).map(async (url) => {
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(fetch, url, {
         cache: "no-store",
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${config.apiKey}`,
           "User-Agent": "Helmonic-Tender-Intelligence/1.0",
         },
-        signal: AbortSignal.timeout(25_000),
-      });
+      }, 25_000);
       if (!response.ok) throw new Error(`PlanningLeads-${response.status}`);
       return parsePlanningLeads(await response.json());
     }),
@@ -769,11 +767,10 @@ export async function collectOfficialSourceSnapshot(options: {
         const parsed = (
           await Promise.all(
             documentUrls.map(async (url) => {
-              const response = await fetch(url, {
+              const response = await fetchWithTimeout(fetch, url, {
                 cache: "no-store",
                 headers: { "User-Agent": "Helmonic-Tender-Intelligence/1.0" },
-                signal: AbortSignal.timeout(25_000),
-              });
+              }, 25_000);
               if (!response.ok) throw new Error(`DCC-weekly-${response.status}`);
               const bytes = new Uint8Array(await response.arrayBuffer());
               scannedRecords += countDccWeeklyApplications(bytes);

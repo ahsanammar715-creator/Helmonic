@@ -11,14 +11,13 @@ import type {
   PlanningDocumentEvidence,
   TenderOpportunity,
 } from "./types.ts";
+import { fetchWithTimeout, type FetchLike } from "./fetch-with-timeout.ts";
 
 const dccPublicAccessOrigin = "https://webapps.dublincity.ie";
 const dccPublicAccessRoot = `${dccPublicAccessOrigin}/PublicAccess_Live`;
 const maxDocumentBytes = 20 * 1024 * 1024;
 const maxApplicationBytes = 100 * 1024 * 1024;
 const documentConcurrency = 3;
-
-type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
 export type DccDocumentDescriptor = {
   id: string;
@@ -287,10 +286,9 @@ export async function fetchDccApplicationEvidence(
   const applicationUrl = applicationIndexUrl(reference);
   let indexResponse: Response;
   try {
-    indexResponse = await fetcher(applicationUrl, {
+    indexResponse = await fetchWithTimeout(fetcher, applicationUrl, {
       headers: { "User-Agent": "Helmonic-Tender-Intelligence/1.0" },
-      signal: AbortSignal.timeout(30_000),
-    });
+    }, 30_000);
   } catch (error) {
     return { applicationUrl, documents: [], error: `document-index-unavailable:${error instanceof Error ? error.message : "unknown"}` };
   }
@@ -310,10 +308,9 @@ export async function fetchDccApplicationEvidence(
   const documents = await mapConcurrent(candidates, documentConcurrency, async (document) => {
     try {
       if (consumedBytes >= maxApplicationBytes) throw new Error("application-download-budget-exhausted");
-      const response = await fetcher(document.sourceUrl, {
+      const response = await fetchWithTimeout(fetcher, document.sourceUrl, {
         headers: { "User-Agent": "Helmonic-Tender-Intelligence/1.0" },
-        signal: AbortSignal.timeout(45_000),
-      });
+      }, 45_000);
       if (!response.ok) throw new Error(`document-http-${response.status}`);
       const bytes = await readBoundedResponse(response, maxApplicationBytes - consumedBytes);
       consumedBytes += bytes.byteLength;

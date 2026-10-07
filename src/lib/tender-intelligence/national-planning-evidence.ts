@@ -6,8 +6,7 @@ import {
 } from "./dcc-document-evidence.ts";
 import { normalizeText, relevantSector, scoreOpportunity } from "./policy.ts";
 import type { LeadParty, PlanningClassification, PlanningDocumentEvidence, TenderOpportunity } from "./types.ts";
-
-type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+import { fetchWithTimeout, type FetchLike } from "./fetch-with-timeout.ts";
 
 const userAgent = "Helmonic-Tender-Intelligence/1.0";
 const agileIdentity = "https://identity.agileapplications.ie";
@@ -65,11 +64,10 @@ function retainedOfficialExcerpt(text: string) {
 }
 
 async function fetchJson(fetcher: FetchLike, url: string, headers: HeadersInit) {
-  const response = await fetcher(url, {
+  const response = await fetchWithTimeout(fetcher, url, {
     headers,
-    signal: AbortSignal.timeout(35_000),
     redirect: "follow",
-  });
+  }, 35_000);
   if (!response.ok) throw new Error(`http-${response.status}`);
   return response.json() as Promise<unknown>;
 }
@@ -125,10 +123,9 @@ async function agileCouncilEvidence(record: TenderOpportunity, fetcher: FetchLik
   if (!slug) return { documents: [] as PlanningDocumentEvidence[], parties: [] as LeadParty[], error: "not-an-agile-council-url" };
   if (!applicationId) return { documents: [] as PlanningDocumentEvidence[], parties: [] as LeadParty[], error: "agile-application-id-not-present-in-public-url" };
 
-  const clientResponse = await fetcher(`${agileIdentity}/api/client/get?url=${encodeURIComponent(slug)}`, {
+  const clientResponse = await fetchWithTimeout(fetcher, `${agileIdentity}/api/client/get?url=${encodeURIComponent(slug)}`, {
     headers: { Origin: "https://planning.agileapplications.ie", "User-Agent": userAgent },
-    signal: AbortSignal.timeout(20_000),
-  });
+  }, 20_000);
   if (!clientResponse.ok) return { documents: [] as PlanningDocumentEvidence[], parties: [] as LeadParty[], error: `agile-client-http-${clientResponse.status}` };
   const client = asRecord(await clientResponse.json());
   const clientCode = stringField(client, ["code"]);
@@ -191,7 +188,7 @@ async function agileCouncilEvidence(record: TenderOpportunity, fetcher: FetchLik
       if (!id || !isDccEvidenceDocument(evidenceDescriptor(id, label, documentIndexUrl))) continue;
       const sourceUrl = `${agileApi}/application/document/${encodeURIComponent(clientCode)}/${encodeURIComponent(id)}`;
       try {
-        const response = await fetcher(sourceUrl, { headers, signal: AbortSignal.timeout(45_000), redirect: "follow" });
+        const response = await fetchWithTimeout(fetcher, sourceUrl, { headers, redirect: "follow" }, 45_000);
         if (!response.ok) throw new Error(`document-http-${response.status}`);
         const bytes = new Uint8Array(await response.arrayBuffer());
         if (bytes.byteLength > maxDocumentBytes) throw new Error(`document-too-large:${bytes.byteLength}`);
@@ -258,32 +255,29 @@ function eplanningParties(html: string): LeadParty[] {
 }
 
 async function eplanningCouncilEvidence(record: TenderOpportunity, fetcher: FetchLike) {
-  const response = await fetcher(record.sourceUrl.replace(/^http:/i, "https:"), {
+  const response = await fetchWithTimeout(fetcher, record.sourceUrl.replace(/^http:/i, "https:"), {
     headers: { "User-Agent": userAgent },
-    signal: AbortSignal.timeout(30_000),
     redirect: "follow",
-  });
+  }, 30_000);
   if (!response.ok) return { documents: [] as PlanningDocumentEvidence[], parties: [] as LeadParty[], error: `eplanning-application-http-${response.status}` };
   const applicationHtml = await response.text();
   const idocsHref = applicationHtml.match(/https?:\/\/[^'"\s]+\/iDocsWeb(?:DPSS)?\/(?:listFiles|copyright)\.aspx\?[^'"]+/i)?.[0];
   if (!idocsHref) return { documents: [] as PlanningDocumentEvidence[], parties: eplanningParties(applicationHtml), error: "eplanning-document-index-link-missing" };
   const documentIndexUrl = decodeHtml(idocsHref).trim().replace(/copyright\.aspx/i, "listFiles.aspx");
-  const indexResponse = await fetcher(documentIndexUrl, {
+  const indexResponse = await fetchWithTimeout(fetcher, documentIndexUrl, {
     headers: { "User-Agent": userAgent },
-    signal: AbortSignal.timeout(30_000),
     redirect: "follow",
-  });
+  }, 30_000);
   if (!indexResponse.ok) return { documents: [] as PlanningDocumentEvidence[], parties: eplanningParties(applicationHtml), error: `eplanning-document-index-http-${indexResponse.status}` };
   const rows = parseEplanningDocumentRows(await indexResponse.text(), documentIndexUrl).filter(isDccEvidenceDocument);
   if (rows.length === 0) return { documents: [] as PlanningDocumentEvidence[], parties: eplanningParties(applicationHtml), error: "no-relevant-planning-documents-listed" };
   const documents: PlanningDocumentEvidence[] = [];
   for (const descriptor of rows) {
     try {
-      const documentResponse = await fetcher(descriptor.sourceUrl, {
+      const documentResponse = await fetchWithTimeout(fetcher, descriptor.sourceUrl, {
         headers: { "User-Agent": userAgent },
-        signal: AbortSignal.timeout(45_000),
         redirect: "follow",
-      });
+      }, 45_000);
       if (!documentResponse.ok) throw new Error(`document-http-${documentResponse.status}`);
       const bytes = new Uint8Array(await documentResponse.arrayBuffer());
       if (bytes.byteLength > maxDocumentBytes) throw new Error(`document-too-large:${bytes.byteLength}`);
