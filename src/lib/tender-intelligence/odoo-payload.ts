@@ -220,9 +220,12 @@ const validationBucketRank: Record<string, number> = {
 export function selectOdooValidationLead(payloads: OdooLeadDryRun[]) {
   const eligible = payloads.filter((payload) => {
     const values = payload.values;
+    const excerpt = values.x_evidence_excerpt.trim();
     return values.x_evidence_status === "official-text"
       && values.x_scope_status === "eligible"
-      && Boolean(values.x_evidence_excerpt.trim())
+      && excerpt.length >= 40
+      && !/^(?:false|none|n\/?a|not available|unavailable)$/i.test(excerpt)
+      && /\b(?:acoustic|noise|sound|vibration|reverberation|airborne|impact)\b/i.test(excerpt)
       && Object.hasOwn(validationQualityRank, values.x_lead_quality)
       && Object.hasOwn(validationBucketRank, values.x_pipeline_bucket);
   });

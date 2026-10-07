@@ -304,7 +304,11 @@ test("one-record Odoo validation selects one strong in-scope official-evidence l
   outsideRegion.matchValue = "outside-region";
   outsideRegion.values.x_helmonic_external_id = "outside-region";
   outsideRegion.values.x_scope_status = "excluded";
-  const selected = selectOdooValidationLead([discoveryOnly, outsideRegion, base]);
+  const placeholderEvidence = structuredClone(base);
+  placeholderEvidence.matchValue = "placeholder-evidence";
+  placeholderEvidence.values.x_helmonic_external_id = "placeholder-evidence";
+  placeholderEvidence.values.x_evidence_excerpt = "false";
+  const selected = selectOdooValidationLead([discoveryOnly, outsideRegion, placeholderEvidence, base]);
   assert.equal(selected.matchValue, base.matchValue);
   assert.equal([selected].length, 1);
 });
