@@ -982,7 +982,7 @@ test("Agile council adapter reads the real further-information endpoint and pres
   assert.match(enriched.evidenceExcerpt, /acoustic report/i);
 });
 
-test("Agile council adapter retains a traceable official excerpt for design-stage opportunities", async () => {
+test("Agile council sector potential stays discovery-only without acoustic wording", async () => {
   const fetcher = async (url) => {
     const value = String(url);
     if (value.includes("/api/client/get")) return Response.json({ code: "SD" });
@@ -1010,9 +1010,40 @@ test("Agile council adapter retains a traceable official excerpt for design-stag
     matchedTerms: [],
     fitScore: 0,
   }, fetcher);
-  assert.equal(enriched.evidenceStatus, "official-text");
+  assert.equal(enriched.evidenceStatus, "discovery-only");
   assert.equal(enriched.classification, "design-construction-potential");
-  assert.match(enriched.evidenceExcerpt, /120 apartments/i);
+  assert.equal(enriched.evidenceExcerpt, undefined);
+  assert.match(enriched.evidenceUnavailableReason, /no-acoustic-evidence/);
+});
+
+test("Agile council boolean and date metadata cannot masquerade as official acoustic evidence", async () => {
+  const fetcher = async (url) => {
+    const value = String(url);
+    if (value.includes("/api/client/get")) return Response.json({ code: "SD" });
+    if (value.endsWith("/application/70998")) return Response.json({ applicantSurname: "Example Homes Ltd" });
+    if (value.endsWith("/further-info")) return Response.json({ requested: false, requestDate: "2026-09-29T00:00:00" });
+    if (value.endsWith("/conditions")) return Response.json({ conditions: false, decisionDate: "2026-09-30T00:00:00" });
+    if (value.endsWith("/document")) return Response.json([]);
+    return new Response("missing", { status: 404 });
+  };
+  const enriched = await enrichNationalPlanningOpportunity({
+    id: "national-metadata-only",
+    type: "planning-pipeline-lead",
+    sourceSystem: "National Planning Register",
+    sourceRecordId: "South Dublin:ED26/0101",
+    planningAuthority: "South Dublin County Council",
+    title: "Metadata-only application",
+    description: "Mixed-use development of 120 apartments",
+    sourceUrl: "https://planning.agileapplications.ie/southdublin/application-details/70998",
+    evidenceStatus: "discovery-only",
+    classification: "needs-council-evidence",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 0,
+  }, fetcher);
+  assert.equal(enriched.evidenceStatus, "evidence-unavailable");
+  assert.equal(enriched.classification, "needs-council-evidence");
+  assert.equal(enriched.evidenceExcerpt, undefined);
 });
 
 test("restricted Search lookup uses exact party evidence without exposing message bodies", async () => {
@@ -1295,7 +1326,8 @@ test("a prior balanced owner survives a confirmed refresh unless a new exact ema
     description: "Residential development",
     sourceUrl: "https://example.test/prior",
     evidenceStatus: "official-text",
-    classification: "design-construction-potential",
+    evidenceExcerpt: "The authority requires a detailed acoustic report addressing operational noise impacts.",
+    classification: "noise-related-rfi",
     cpvCodes: [],
     matchedTerms: [],
     fitScore: 60,
@@ -1387,8 +1419,8 @@ test("a retained national lead becomes confirmed again only after fresh official
     description: "Residential development",
     sourceUrl: "https://example.test/prior-document",
     evidenceStatus: "official-text",
-    evidenceExcerpt: "An acoustic assessment shall be submitted.",
-    classification: "design-construction-potential",
+    evidenceExcerpt: "The applicant shall submit a detailed acoustic assessment addressing operational noise.",
+    classification: "noise-related-rfi",
     cpvCodes: [],
     matchedTerms: ["acoustic"],
     fitScore: 60,
@@ -1399,7 +1431,7 @@ test("a retained national lead becomes confirmed again only after fresh official
   const refreshed = {
     ...previous,
     sourceUrl: "https://example.test/current-document",
-    evidenceExcerpt: "Current acoustic assessment wording.",
+    evidenceExcerpt: "The current request requires an acoustic assessment addressing operational noise impacts.",
   };
   const result = applyEvidenceRefresh(previous, refreshed, new Date("2026-09-30T09:00:00.000Z"));
   assert.equal(result.cycleStatus, "confirmed-this-cycle");
@@ -1419,8 +1451,8 @@ test("failed re-verification keeps prior official evidence in carry-forward", ()
     description: "Residential development",
     sourceUrl: "https://example.test/prior-document",
     evidenceStatus: "official-text",
-    evidenceExcerpt: "An acoustic assessment shall be submitted.",
-    classification: "design-construction-potential",
+    evidenceExcerpt: "The applicant shall submit a detailed acoustic assessment addressing operational noise.",
+    classification: "noise-related-rfi",
     cpvCodes: [],
     matchedTerms: ["acoustic"],
     fitScore: 60,
@@ -1452,7 +1484,7 @@ test("weaker current evidence cannot erase a previously proven opportunity", () 
     description: "Prior description",
     sourceUrl: "https://example.test/decision.pdf",
     evidenceStatus: "official-text",
-    evidenceExcerpt: "An acoustic report shall be submitted.",
+    evidenceExcerpt: "The applicant shall submit a detailed acoustic report addressing operational noise impacts.",
     classification: "granted-with-noise-conditions",
     cpvCodes: [],
     matchedTerms: ["acoustic"],

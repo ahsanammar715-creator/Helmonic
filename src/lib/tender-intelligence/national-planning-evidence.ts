@@ -37,8 +37,12 @@ function evidenceDescriptor(id: string, label: string, sourceUrl: string): DccDo
 
 function officialJsonText(value: unknown): string {
   if (value === null || value === undefined) return "";
-  if (typeof value === "string") return normalizeText(value);
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "string") {
+    const normalized = normalizeText(value);
+    if (/^(?:true|false|null|\d{4}-\d{2}-\d{2}(?:t[\d:.+-]+z?)?)$/i.test(normalized)) return "";
+    return normalized;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return "";
   if (Array.isArray(value)) return normalizeText(value.map(officialJsonText).join(" "));
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
@@ -351,10 +355,10 @@ export async function enrichNationalPlanningOpportunity(
     const enriched = {
       ...record,
       parties: [...(record.parties ?? []), ...result.parties],
-      evidenceStatus: "official-text" as const,
+      evidenceStatus: "discovery-only" as const,
       evidenceDocuments: result.documents,
-      evidenceExcerpt: fetched[0].excerpt,
-      evidenceUnavailableReason: undefined,
+      evidenceExcerpt: undefined,
+      evidenceUnavailableReason: "official-council-material-contained-no-acoustic-evidence",
       classification,
       matchedTerms: [...new Set(fetched.flatMap((document) => document.matchedTerms))],
     };

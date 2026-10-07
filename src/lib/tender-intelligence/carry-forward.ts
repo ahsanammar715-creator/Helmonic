@@ -4,7 +4,6 @@ const confirmedPlanningClasses = new Set([
   "noise-related-rfi",
   "granted-with-noise-conditions",
   "refused-on-noise-grounds",
-  "design-construction-potential",
 ]);
 
 const resolvedSourceStatuses = new Set([
@@ -24,6 +23,10 @@ export function opportunityIdentity(record: Pick<TenderOpportunity, "sourceSyste
 export function isConfirmedOpportunity(record: TenderOpportunity) {
   if (record.cycleStatus === "resolved") return false;
   if (record.evidenceStatus !== "official-text") return false;
+  const excerpt = String(record.evidenceExcerpt ?? "").trim();
+  if (excerpt.length < 40 || !/\b(?:acoustic|noise|sound|vibration|reverberation|airborne|impact)\b/i.test(excerpt)) {
+    return false;
+  }
   if (record.type === "formal-public-tender") {
     return record.classification !== "no-relevant-opportunity";
   }
