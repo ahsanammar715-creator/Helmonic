@@ -1,0 +1,20 @@
+{
+  "name": "consult-session-v1",
+  "description": "Conversation-scoped Helmonic Consult attachment chunks.",
+  "fields": [
+    { "name": "chunk_id", "type": "Edm.String", "key": true, "filterable": true },
+    { "name": "document_id", "type": "Edm.String", "filterable": true, "retrievable": true },
+    { "name": "document_version_id", "type": "Edm.String", "filterable": true, "retrievable": true },
+    { "name": "owner_object_id", "type": "Edm.String", "filterable": true, "retrievable": false },
+    { "name": "conversation_id", "type": "Edm.String", "filterable": true, "retrievable": false },
+    { "name": "source_type", "type": "Edm.String", "filterable": true, "retrievable": true },
+    { "name": "source_uri", "type": "Edm.String", "retrievable": true },
+    { "name": "title", "type": "Edm.String", "searchable": true, "retrievable": true },
+    { "name": "section", "type": "Edm.String", "searchable": true, "retrievable": true },
+    { "name": "page_number", "type": "Edm.Int32", "filterable": true, "sortable": true, "retrievable": true },
+    { "name": "content", "type": "Edm.String", "searchable": true, "retrievable": true, "analyzer": "en.microsoft" },
+    { "name": "content_hash", "type": "Edm.String", "filterable": true, "retrievable": false },
+    { "name": "is_active", "type": "Edm.Boolean", "filterable": true, "retrievable": false },
+    { "name": "expires_at", "type": "Edm.DateTimeOffset", "filterable": true, "sortable": true, "retrievable": false }
+  ]
+}
