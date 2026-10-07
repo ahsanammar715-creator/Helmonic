@@ -73,6 +73,7 @@ function partyDetails(record: TenderOpportunity) {
     party.name,
     party.organisation,
     party.email,
+    party.phone,
   ].filter(Boolean).join(" | ")).join("\n");
 }
 

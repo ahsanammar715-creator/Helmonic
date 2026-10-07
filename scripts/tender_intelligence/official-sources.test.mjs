@@ -68,6 +68,10 @@ import {
   parseBuildingInfoProjects,
 } from "../../src/lib/tender-intelligence/building-info.ts";
 import {
+  mergeBuildingInfoCsvRecords,
+  parseBuildingInfoCsv,
+} from "../../src/lib/tender-intelligence/building-info-csv.ts";
+import {
   assessLeadFreshness,
   assessLeadQuality,
   freshnessPriority,
@@ -482,6 +486,56 @@ test("BuildingInfo agriculture stays excluded and self-build housing remains ret
   const qualified = qualifyLead(selfBuild, new Date("2026-09-30T12:00:00.000Z"));
   assert.equal(qualified.leadQuality, "poor");
   assert.equal(qualified.leadDisposition, "background");
+});
+
+test("BuildingInfo emailed CSV retains exact RFI evidence and project-team contacts", () => {
+  const csv = [
+    "building_info_project_id,project_title,county,project_url,trigger_type,evidence_document,evidence_excerpt,project_stage,rfi_deadline,planning_reference,planning_authority,unit_count,architect,architect_contact,architect_email,architect_phone",
+    "343012,€9.6m Residential Development in Co. Kildare,Kildare,https://app.buildinginfo.test/p-343012,Further Information Request,noise-report.pdf,The developer shall submit a noise impact assessment and acoustic report.,Plans Applied,2026-10-28,26/1234,Kildare County Council,120,Example Architects Ltd,A. Architect,architect@example.test,+35310000000",
+  ].join("\n");
+  const [record] = parseBuildingInfoCsv(csv, "weekly.csv");
+  assert.equal(record.sourceSystem, "BuildingInfo");
+  assert.equal(record.evidenceStatus, "official-text");
+  assert.equal(record.classification, "noise-related-rfi");
+  assert.equal(record.responseDeadline, "2026-10-28");
+  assert.equal(record.evidenceDocuments.length, 1);
+  assert.match(record.evidenceExcerpt, /noise impact assessment/);
+  assert.equal(record.parties[0].role, "architect");
+  assert.equal(record.parties[0].phone, "+35310000000");
+  assert.equal(applyTargetScope(record).scopeStatus, "eligible");
+  const qualified = qualifyLead(record, new Date("2026-10-07T12:00:00.000Z"));
+  assert.equal(qualified.leadQuality, "excellent");
+  assert.equal(qualified.leadDisposition, "active");
+});
+
+test("repeated BuildingInfo weekly rows collapse to one stable project while preserving distinct evidence", () => {
+  const header = "project_id,project_title,county,project_url,trigger_type,evidence_document,evidence_excerpt,last_updated";
+  const first = parseBuildingInfoCsv([
+    header,
+    "BI-100,Apartment Development,Dublin,https://app.buildinginfo.test/p-100,RFI,first.pdf,Submit an acoustic assessment.,2026-10-01",
+  ].join("\n"), "week-1.csv");
+  const second = parseBuildingInfoCsv([
+    header,
+    "BI-100,Apartment Development,Dublin,https://app.buildinginfo.test/p-100,RFI,first.pdf,Submit an acoustic assessment.,2026-10-01",
+    "BI-100,Apartment Development,Dublin,https://app.buildinginfo.test/p-100,RFI,second.pdf,Provide a construction noise and vibration report.,2026-10-07",
+  ].join("\n"), "week-2.csv");
+  const records = mergeBuildingInfoCsvRecords([...first, ...second]);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].sourceRecordId, "BI-100");
+  assert.equal(records[0].evidenceDocuments.length, 2);
+  assert.match(records[0].evidenceExcerpt, /acoustic assessment/);
+  assert.match(records[0].evidenceExcerpt, /vibration report/);
+});
+
+test("BuildingInfo CSV fails closed on missing contract columns or malformed row widths", () => {
+  assert.throws(() => parseBuildingInfoCsv([
+    "project_id,project_title,county,project_url,evidence_document,evidence_excerpt",
+    "1,Project,Dublin,https://example.test/1,report.pdf,Acoustic report required",
+  ].join("\n"), "missing-trigger.csv"), /missing required.*triggerType/i);
+  assert.throws(() => parseBuildingInfoCsv([
+    "project_id,project_title,county,project_url,trigger_type,evidence_document,evidence_excerpt",
+    "1,Project,Dublin,https://example.test/1,RFI,report.pdf",
+  ].join("\n"), "short-row.csv"), /has 6 columns; expected 7/i);
 });
 
 test("TED collector uses the official Irish acoustic query and retains official links", () => {

@@ -188,8 +188,22 @@ if (!state) {
       pageSize: Number.parseInt(value("HELMONIC_BUILDINGINFO_PAGE_SIZE") || "1000", 10),
       maxPages: Number.parseInt(value("HELMONIC_BUILDINGINFO_MAX_PAGES") || "50", 10),
     },
+    buildingInfoCsv: {
+      enabled: value("HELMONIC_BUILDINGINFO_CSV_ENABLED") === "true",
+      directory: value("HELMONIC_BUILDINGINFO_CSV_DIRECTORY")
+        || path.join(artifactRoot, "incoming", "buildinginfo"),
+      maxFiles: Number.parseInt(value("HELMONIC_BUILDINGINFO_CSV_MAX_FILES") || "1000", 10),
+      maxFileBytes: Number.parseInt(value("HELMONIC_BUILDINGINFO_CSV_MAX_FILE_BYTES") || String(5 * 1024 * 1024), 10),
+    },
     documentEvidence: { formal: true, nationalPlanningLimit: 0 },
   });
+  const buildingInfoRequested = value("HELMONIC_BUILDINGINFO_ENABLED") === "true"
+    || value("HELMONIC_BUILDINGINFO_CSV_ENABLED") === "true";
+  const buildingInfoFailure = snapshot.sources.find((source) =>
+    source.name === "BuildingInfo" && source.status === "failed");
+  if (buildingInfoRequested && buildingInfoFailure) {
+    throw new Error(`BuildingInfo intake failed closed: ${buildingInfoFailure.error ?? "unknown source failure"}`);
+  }
   const persistedLedger = await readJsonIfPresent(ledgerPath);
   const fullPriorRecords = [
     ...(persistedLedger?.opportunities ?? []),

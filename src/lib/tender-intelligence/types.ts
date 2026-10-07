@@ -57,6 +57,7 @@ export type LeadParty = {
   name: string;
   role: "applicant" | "agent" | "architect" | "developer" | "contractor" | "consultant" | "other";
   email?: string;
+  phone?: string;
   organisation?: string;
 };
 
@@ -150,6 +151,8 @@ export type OfficialSourceSnapshot = {
     records: number;
     scannedRecords?: number;
     pagesFetched?: number;
+    inputFiles?: number;
+    duplicatesCollapsed?: number;
     sourceDocumentsFetched?: number;
     officialEvidenceRecords?: number;
     evidenceUnavailableRecords?: number;

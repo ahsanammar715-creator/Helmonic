@@ -4,7 +4,10 @@
 - The worker is packaged separately from the public application. It does not receive application traffic and does not change the production web revision.
 - `HELMONIC_TENDER_ARTIFACT_ROOT` must point to private durable storage. The durable ledger, checkpoints and audit history must survive container restarts.
 - Only one worker may run at a time. A lock prevents overlapping schedules; a lock older than 18 hours is treated as a crashed run and is safely replaced.
-- BuildingInfo and Odoo are disabled by default. Missing credentials never silently enable either connector.
+- The BuildingInfo paid API, BuildingInfo emailed-CSV intake and Odoo are disabled independently by default. Missing configuration never silently enables any connector.
+- The approved no-mailbox-access route is: a narrowly filtered Power Automate flow copies BuildingInfo CSV attachments into the private `input/buildinginfo/` blob prefix; the worker reads only those CSV files. ChatGPT receives no Outlook access.
+- BuildingInfo CSVs are schema-checked and fail closed before any row enters the lead set. Exact evidence excerpts and document identities are retained, repeated weekly project IDs collapse to one stable opportunity, and distinct evidence documents remain attached.
+- Raw supplier CSV files are not copied into per-run artifact archives. Normalized audit outputs retain only the fields required for qualification, evidence and CRM handoff.
 - Odoo uses the current JSON-2 API and requires Odoo 19 or newer. The connector checks the server version and verifies every required field before the first write.
 - Odoo upserts on the indexed `x_helmonic_external_id` field. Only one worker is allowed to run at a time, and a repeated identity updates the existing record instead of creating another opportunity.
 - The Odoo client also sets the existing iAcoustics Sales Team and native salesperson. The historical internal owner label `Owen` maps to the real Odoo user Eoghan Tyrrell; Glen remains Glen Plunkett.
@@ -20,6 +23,7 @@
 
 - Odoo test URL, database name, dedicated integration-user API key and confirmed custom technical field names.
 - Confirmation that the Odoo database is version 19 or newer, or an agreed legacy connector for an older version.
-- BuildingInfo production API credentials, entitlement, rate limits and allowed storage/contact use.
+- A real BuildingInfo sample CSV matching `docs/buildinginfo-intake-template.csv`, plus confirmation of permitted storage/contact use.
+- A narrowly scoped Power Automate Outlook connection and Azure Blob connection for the attachment-only handoff. Creating that live flow remains a separate approval step.
 - A private durable volume for the ledger/checkpoints and a restricted location for the email relationship index.
 - Build the dedicated image, create the scheduled job disabled or manually triggered, run a test-database validation, then request separate approval to enable the daily schedule and Odoo writes.

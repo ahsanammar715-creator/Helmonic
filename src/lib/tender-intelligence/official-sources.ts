@@ -14,6 +14,11 @@ import {
   collectBuildingInfoProjects,
   type BuildingInfoConfig,
 } from "./building-info.ts";
+import {
+  collectBuildingInfoCsvProjects,
+  mergeBuildingInfoCsvRecords,
+  type BuildingInfoCsvConfig,
+} from "./building-info-csv.ts";
 import { parseCsv, pick } from "./csv.ts";
 import type {
   OfficialSourceSnapshot,
@@ -704,6 +709,7 @@ async function collectPlanningLeads(config: PlanningLeadsConnectorConfig) {
 export async function collectOfficialSourceSnapshot(options: {
   planningLeads?: PlanningLeadsConnectorConfig;
   buildingInfo?: BuildingInfoConfig;
+  buildingInfoCsv?: BuildingInfoCsvConfig;
   documentEvidence?: {
     formal?: boolean;
     nationalPlanningLimit?: number;
@@ -817,27 +823,50 @@ export async function collectOfficialSourceSnapshot(options: {
     })());
   }
   const buildingInfo = options.buildingInfo;
-  if (!buildingInfo?.enabled || !buildingInfo.apiKey || !buildingInfo.userKey) {
+  const buildingInfoCsv = options.buildingInfoCsv;
+  if (!buildingInfo?.enabled && !buildingInfoCsv?.enabled) {
     sources.push({
       name: "BuildingInfo",
       status: "not-configured",
       records: 0,
-      error: buildingInfo?.enabled
-        ? "BuildingInfo API credentials are not configured"
-        : "Optional licensed enrichment connector disabled",
+      error: "BuildingInfo API and emailed-CSV intake are disabled",
     });
   } else {
     tasks.push((async () => {
       try {
-        const result = await collectBuildingInfoProjects(buildingInfo);
-        const parsed = result.records.map(applyTargetScope).filter(withinTargetScope);
+        const sourceRecords: TenderOpportunity[] = [];
+        let scannedRecords = 0;
+        let pagesFetched = 0;
+        let inputFiles = 0;
+        let duplicatesCollapsed = 0;
+        if (buildingInfo?.enabled) {
+          if (!buildingInfo.apiKey || !buildingInfo.userKey) {
+            throw new Error("BuildingInfo API intake is enabled but its credentials are not configured.");
+          }
+          const result = await collectBuildingInfoProjects(buildingInfo);
+          sourceRecords.push(...result.records);
+          scannedRecords += result.scannedRecords;
+          pagesFetched += result.pagesFetched;
+        }
+        if (buildingInfoCsv?.enabled) {
+          const result = await collectBuildingInfoCsvProjects(buildingInfoCsv);
+          sourceRecords.push(...result.records);
+          scannedRecords += result.scannedRecords;
+          inputFiles += result.importedFiles;
+          duplicatesCollapsed += result.duplicatesCollapsed;
+        }
+        const merged = mergeBuildingInfoCsvRecords(sourceRecords);
+        duplicatesCollapsed += sourceRecords.length - merged.length;
+        const parsed = merged.map(applyTargetScope).filter(withinTargetScope);
         records.push(...parsed);
         sources.push({
           name: "BuildingInfo",
           status: "ok",
           records: parsed.length,
-          scannedRecords: result.scannedRecords,
-          pagesFetched: result.pagesFetched,
+          scannedRecords,
+          pagesFetched,
+          inputFiles,
+          duplicatesCollapsed,
         });
       } catch (error) {
         sources.push({

@@ -107,6 +107,7 @@ const summary = {
   artifactRoot,
   odooSyncEnabled: process.env.HELMONIC_ODOO_SYNC_ENABLED === "true",
   buildingInfoEnabled: process.env.HELMONIC_BUILDINGINFO_ENABLED === "true",
+  buildingInfoCsvEnabled: process.env.HELMONIC_BUILDINGINFO_CSV_ENABLED === "true",
   summarizeOnly,
   completedSteps: [],
   failedStep: undefined,
