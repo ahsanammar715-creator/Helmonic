@@ -58,6 +58,7 @@ import {
 } from "../../src/lib/tender-intelligence/deduplication.ts";
 import {
   buildOdooDryRun,
+  selectOdooValidationLead,
   summarizeOdooDryRun,
 } from "../../src/lib/tender-intelligence/odoo-payload.ts";
 import { preflightOdoo, syncOdooLeads } from "../../src/lib/tender-intelligence/odoo-client.ts";
@@ -279,6 +280,44 @@ test("Odoo synchronization remains completely inert while disabled", async () =>
   });
   assert.equal(result.status, "disabled");
   assert.equal(calls, 0);
+});
+
+test("one-record Odoo validation selects one strong in-scope official-evidence lead", () => {
+  const base = buildOdooDryRun(annotateOpportunityDuplicates([
+    qualifyLead(planningLead({
+      id: "odoo-validation",
+      sourceRecordId: "WEB9000/26",
+      projectReference: "WEB9000/26",
+      planningAuthority: "Dublin City Council",
+      evidenceStatus: "official-text",
+      evidenceExcerpt: "The applicant shall submit an acoustic report.",
+      classification: "noise-related-rfi",
+      routedTo: "Glen",
+      scopeStatus: "eligible",
+    }), new Date("2026-09-30T12:00:00.000Z")),
+  ]))[0];
+  const discoveryOnly = structuredClone(base);
+  discoveryOnly.matchValue = "discovery-only";
+  discoveryOnly.values.x_helmonic_external_id = "discovery-only";
+  discoveryOnly.values.x_evidence_status = "discovery-only";
+  const outsideRegion = structuredClone(base);
+  outsideRegion.matchValue = "outside-region";
+  outsideRegion.values.x_helmonic_external_id = "outside-region";
+  outsideRegion.values.x_scope_status = "excluded";
+  const selected = selectOdooValidationLead([discoveryOnly, outsideRegion, base]);
+  assert.equal(selected.matchValue, base.matchValue);
+  assert.equal([selected].length, 1);
+});
+
+test("one-record Odoo validation fails closed without an eligible lead", () => {
+  const payload = buildOdooDryRun(annotateOpportunityDuplicates([
+    qualifyLead(planningLead({
+      id: "odoo-validation-ineligible",
+      evidenceStatus: "discovery-only",
+      scopeStatus: "excluded",
+    }), new Date("2026-09-30T12:00:00.000Z")),
+  ]))[0];
+  assert.throws(() => selectOdooValidationLead([payload]), /No in-scope, official-evidence lead/);
 });
 
 test("Odoo preflight validates the complete contract and routing with zero writes", async () => {

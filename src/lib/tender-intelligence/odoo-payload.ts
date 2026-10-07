@@ -199,3 +199,43 @@ export function summarizeOdooDryRun(payloads: OdooLeadDryRun[]) {
     officialText: count("x_evidence_status", "official-text"),
   };
 }
+
+const validationQualityRank: Record<string, number> = {
+  excellent: 0,
+  good: 1,
+  medium: 2,
+};
+
+const validationBucketRank: Record<string, number> = {
+  active: 0,
+  nurture: 1,
+  monitor: 2,
+};
+
+/**
+ * Select one conservative, evidence-backed record for the isolated Odoo test.
+ * This deliberately excludes discovery-only, unverified, out-of-region and
+ * background records so a validation run can never fan out into a bulk sync.
+ */
+export function selectOdooValidationLead(payloads: OdooLeadDryRun[]) {
+  const eligible = payloads.filter((payload) => {
+    const values = payload.values;
+    return values.x_evidence_status === "official-text"
+      && values.x_scope_status === "eligible"
+      && Boolean(values.x_evidence_excerpt.trim())
+      && Object.hasOwn(validationQualityRank, values.x_lead_quality)
+      && Object.hasOwn(validationBucketRank, values.x_pipeline_bucket);
+  });
+  if (eligible.length === 0) {
+    throw new Error("No in-scope, official-evidence lead is eligible for the one-record Odoo validation.");
+  }
+  return [...eligible].sort((left, right) => {
+    const leftValues = left.values;
+    const rightValues = right.values;
+    return validationQualityRank[leftValues.x_lead_quality] - validationQualityRank[rightValues.x_lead_quality]
+      || validationBucketRank[leftValues.x_pipeline_bucket] - validationBucketRank[rightValues.x_pipeline_bucket]
+      || (typeof leftValues.x_source_age_days === "number" ? leftValues.x_source_age_days : Number.MAX_SAFE_INTEGER)
+        - (typeof rightValues.x_source_age_days === "number" ? rightValues.x_source_age_days : Number.MAX_SAFE_INTEGER)
+      || left.matchValue.localeCompare(right.matchValue);
+  })[0];
+}
