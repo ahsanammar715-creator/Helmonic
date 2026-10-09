@@ -409,6 +409,62 @@ function valuesForOdoo(
   return values;
 }
 
+type ExistingLeadValues = {
+  id?: number;
+  partner_name?: string | false;
+  contact_name?: string | false;
+  email_from?: string | false;
+  phone?: string | false;
+  function?: string | false;
+  street?: string | false;
+  x_applicant?: string | false;
+  x_party_details?: string | false;
+  x_source_systems?: string | false;
+  x_source_record_ids?: string | false;
+  x_source_urls?: string | false;
+  x_evidence_document_urls?: string | false;
+};
+
+function mergedValues(left: unknown, right: unknown, separator: string) {
+  const items = [left, right]
+    .flatMap((value) => typeof value === "string" ? value.split(separator) : [])
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return [...new Set(items)].join(separator);
+}
+
+function payloadWithExistingEvidence(payload: OdooLeadDryRun, existing?: ExistingLeadValues): OdooLeadDryRun {
+  if (!existing) return payload;
+  const sourceSystems = mergedValues(existing.x_source_systems, payload.values.x_source_systems, "; ");
+  const preserveWhenMissing = (incoming: string, prior: unknown) => incoming || (typeof prior === "string" ? prior : "");
+  return {
+    ...payload,
+    attribution: {
+      ...payload.attribution,
+      sourceName: sourceSystems.includes(";") ? "Helmonic Tender Intelligence" : payload.attribution.sourceName,
+    },
+    values: {
+      ...payload.values,
+      partner_name: preserveWhenMissing(payload.values.partner_name, existing.partner_name),
+      contact_name: preserveWhenMissing(payload.values.contact_name, existing.contact_name),
+      email_from: preserveWhenMissing(payload.values.email_from, existing.email_from),
+      phone: preserveWhenMissing(payload.values.phone, existing.phone),
+      function: preserveWhenMissing(payload.values.function, existing.function),
+      street: preserveWhenMissing(payload.values.street, existing.street),
+      x_applicant: preserveWhenMissing(payload.values.x_applicant, existing.x_applicant),
+      x_source_systems: sourceSystems,
+      x_source_record_ids: mergedValues(existing.x_source_record_ids, payload.values.x_source_record_ids, "; "),
+      x_source_urls: mergedValues(existing.x_source_urls, payload.values.x_source_urls, "\n"),
+      x_evidence_document_urls: mergedValues(
+        existing.x_evidence_document_urls,
+        payload.values.x_evidence_document_urls,
+        "\n",
+      ),
+      x_party_details: mergedValues(existing.x_party_details, payload.values.x_party_details, "\n"),
+    },
+  };
+}
+
 export async function syncOdooLeads(
   payloads: OdooLeadDryRun[],
   inputConfig: OdooJson2Config,
@@ -448,16 +504,31 @@ export async function syncOdooLeads(
     try {
       const matches = await json2Call(config, config.model, "search_read", {
         domain: [[config.externalIdField, "=", payload.matchValue]],
-        fields: ["id"],
+        fields: [
+          "id",
+          "partner_name",
+          "contact_name",
+          "email_from",
+          "phone",
+          "function",
+          "street",
+          "x_applicant",
+          "x_party_details",
+          "x_source_systems",
+          "x_source_record_ids",
+          "x_source_urls",
+          "x_evidence_document_urls",
+        ],
         limit: 2,
-      }, odooFetch) as Array<{ id?: number }>;
+      }, odooFetch) as ExistingLeadValues[];
       if (!Array.isArray(matches)) throw new Error("Odoo search_read returned an invalid response.");
       if (matches.length > 1) throw new Error("More than one Odoo lead has the same Helmonic external ID.");
-      const attribution = await attributionValues(payload, config, odooFetch);
-      const contact = await primaryContactId(payload, config, odooFetch);
+      const effectivePayload = payloadWithExistingEvidence(payload, matches[0]);
+      const attribution = await attributionValues(effectivePayload, config, odooFetch);
+      const contact = await primaryContactId(effectivePayload, config, odooFetch);
       const linkedValues: Record<string, unknown> = { ...attribution.values };
       if (contact.id) linkedValues.partner_id = contact.id;
-      const values = valuesForOdoo(payload, config, fields, linkedValues);
+      const values = valuesForOdoo(effectivePayload, config, fields, linkedValues);
       result.attributionRecordsCreated += attribution.created;
       result.contactsCreated += Number(contact.created);
       result.contactsMatched += Number(contact.matched);

@@ -592,6 +592,94 @@ test("Odoo synchronization can create missing attribution records, link the prim
   assert.equal(result.attributionRecordsCreated, 3);
 });
 
+test("Odoo updates preserve prior source and contact evidence from another intake", async () => {
+  const records = annotateOpportunityDuplicates([qualifyLead(planningLead({
+    id: "national-cross-run-source",
+    sourceSystem: "National Planning Register",
+    sourceRecordId: "Wicklow:2660722",
+    projectReference: "2660722",
+    planningAuthority: "Wicklow County Council",
+    title: "Industrial Unit Development in Arklow",
+    parties: [],
+    routedTo: "Owen",
+  }), new Date("2026-10-09T12:00:00.000Z"))]);
+  const payloads = buildOdooDryRun(records);
+  let writtenValues;
+  const fetcher = async (request, options = {}) => {
+    const url = String(request);
+    const body = options.body ? JSON.parse(String(options.body)) : {};
+    if (url.endsWith("/web/version")) return Response.json({ version_info: [19, 0, 0, "final"] });
+    if (url.endsWith("/crm.lead/fields_get")) {
+      return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
+        type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
+          name: "char",
+          description: "html",
+          partner_name: "char",
+          contact_name: "char",
+          email_from: "char",
+          phone: "char",
+          function: "char",
+          street: "char",
+          date_deadline: "date",
+          partner_id: "many2one",
+          campaign_id: "many2one",
+          medium_id: "many2one",
+          source_id: "many2one",
+          type: "selection",
+          team_id: "many2one",
+          user_id: "many2one",
+          priority: "selection",
+        }[field] ?? "char"),
+        ...(field === "x_studio_project_sector" ? { selection: [["industrial", "Industrial"], ["other", "Other"]] } : {}),
+      }])));
+    }
+    if (url.endsWith("/crm.lead/search_read")) return Response.json([{
+      id: 69,
+      partner_name: "Armstrong Timber Engineering Ltd.",
+      contact_name: "Alan Armstrong",
+      email_from: "sales@ate.ie",
+      phone: "0402 33477",
+      function: "Applicant",
+      street: "Kish Business Park, Arklow",
+      x_applicant: "Armstrong Timber Engineering Ltd.",
+      x_party_details: "applicant | Alan Armstrong | Armstrong Timber Engineering Ltd. | sales@ate.ie | 0402 33477",
+      x_source_systems: "BuildingInfo",
+      x_source_record_ids: "BuildingInfo:424562",
+      x_source_urls: "https://app.buildinginfo.com/p-OTNsZQ==-",
+      x_evidence_document_urls: "https://buildinginfo.example/evidence.pdf",
+    }]);
+    if (url.endsWith("/utm.campaign/search_read")) return Response.json([{ id: 201, name: "Planning Outreach - Acoustics" }]);
+    if (url.endsWith("/utm.medium/search_read")) return Response.json([{ id: 202, name: "Planning Intelligence" }]);
+    if (url.endsWith("/utm.source/search_read")) {
+      assert.equal(body.domain[0][2], "Helmonic Tender Intelligence");
+      return Response.json([{ id: 203, name: "Helmonic Tender Intelligence" }]);
+    }
+    if (url.endsWith("/crm.lead/write")) {
+      writtenValues = body.vals;
+      return Response.json(true);
+    }
+    return new Response("Unexpected request", { status: 500 });
+  };
+  const result = await syncOdooLeads(payloads, {
+    enabled: true,
+    baseUrl: "https://odoo.example.test",
+    database: "test",
+    apiKey: "test-only-key",
+    salesTeamId: 1,
+    eoghanUserId: 6,
+    populateAttribution: true,
+    requestIntervalMs: 0,
+  }, fetcher);
+  assert.equal(result.updated, 1);
+  assert.equal(writtenValues.x_source_systems, "BuildingInfo; National Planning Register");
+  assert.match(writtenValues.x_source_record_ids, /BuildingInfo:424562/);
+  assert.match(writtenValues.x_source_record_ids, /National Planning Register:Wicklow:2660722/);
+  assert.match(writtenValues.x_source_urls, /app\.buildinginfo\.com/);
+  assert.equal(writtenValues.email_from, "sales@ate.ie");
+  assert.equal(writtenValues.phone, "0402 33477");
+  assert.equal(writtenValues.source_id, 203);
+});
+
 test("Odoo preflight refuses every write when a required field is missing", async () => {
   const records = annotateOpportunityDuplicates([qualifyLead(planningLead({
     id: "odoo-missing-field",
