@@ -11,7 +11,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: phase1a-consult-image-${{ github.ref }}
+  group: helmonic-image-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -21,6 +21,7 @@ env:
 
 jobs:
   build-and-push:
+    if: github.event_name == 'push'
     name: Build and push immutable image
     runs-on: ubuntu-latest
     steps:
@@ -62,3 +63,44 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             io.helmonic.lifecycle=temporary-validation
+
+  build-tender-intelligence-worker:
+    if: github.event_name == 'workflow_dispatch'
+    name: Build and publish Tender Intelligence worker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the selected commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.2
+          cache: npm
+
+      - name: Install test dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run Tender Intelligence tests
+        run: npm run test:tender-intelligence
+
+      - name: Sign in to Azure with branch-scoped OIDC
+        uses: azure/login@v2
+        with:
+          client-id: d265e55d-f8b6-421a-9a82-064183cab7e6
+          tenant-id: 360eacb5-68c3-400c-a366-0382ec3a7b4a
+          subscription-id: 14f94f77-4e71-4b80-b6c9-e09b192fcf42
+
+      - name: Sign in to Azure Container Registry
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build and publish the worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.tender-intelligence
+          push: true
+          tags: ${{ env.ACR_LOGIN_SERVER }}/helmonic-tender-intelligence:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
