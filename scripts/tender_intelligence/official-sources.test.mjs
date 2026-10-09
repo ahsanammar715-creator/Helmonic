@@ -78,6 +78,7 @@ import {
   qualifyLead,
   residentialUnitCount,
 } from "../../src/lib/tender-intelligence/lead-qualification.ts";
+import { xlsxFirstSheetToCsv } from "../../src/lib/tender-intelligence/xlsx.ts";
 
 function planningLead(overrides = {}) {
   return {
@@ -679,6 +680,60 @@ test("BuildingInfo emailed CSV retains exact RFI evidence and project-team conta
   assert.equal(qualified.leadDisposition, "active");
 });
 
+test("BuildingInfo XLSX accepts vendor headers and separates every contact for relationship matching", () => {
+  const escapeXml = (value) => String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+  const column = (index) => {
+    let output = "";
+    for (let value = index + 1; value > 0; value = Math.floor((value - 1) / 26)) {
+      output = String.fromCharCode(65 + ((value - 1) % 26)) + output;
+    }
+    return output;
+  };
+  const headers = [
+    "bi_project_id", "project_title", "county", "bi_project_url", "report_type",
+    "evidence_document", "evidence_excerpt", "project_stage", "sector", "subsector",
+    "residential_units", "last_updated_date", "first_detected_date", "developer_company",
+    "developer_contact", "developer_email", "developer_phone", "architect_company",
+    "architect_contact", "architect_email", "architect_phone", "other_parties", "planning_portal_url",
+  ];
+  const serial = (iso) => (Date.parse(`${iso}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 86_400_000;
+  const values = [
+    424562, "€3.2m Industrial Unit Development in Arklow", "Wicklow",
+    "https://app.buildinginfo.com/p-OTNsZQ==-", "acoustic", "noise-report.pdf",
+    "Submit a noise impact assessment prepared by a suitably qualified professional.", "Plans Applied",
+    "Industrial", "Light Industrial", 0, serial("2026-10-05"), serial("2026-10-04"),
+    "Armstrong Timber Engineering Ltd.", "Alan Armstrong", "sales@ate.ie", "0402 33477",
+    "Conor McCarthy & Associates Ltd.; Reddy Architecture & Urbanism - Dublin",
+    "Conor McCarthy; B. Gilroy", "cmcagroup@gmail.com; info@reddyarchitecture.com",
+    "040 224660; 014 987000", "Consultant: Uisce Éireann Irish Water (newconnections@water.ie, 017 072828)",
+    "https://www.eplanning.ie/WicklowCC/AppFileRefDetails/2660722/0",
+  ];
+  const row = (rowNumber, entries) => `<row r="${rowNumber}">${entries.map((value, index) => {
+    const ref = `${column(index)}${rowNumber}`;
+    return typeof value === "number"
+      ? `<c r="${ref}"><v>${value}</v></c>`
+      : `<c r="${ref}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+  }).join("")}</row>`;
+  const archive = zipSync({
+    "xl/workbook.xml": strToU8(`<?xml version="1.0"?><workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Leads" sheetId="1" r:id="rId1"/></sheets></workbook>`),
+    "xl/_rels/workbook.xml.rels": strToU8(`<?xml version="1.0"?><Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`),
+    "xl/worksheets/sheet1.xml": strToU8(`<?xml version="1.0"?><worksheet><sheetData>${row(1, headers)}${row(2, values)}</sheetData></worksheet>`),
+  });
+  const [record] = parseBuildingInfoCsv(xlsxFirstSheetToCsv(archive), "weekly.xlsx");
+  assert.equal(record.sourceRecordId, "424562");
+  assert.equal(record.triggerType, "acoustic");
+  assert.equal(record.sourceUpdatedAt, "2026-10-05");
+  assert.equal(record.firstSeenAt, "2026-10-04");
+  assert.equal(record.evidenceDocuments[0].sourceUrl, "https://www.eplanning.ie/WicklowCC/AppFileRefDetails/2660722/0");
+  assert.equal(record.parties.filter((party) => party.role === "architect").length, 2);
+  assert.ok(record.parties.some((party) => party.email === "sales@ate.ie"));
+  assert.ok(record.parties.some((party) => party.email === "info@reddyarchitecture.com"));
+  assert.ok(record.parties.some((party) => party.email === "newconnections@water.ie"));
+});
+
 test("repeated BuildingInfo weekly rows collapse to one stable project while preserving distinct evidence", () => {
   const header = "project_id,project_title,county,project_url,trigger_type,evidence_document,evidence_excerpt,last_updated";
   const first = parseBuildingInfoCsv([
@@ -1210,6 +1265,22 @@ test("party routing uses exact evidence and balanced batch assignment for everyt
   const ambiguous = routeOpportunityByRelationships({ ...base, applicant: "Dual Contact" }, lookup);
   assert.equal(ambiguous.routedTo, "unassigned");
   assert.equal(ambiguous.routingStatus, "needs-triage");
+
+  const sameDomainLookup = buildRelationshipLookup([
+    { name: "Known Person", email: "known@example.test", evidence_refs: ["[E:glen:303]"] },
+  ]);
+  const domainOnly = routeOpportunityByRelationships({
+    ...base,
+    applicant: "Different Company",
+    parties: [{
+      name: "Different Person",
+      role: "architect",
+      email: "different@example.test",
+    }],
+  }, sameDomainLookup);
+  assert.equal(domainOnly.routedTo, "unassigned");
+  assert.equal(domainOnly.routingStatus, "needs-triage");
+  assert.deepEqual(domainOnly.routingEvidence, []);
 
   const distributed = routeOpportunitiesByRelationships([
     { ...base, id: "exact", applicant: "Example Developments Limited" },

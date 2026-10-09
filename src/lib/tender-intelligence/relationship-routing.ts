@@ -144,8 +144,6 @@ export function routeOpportunityByRelationships(
     const matches: Array<{ matchType: RelationshipRoutingEvidence["matchType"]; entities: RelationshipEntity[] }> = [];
     const email = normalizedEmail(party.email ?? "");
     if (email.includes("@")) matches.push({ matchType: "exact-email", entities: lookup.emails.get(email) ?? [] });
-    const domain = email.includes("@") ? email.split("@")[1] : "";
-    if (domain) matches.push({ matchType: "exact-domain", entities: lookup.domains.get(domain) ?? [] });
     const name = normalizedName(party.name);
     if (name.split(" ").filter(Boolean).length >= 2) matches.push({ matchType: "exact-name", entities: lookup.names.get(name) ?? [] });
 

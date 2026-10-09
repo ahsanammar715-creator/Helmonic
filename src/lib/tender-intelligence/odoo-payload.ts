@@ -100,9 +100,9 @@ function partyDetails(record: TenderOpportunity) {
 
 const partyPriority: LeadParty["role"][] = [
   "applicant",
+  "developer",
   "architect",
   "agent",
-  "developer",
   "contractor",
   "consultant",
   "other",
