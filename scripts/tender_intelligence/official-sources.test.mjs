@@ -299,6 +299,51 @@ test("Odoo payload populates native contact, planning attribution, sector and re
   });
 });
 
+test("Odoo keeps planning and tender sources in explicitly separate attribution labels", () => {
+  const common = {
+    description: "Acoustic consultancy opportunity",
+    sourceUrl: "https://example.test/opportunity",
+    evidenceStatus: "official-text",
+    classification: "acoustic-consultancy-opportunity",
+    cpvCodes: [],
+    matchedTerms: ["acoustic assessment"],
+    fitScore: 80,
+    deduplicationStatus: "unique",
+  };
+  const payloads = buildOdooDryRun([
+    {
+      ...common,
+      id: "planning-label-test",
+      type: "planning-pipeline-lead",
+      sourceSystem: "PlanningLeads",
+      sourceRecordId: "PL-101",
+      title: "Planning lead",
+      crmExternalId: "planning:PL-101",
+    },
+    {
+      ...common,
+      id: "tender-label-test",
+      type: "formal-public-tender",
+      sourceSystem: "TED",
+      sourceRecordId: "TED-2026-101",
+      title: "Formal tender",
+      crmExternalId: "tender:TED-2026-101",
+    },
+  ]);
+  const planning = payloads.find((payload) => payload.matchValue === "planning:PL-101");
+  const tender = payloads.find((payload) => payload.matchValue === "tender:TED-2026-101");
+  assert.deepEqual(planning.attribution, {
+    campaignName: "Planning Outreach - Acoustics",
+    mediumName: "Planning Intelligence",
+    sourceName: "PlanningLeads",
+  });
+  assert.deepEqual(tender.attribution, {
+    campaignName: "Tender Outreach - Acoustics",
+    mediumName: "Tender Intelligence",
+    sourceName: "TED",
+  });
+});
+
 test("Odoo synchronization remains completely inert while disabled", async () => {
   let calls = 0;
   const result = await syncOdooLeads([], { enabled: false }, async () => {
