@@ -382,7 +382,6 @@ async function primaryContactId(
       phone: phone || false,
       function: payload.values.function || false,
       street: payload.values.street || false,
-      company_type: "person",
       comment: `Created by Helmonic Tender Intelligence for ${payload.values.name}.`,
     }],
   }, fetcher));
@@ -477,7 +476,10 @@ export async function syncOdooLeads(
     }
   }
   if (result.failures.length > 0) {
-    throw new Error(`Odoo synchronization completed with ${result.failures.length} failed record(s).`);
+    const details = result.failures
+      .map((failure) => `${failure.externalId}: ${failure.error}`)
+      .join("; ");
+    throw new Error(`Odoo synchronization completed with ${result.failures.length} failed record(s): ${details}`);
   }
   return result;
 }
