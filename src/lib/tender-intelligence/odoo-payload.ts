@@ -1,12 +1,24 @@
-import type { TenderOpportunity } from "./types.ts";
+import type { LeadParty, TenderOpportunity } from "./types.ts";
 
 export type OdooLeadDryRun = {
   operation: "upsert";
   matchField: "x_helmonic_external_id";
   matchValue: string;
+  attribution: {
+    campaignName: string;
+    mediumName: string;
+    sourceName: string;
+  };
   values: {
     name: string;
     description: string;
+    partner_name: string;
+    contact_name: string;
+    email_from: string;
+    phone: string;
+    function: string;
+    street: string;
+    date_deadline: string | false;
     x_helmonic_external_id: string;
     x_pipeline_bucket: string;
     x_lead_quality: string;
@@ -45,6 +57,8 @@ export type OdooLeadDryRun = {
     x_last_confirmed_at: string | false;
     x_cycle_status: string;
     x_scope_status: string;
+    x_studio_reference: string;
+    x_studio_project_sector: string;
   };
 };
 
@@ -61,6 +75,13 @@ function odooDatetime(value?: string) {
   return parsed.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
 }
 
+function odooDate(value?: string) {
+  if (!value) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  return parsed.toISOString().slice(0, 10);
+}
+
 function ownerDisplayName(record: TenderOpportunity) {
   if (record.routedTo === "Glen") return "Glen Plunkett";
   if (record.routedTo === "Owen") return "Eoghan Tyrrell";
@@ -75,6 +96,50 @@ function partyDetails(record: TenderOpportunity) {
     party.email,
     party.phone,
   ].filter(Boolean).join(" | ")).join("\n");
+}
+
+const partyPriority: LeadParty["role"][] = [
+  "applicant",
+  "architect",
+  "agent",
+  "developer",
+  "contractor",
+  "consultant",
+  "other",
+];
+
+function primaryParty(record: TenderOpportunity) {
+  const parties = [...(record.parties ?? [])].sort((left, right) => {
+    const role = partyPriority.indexOf(left.role) - partyPriority.indexOf(right.role);
+    if (role !== 0) return role;
+    const leftReachable = Number(Boolean(left.email)) + Number(Boolean(left.phone));
+    const rightReachable = Number(Boolean(right.email)) + Number(Boolean(right.phone));
+    return rightReachable - leftReachable;
+  });
+  return parties[0];
+}
+
+function organisationRole(party?: LeadParty) {
+  if (!party) return "";
+  return party.role.replace(/(^|-)([a-z])/g, (_match, prefix, letter) => `${prefix}${letter.toUpperCase()}`);
+}
+
+function canonicalProjectSector(record: TenderOpportunity) {
+  const sector = `${record.projectSector ?? ""} ${record.description ?? ""}`.toLowerCase();
+  if (/residential|housing|apartment|dwelling/.test(sector)) return "Residential";
+  if (/education|school|college|university/.test(sector)) return "Education";
+  if (/hospitality|hotel|hostel|restaurant/.test(sector)) return "Hospitality & Restaurants";
+  if (/health|hospital|medical|clinic/.test(sector)) return "Healthcare";
+  if (/live event|festival/.test(sector)) return "Live Events";
+  if (/entertainment|cinema|theatre|concert venue/.test(sector)) return "Entertainment Venues";
+  if (/visitor attraction|museum|gallery/.test(sector)) return "Visitor Attractions";
+  if (/leisure|sport|gym|padel/.test(sector)) return "Leisure & Sports";
+  if (/industrial|warehouse|factory|manufactur/.test(sector)) return "Industrial";
+  if (/mixed.?use/.test(sector)) return "Mixed Use";
+  if (/media|studio|broadcast|production/.test(sector)) return "Media Production";
+  if (/planning|environment/.test(sector)) return "Planning & Environmental";
+  if (/commercial|retail|office/.test(sector)) return "Commercial";
+  return record.projectSector ? "Other" : "";
 }
 
 function evidenceDocumentUrls(record: TenderOpportunity) {
@@ -103,8 +168,10 @@ function sourceValues(record: TenderOpportunity) {
 }
 
 function description(record: TenderOpportunity) {
+  const sources = sourceValues(record);
   return [
     record.description,
+    `Original source: ${sources.urls || record.sourceUrl}`,
     `Qualification: ${record.qualificationReason ?? "Not yet commercially graded."}`,
     `Freshness: ${record.freshnessReason ?? "Source publication date unavailable."}`,
     `Evidence: ${record.evidenceExcerpt ?? "No exact excerpt retained; observe the evidence-status field before outreach."}`,
@@ -119,13 +186,33 @@ export function buildOdooDryRun(records: TenderOpportunity[]) {
     const externalId = record.crmExternalId;
     if (!externalId) throw new Error(`Record ${record.id} has no stable CRM external ID.`);
     const sources = sourceValues(record);
+    const primary = primaryParty(record);
+    const organisation = primary?.organisation ?? record.applicant ?? record.buyer ?? "";
+    const contact = primary?.name && primary.name !== organisation ? primary.name : "";
+    const deadline = actionableDeadline(record);
     payloads.push({
       operation: "upsert",
       matchField: "x_helmonic_external_id",
       matchValue: externalId,
+      attribution: {
+        campaignName: record.type === "planning-pipeline-lead"
+          ? "Planning Outreach - Acoustics"
+          : "Tender Outreach - Acoustics",
+        mediumName: record.type === "planning-pipeline-lead"
+          ? "Planning Intelligence"
+          : "Tender Intelligence",
+        sourceName: sources.systems.includes(";") ? "Helmonic Tender Intelligence" : sources.systems,
+      },
       values: {
         name: record.title,
         description: description(record),
+        partner_name: organisation,
+        contact_name: contact,
+        email_from: primary?.email ?? "",
+        phone: primary?.phone ?? "",
+        function: organisationRole(primary),
+        street: record.location ?? "",
+        date_deadline: odooDate(deadline),
         x_helmonic_external_id: externalId,
         x_pipeline_bucket: record.leadDisposition ?? "monitor",
         x_lead_quality: record.leadQuality ?? "medium",
@@ -140,7 +227,7 @@ export function buildOdooDryRun(records: TenderOpportunity[]) {
         x_source_major_updated_at: odooDatetime(record.sourceMajorUpdatedAt),
         x_source_age_days: Number.isFinite(record.sourceAgeDays) ? record.sourceAgeDays! : false,
         x_freshness_band: record.leadFreshness ?? "date-unknown",
-        x_deadline: odooDatetime(actionableDeadline(record)),
+        x_deadline: odooDatetime(deadline),
         x_assigned_person: ownerDisplayName(record),
         x_warm_connection_verified: verifiedWarmConnection(record),
         x_routing_reason: record.routingReason ?? "",
@@ -166,6 +253,8 @@ export function buildOdooDryRun(records: TenderOpportunity[]) {
         x_last_confirmed_at: odooDatetime(record.lastConfirmedAt),
         x_cycle_status: record.cycleStatus ?? "",
         x_scope_status: record.scopeStatus ?? "unknown",
+        x_studio_reference: record.projectReference ?? record.sourceRecordId,
+        x_studio_project_sector: canonicalProjectSector(record),
       },
     });
   }

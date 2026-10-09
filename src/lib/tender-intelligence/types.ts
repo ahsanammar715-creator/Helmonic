@@ -125,7 +125,9 @@ export type TenderOpportunity = {
   residentialScale?: ResidentialScale;
   projectValue?: number;
   projectUnits?: number;
+  projectSector?: string;
   projectStage?: string;
+  triggerType?: string;
   sourceStatus?: string;
   scopeStatus?: "eligible" | "excluded" | "unknown";
   scopeExclusionReason?: string;

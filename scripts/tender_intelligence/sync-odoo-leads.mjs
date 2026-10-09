@@ -27,6 +27,11 @@ const result = await syncOdooLeads(payloads, {
   initialStageId: integerEnv("ODOO_INITIAL_STAGE_ID"),
   glenUserId: integerEnv("ODOO_GLEN_USER_ID"),
   eoghanUserId: integerEnv("ODOO_EOGHAN_USER_ID"),
+  populateAttribution: process.env.ODOO_POPULATE_ATTRIBUTION === "true",
+  createMissingAttribution: process.env.ODOO_CREATE_MISSING_ATTRIBUTION === "true",
+  linkPrimaryContact: process.env.ODOO_LINK_PRIMARY_CONTACT === "true",
+  createMissingContacts: process.env.ODOO_CREATE_MISSING_CONTACTS === "true",
+  requestIntervalMs: Number.parseInt(process.env.ODOO_REQUEST_INTERVAL_MS || "1000", 10),
   timeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
 });
 const timestamp = new Date().toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z");

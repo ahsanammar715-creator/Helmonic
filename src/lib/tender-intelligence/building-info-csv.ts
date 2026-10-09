@@ -225,6 +225,8 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       fitScore: 0,
       sourceStatus: optionalValue(row, ["source_status", "source status", "status", "project_status", "project status"]) || stage || undefined,
       projectStage: stage || undefined,
+      projectSector: sector || undefined,
+      triggerType,
       projectValue,
       projectUnits: units,
     };

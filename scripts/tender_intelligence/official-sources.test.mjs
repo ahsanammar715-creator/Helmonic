@@ -256,6 +256,48 @@ test("Odoo dry-run upserts once per deduplicated CRM identity and retains every 
   assert.equal(summarizeOdooDryRun(payloads).uniqueExternalIds, 1);
 });
 
+test("Odoo payload populates native contact, planning attribution, sector and reference fields", () => {
+  const records = annotateOpportunityDuplicates([qualifyLead(planningLead({
+    id: "buildinginfo-424562",
+    sourceSystem: "BuildingInfo",
+    sourceRecordId: "424562",
+    projectReference: "2660722",
+    planningAuthority: "Wicklow County Council",
+    title: "€3.2m Industrial Unit Development in Arklow",
+    description: "Single-storey industrial unit",
+    location: "Kish Business Park, Clogga Road, Arklow, Co. Wicklow",
+    projectSector: "Industrial",
+    projectStage: "Plans Applied",
+    triggerType: "Further Information Request",
+    classification: "noise-related-rfi",
+    responseDeadline: "2026-10-28",
+    parties: [{
+      role: "applicant",
+      name: "Alan Armstrong",
+      organisation: "Armstrong Timber Engineering Ltd.",
+      email: "sales@ate.ie",
+      phone: "0402 33477",
+    }],
+    routedTo: "Glen",
+  }), new Date("2026-10-07T12:00:00.000Z"))]);
+  const [payload] = buildOdooDryRun(records);
+  assert.equal(payload.values.partner_name, "Armstrong Timber Engineering Ltd.");
+  assert.equal(payload.values.contact_name, "Alan Armstrong");
+  assert.equal(payload.values.email_from, "sales@ate.ie");
+  assert.equal(payload.values.phone, "0402 33477");
+  assert.equal(payload.values.function, "Applicant");
+  assert.equal(payload.values.street, "Kish Business Park, Clogga Road, Arklow, Co. Wicklow");
+  assert.equal(payload.values.date_deadline, "2026-10-28");
+  assert.equal(payload.values.x_studio_reference, "2660722");
+  assert.equal(payload.values.x_studio_project_sector, "Industrial");
+  assert.match(payload.values.description, /Original source: https:\/\/example\.test\/project/);
+  assert.deepEqual(payload.attribution, {
+    campaignName: "Planning Outreach - Acoustics",
+    mediumName: "Planning Intelligence",
+    sourceName: "BuildingInfo",
+  });
+});
+
 test("Odoo synchronization remains completely inert while disabled", async () => {
   let calls = 0;
   const result = await syncOdooLeads([], { enabled: false }, async () => {
@@ -281,6 +323,17 @@ test("Odoo preflight validates the complete contract and routing with zero write
         type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
           name: "char",
           description: "html",
+          partner_name: "char",
+          contact_name: "char",
+          email_from: "char",
+          phone: "char",
+          function: "char",
+          street: "char",
+          date_deadline: "date",
+          partner_id: "many2one",
+          campaign_id: "many2one",
+          medium_id: "many2one",
+          source_id: "many2one",
           type: "selection",
           team_id: "many2one",
           user_id: "many2one",
@@ -335,6 +388,17 @@ test("Odoo JSON-2 upsert creates once and updates on a repeated run", async () =
         type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
           name: "char",
           description: "html",
+          partner_name: "char",
+          contact_name: "char",
+          email_from: "char",
+          phone: "char",
+          function: "char",
+          street: "char",
+          date_deadline: "date",
+          partner_id: "many2one",
+          campaign_id: "many2one",
+          medium_id: "many2one",
+          source_id: "many2one",
           type: "selection",
           team_id: "many2one",
           user_id: "many2one",
@@ -375,6 +439,111 @@ test("Odoo JSON-2 upsert creates once and updates on a repeated run", async () =
   assert.equal(second.updated, 1);
   assert.equal(creates, 1);
   assert.equal(writes, 1);
+});
+
+test("Odoo synchronization can create missing attribution records, link the primary contact and update one existing lead", async () => {
+  const records = annotateOpportunityDuplicates([qualifyLead(planningLead({
+    id: "buildinginfo-contact-sync",
+    sourceSystem: "BuildingInfo",
+    sourceRecordId: "424562",
+    projectReference: "2660722",
+    planningAuthority: "Wicklow County Council",
+    title: "€3.2m Industrial Unit Development in Arklow",
+    description: "Single-storey industrial unit",
+    location: "Kish Business Park, Clogga Road, Arklow, Co. Wicklow",
+    projectSector: "Industrial",
+    classification: "noise-related-rfi",
+    parties: [{
+      role: "applicant",
+      name: "Alan Armstrong",
+      organisation: "Armstrong Timber Engineering Ltd.",
+      email: "sales@ate.ie",
+      phone: "0402 33477",
+    }],
+    routedTo: "Glen",
+  }), new Date("2026-10-07T12:00:00.000Z"))]);
+  const payloads = buildOdooDryRun(records);
+  const createdModels = [];
+  let writtenValues;
+  const fetcher = async (request, options = {}) => {
+    const url = String(request);
+    const body = options.body ? JSON.parse(String(options.body)) : {};
+    if (url.endsWith("/web/version")) return Response.json({ version_info: [19, 0, 0, "final"] });
+    if (url.endsWith("/crm.lead/fields_get")) {
+      return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
+        type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
+          name: "char",
+          description: "html",
+          partner_name: "char",
+          contact_name: "char",
+          email_from: "char",
+          phone: "char",
+          function: "char",
+          street: "char",
+          date_deadline: "date",
+          partner_id: "many2one",
+          campaign_id: "many2one",
+          medium_id: "many2one",
+          source_id: "many2one",
+          type: "selection",
+          team_id: "many2one",
+          user_id: "many2one",
+          priority: "selection",
+        }[field] ?? "char"),
+        ...(field === "x_studio_project_sector" ? { selection: [["industrial", "Industrial"], ["other", "Other"]] } : {}),
+      }])));
+    }
+    if (url.endsWith("/crm.lead/search_read")) return Response.json([{ id: 69 }]);
+    if (url.endsWith("/utm.campaign/search_read")
+      || url.endsWith("/utm.medium/search_read")
+      || url.endsWith("/utm.source/search_read")
+      || url.endsWith("/res.partner/search_read")) return Response.json([]);
+    if (url.endsWith("/utm.campaign/create")) {
+      createdModels.push("campaign");
+      return Response.json([101]);
+    }
+    if (url.endsWith("/utm.medium/create")) {
+      createdModels.push("medium");
+      return Response.json([102]);
+    }
+    if (url.endsWith("/utm.source/create")) {
+      createdModels.push("source");
+      return Response.json([103]);
+    }
+    if (url.endsWith("/res.partner/create")) {
+      createdModels.push("contact");
+      assert.equal(body.vals_list[0].email, "sales@ate.ie");
+      return Response.json([104]);
+    }
+    if (url.endsWith("/crm.lead/write")) {
+      writtenValues = body.vals;
+      return Response.json(true);
+    }
+    return new Response("Unexpected request", { status: 500 });
+  };
+  const result = await syncOdooLeads(payloads, {
+    enabled: true,
+    baseUrl: "https://odoo.example.test",
+    database: "test",
+    apiKey: "test-only-key",
+    salesTeamId: 1,
+    glenUserId: 7,
+    populateAttribution: true,
+    createMissingAttribution: true,
+    linkPrimaryContact: true,
+    createMissingContacts: true,
+    requestIntervalMs: 0,
+  }, fetcher);
+  assert.deepEqual(createdModels, ["campaign", "medium", "source", "contact"]);
+  assert.equal(writtenValues.partner_id, 104);
+  assert.equal(writtenValues.campaign_id, 101);
+  assert.equal(writtenValues.medium_id, 102);
+  assert.equal(writtenValues.source_id, 103);
+  assert.equal(writtenValues.x_studio_project_sector, "industrial");
+  assert.equal(writtenValues.x_studio_reference, "2660722");
+  assert.equal(result.updated, 1);
+  assert.equal(result.contactsCreated, 1);
+  assert.equal(result.attributionRecordsCreated, 3);
 });
 
 test("Odoo preflight refuses every write when a required field is missing", async () => {
@@ -490,18 +659,20 @@ test("BuildingInfo agriculture stays excluded and self-build housing remains ret
 
 test("BuildingInfo emailed CSV retains exact RFI evidence and project-team contacts", () => {
   const csv = [
-    "building_info_project_id,project_title,county,project_url,trigger_type,evidence_document,evidence_excerpt,project_stage,rfi_deadline,planning_reference,planning_authority,unit_count,architect,architect_contact,architect_email,architect_phone",
-    "343012,€9.6m Residential Development in Co. Kildare,Kildare,https://app.buildinginfo.test/p-343012,Further Information Request,noise-report.pdf,The developer shall submit a noise impact assessment and acoustic report.,Plans Applied,2026-10-28,26/1234,Kildare County Council,120,Example Architects Ltd,A. Architect,architect@example.test,+35310000000",
+    "building_info_project_id,project_title,county,project_url,trigger_type,evidence_document,evidence_excerpt,project_stage,sector,rfi_deadline,planning_reference,planning_authority,unit_count,applicant,applicant_contact,applicant_email,applicant_phone,architect,architect_contact,architect_email,architect_phone",
+    "343012,€9.6m Residential Development in Co. Kildare,Kildare,https://app.buildinginfo.test/p-343012,Further Information Request,noise-report.pdf,The developer shall submit a noise impact assessment and acoustic report.,Plans Applied,Residential,2026-10-28,26/1234,Kildare County Council,120,Example Developments Ltd,A. Applicant,applicant@example.test,+35315550000,Example Architects Ltd,A. Architect,architect@example.test,+35310000000",
   ].join("\n");
   const [record] = parseBuildingInfoCsv(csv, "weekly.csv");
   assert.equal(record.sourceSystem, "BuildingInfo");
   assert.equal(record.evidenceStatus, "official-text");
   assert.equal(record.classification, "noise-related-rfi");
   assert.equal(record.responseDeadline, "2026-10-28");
+  assert.equal(record.projectSector, "Residential");
+  assert.equal(record.triggerType, "Further Information Request");
   assert.equal(record.evidenceDocuments.length, 1);
   assert.match(record.evidenceExcerpt, /noise impact assessment/);
-  assert.equal(record.parties[0].role, "architect");
-  assert.equal(record.parties[0].phone, "+35310000000");
+  assert.equal(record.parties[0].role, "applicant");
+  assert.equal(record.parties[0].phone, "+35315550000");
   assert.equal(applyTargetScope(record).scopeStatus, "eligible");
   const qualified = qualifyLead(record, new Date("2026-10-07T12:00:00.000Z"));
   assert.equal(qualified.leadQuality, "excellent");

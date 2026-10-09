@@ -25,6 +25,7 @@ const result = await preflightOdoo([], {
   initialStageId: integerEnv("ODOO_INITIAL_STAGE_ID"),
   glenUserId: integerEnv("ODOO_GLEN_USER_ID"),
   eoghanUserId: integerEnv("ODOO_EOGHAN_USER_ID"),
+  requestIntervalMs: Number.parseInt(process.env.ODOO_REQUEST_INTERVAL_MS || "1000", 10),
   timeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
 });
 

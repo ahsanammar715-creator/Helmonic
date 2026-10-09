@@ -31,7 +31,11 @@ await writeFile(fieldContractPath, `${JSON.stringify({
   operation: "upsert",
   requiredUniqueField: "x_helmonic_external_id",
   note: "Technical custom-field names must be confirmed in the Odoo test database before any write is enabled.",
-  standardFields: ["name", "description", "type", "team_id", "user_id", "stage_id", "priority"],
+  standardFields: [
+    "name", "description", "type", "team_id", "user_id", "stage_id", "priority",
+    "partner_id", "partner_name", "contact_name", "email_from", "phone", "function", "street",
+    "date_deadline", "campaign_id", "medium_id", "source_id",
+  ],
   customFields: ODOO_TENDER_FIELD_CONTRACT,
 }, null, 2)}\n`, "utf8");
 

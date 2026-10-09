@@ -131,6 +131,7 @@ export function parseBuildingInfoProjects(payload: unknown): TenderOpportunity[]
       fitScore: 0,
       sourceStatus: stage || undefined,
       projectStage: stage || undefined,
+      projectSector: category || undefined,
       projectValue: value,
       projectUnits: units,
       scopeStatus: agriculture ? "excluded" : undefined,

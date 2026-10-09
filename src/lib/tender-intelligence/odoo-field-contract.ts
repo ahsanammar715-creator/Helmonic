@@ -4,6 +4,7 @@ export type OdooTenderFieldType =
   | "datetime"
   | "float"
   | "integer"
+  | "selection"
   | "text";
 
 export type OdooTenderFieldContract = {
@@ -52,6 +53,8 @@ export const ODOO_TENDER_FIELD_CONTRACT: OdooTenderFieldContract[] = [
   { name: "x_last_confirmed_at", label: "Last Confirmed At", type: "datetime" },
   { name: "x_cycle_status", label: "Cycle Status", type: "char" },
   { name: "x_scope_status", label: "Scope Status", type: "char" },
+  { name: "x_studio_reference", label: "Reference", type: "char" },
+  { name: "x_studio_project_sector", label: "Project Sector", type: "selection" },
 ];
 
 export const ODOO_TENDER_FIELD_TYPES = Object.fromEntries(
