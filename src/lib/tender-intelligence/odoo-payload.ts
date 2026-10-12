@@ -420,7 +420,7 @@ function description(record: TenderOpportunity) {
     allPartyRows(record),
     "<h2>Email Relationship and Consultant Assignment</h2>",
     `<p>${htmlText(relationshipDetails(record))}</p>`,
-    htmlRows([["Assigned consultant", assignmentDetails(record)], ["Routing reason", record.routingReason]]),
+    htmlRows([["Assigned acoustic consultant", assignmentDetails(record)], ["Routing reason", record.routingReason]]),
     "<h2>Appointment and Outreach Safeguard</h2>",
     `<p>${htmlText(appointmentDetails(record))}</p>`,
     "<h2>Acoustic Evidence and Qualification</h2>",
