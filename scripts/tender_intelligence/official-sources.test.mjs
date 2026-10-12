@@ -360,7 +360,10 @@ test("Odoo payload populates native contact, planning attribution, sector and re
   assert.equal(payload.values.name, "[BI] €3.2m Industrial Unit Development in Arklow");
   assert.equal(payload.values.x_studio_reference, "BI-2660722");
   assert.equal(payload.values.x_studio_project_sector, "Industrial");
-  assert.match(payload.values.description, /LINKS\s+https:\/\/example\.test\/project/);
+  assert.equal(payload.values.x_project_link, "https://example.test/project");
+  assert.match(payload.values.description, /Project and Source Links/);
+  assert.match(payload.values.description, /href="https:\/\/example\.test\/project"/);
+  assert.match(payload.values.description, /All Project Parties and Contacts/);
   assert.deepEqual(payload.attribution, {
     campaignName: "Planning Outreach - Acoustics",
     mediumName: "Planning Intelligence",
@@ -385,7 +388,7 @@ test("Odoo exposes appointment evidence, competitive status and the outreach saf
   assert.match(payload.values.x_outreach_key, /^planning-outreach:/);
   assert.equal(payload.values.x_buildinginfo_search_profile, "iAcoustics acoustic opportunity watch");
   assert.deepEqual(payload.statusTagNames, ["Competitor Appointed"]);
-  assert.match(payload.values.description, /APPOINTMENT & OUTREACH SAFEGUARD/);
+  assert.match(payload.values.description, /Appointment and Outreach Safeguard/);
   assert.match(payload.values.description, /Appointment evidence source: https:\/\/example\.test\/appointment-evidence/);
 });
 
@@ -416,14 +419,15 @@ test("Odoo payload exposes an explicit visible tag for a verified email relation
   assert.equal(payload.values.x_warm_connection_verified, true);
   assert.equal(payload.emailMatchTagName, "Email Match: Glen");
   assert.deepEqual(payload.sourceTagNames, ["DCC"]);
-  assert.match(payload.values.description, /Source: DCC \(DCC\)/);
-  assert.match(payload.values.description, /Alan Armstrong <sales@ate\.ie>/);
+  assert.match(payload.values.description, /DCC \(DCC\)/);
+  assert.match(payload.values.description, /Alan Armstrong/);
+  assert.match(payload.values.description, /sales@ate\.ie/);
   assert.match(payload.values.description, /Matched email date: 2026-09-18T10:15:00Z/);
   assert.match(payload.values.description, /Matched email subject: Arklow industrial unit follow-up/);
   assert.match(payload.values.description, /Evidence source: Restricted iAcoustics consultant email evidence index/);
   assert.match(payload.values.description, /Source message URI: restricted-email:\/\/glen\/424562/);
   assert.match(payload.values.description, /Evidence reference\(s\): \[E:glen:424562\]/);
-  assert.match(payload.values.description, /Consultant: Glen Plunkett/);
+  assert.match(payload.values.description, /Glen Plunkett — assigned from an exact single-owner email-evidence match/);
 });
 
 test("Odoo marks an exact email relationship to multiple owners as verified and visibly tagged", () => {
@@ -723,6 +727,19 @@ test("Odoo pipeline priority leads with qualified verified email matches", async
 test("Odoo pipeline rank keeps RFIs first and email matches first within the urgent queue", () => {
   const records = [
     planningLead({
+      id: "buildinginfo-matched-rfi-rank",
+      sourceSystem: "BuildingInfo",
+      sourceRecordId: "424562",
+      sourceUrl: "https://app.buildinginfo.com/p-OTNsZQ==-",
+      classification: "noise-related-rfi",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      emailRelationshipStatus: "verified-single-owner",
+      emailRelationshipOwner: "Glen",
+      routedTo: "Glen",
+      crmExternalId: "helmonic-lead:buildinginfo-matched-rfi-rank",
+    }),
+    planningLead({
       id: "matched-rfi-rank",
       classification: "noise-related-rfi",
       leadQuality: "excellent",
@@ -754,6 +771,7 @@ test("Odoo pipeline rank keeps RFIs first and email matches first within the urg
   ];
   const payloads = buildOdooDryRun(records);
   const ranks = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values.x_pipeline_priority_rank]));
+  assert.equal(ranks["helmonic-lead:buildinginfo-matched-rfi-rank"], 1200);
   assert.equal(ranks["helmonic-lead:matched-rfi-rank"], 1100);
   assert.equal(ranks["helmonic-lead:unmatched-rfi-rank"], 1000);
   assert.equal(ranks["helmonic-lead:matched-standard-rank"], 900);
@@ -931,6 +949,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
       { id: 4, name: "Email Match: Glen + Eoghan" },
       { id: 5, name: "Manual outreach tag" },
       { id: 6, name: "DCC" },
+      { id: 7, name: "BI" },
     ]);
     if (url.endsWith("/crm.lead/search_read")) {
       if (body.domain?.[0]?.[1] === "!=") return Response.json([
@@ -959,6 +978,21 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_pipeline_priority_reason: false,
           x_classification: "needs-council-evidence",
         },
+        {
+          id: 71,
+          name: "[BI] J-buildinginfo-rfi",
+          tag_ids: [4, 7],
+          x_helmonic_external_id: "helmonic-lead:buildinginfo-rfi-history",
+          x_source_systems: "BuildingInfo",
+          x_project_reference: "424562",
+          x_studio_reference: "BI-424562",
+          x_warm_connection_verified: true,
+          x_lead_quality: "excellent",
+          x_pipeline_bucket: "active",
+          x_pipeline_priority_rank: 0,
+          x_pipeline_priority_reason: false,
+          x_classification: "noise-related-rfi",
+        },
       ]);
       return Response.json([{ id: 69, tag_ids: [3] }]);
     }
@@ -985,7 +1019,8 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   }, fetcher);
   const current = writes.filter((write) => write.ids[0] === 69 && write.vals.name).at(-1);
   const historical = writes.find((write) => write.ids[0] === 70);
-  assert.equal(result.historicalRecordsNormalized, 2);
+  const buildingInfoHistorical = writes.find((write) => write.ids[0] === 71);
+  assert.equal(result.historicalRecordsNormalized, 3);
   assert.equal(current.vals.name, "[DCC] J-current");
   assert.equal(historical.vals.name, "[NPR] J-legacy");
   assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
@@ -996,6 +1031,11 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   );
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
+  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1200);
+  assert.equal(
+    buildingInfoHistorical.vals.x_pipeline_priority_reason,
+    "BuildingInfo RFI with a verified consultant email relationship",
+  );
 });
 
 test("Odoo updates preserve prior source and contact evidence from another intake", async () => {
