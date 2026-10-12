@@ -16,6 +16,11 @@ export type OdooJson2Config = {
   createMissingAttribution?: boolean;
   linkPrimaryContact?: boolean;
   createMissingContacts?: boolean;
+  populateEmailMatchTags?: boolean;
+  createMissingEmailMatchTags?: boolean;
+  populateSourceTags?: boolean;
+  createMissingSourceTags?: boolean;
+  normalizeHistoricalRecords?: boolean;
   requestIntervalMs?: number;
   timeoutMs?: number;
 };
@@ -29,6 +34,11 @@ export type OdooSyncResult = {
   contactsCreated: number;
   contactsMatched: number;
   attributionRecordsCreated: number;
+  emailMatchTagsCreated: number;
+  emailMatchTagsLinked: number;
+  sourceTagsCreated: number;
+  sourceTagsLinked: number;
+  historicalRecordsNormalized: number;
   failures: Array<{ externalId: string; error: string }>;
 };
 
@@ -66,6 +76,11 @@ function requiredConfig(config: OdooJson2Config) {
     createMissingAttribution: config.createMissingAttribution === true,
     linkPrimaryContact: config.linkPrimaryContact === true,
     createMissingContacts: config.createMissingContacts === true,
+    populateEmailMatchTags: config.populateEmailMatchTags === true,
+    createMissingEmailMatchTags: config.createMissingEmailMatchTags === true,
+    populateSourceTags: config.populateSourceTags === true,
+    createMissingSourceTags: config.createMissingSourceTags === true,
+    normalizeHistoricalRecords: config.normalizeHistoricalRecords === true,
     requestIntervalMs: Math.max(0, config.requestIntervalMs ?? 0),
     timeoutMs: Math.max(1_000, config.timeoutMs || 30_000),
   };
@@ -101,6 +116,7 @@ const ODOO_STANDARD_LEAD_FIELD_TYPES: Record<string, string> = {
   campaign_id: "many2one",
   medium_id: "many2one",
   source_id: "many2one",
+  tag_ids: "many2many",
 };
 
 function positiveInteger(value?: number) {
@@ -283,9 +299,9 @@ function ownerUserId(payload: OdooLeadDryRun, config: ReturnType<typeof required
 }
 
 function odooPriority(payload: OdooLeadDryRun) {
-  if (payload.values.x_lead_quality === "excellent") return "3";
-  if (payload.values.x_lead_quality === "good") return "2";
-  if (payload.values.x_lead_quality === "medium") return "1";
+  if (payload.values.x_pipeline_priority_rank >= 900) return "3";
+  if (payload.values.x_pipeline_priority_rank >= 700) return "2";
+  if (payload.values.x_pipeline_priority_rank >= 400) return "1";
   return "0";
 }
 
@@ -352,6 +368,131 @@ async function attributionValues(
   };
 }
 
+async function emailMatchTagValues(
+  payload: OdooLeadDryRun,
+  config: ReturnType<typeof requiredConfig>,
+  registry: TagRegistry,
+  fetcher: typeof fetch,
+) {
+  if (!config.populateEmailMatchTags || !payload.emailMatchTagName) {
+    return { ids: [] as number[], created: 0, linked: 0 };
+  }
+  const tag = await tagRecordId(config, registry, payload.emailMatchTagName, config.createMissingEmailMatchTags, fetcher);
+  return {
+    ids: tag.id ? [tag.id] : [],
+    created: Number(tag.created),
+    linked: Number(Boolean(tag.id)),
+  };
+}
+
+async function sourceTagValues(
+  payload: OdooLeadDryRun,
+  config: ReturnType<typeof requiredConfig>,
+  registry: TagRegistry,
+  fetcher: typeof fetch,
+) {
+  const names = [...payload.sourceTagNames, ...payload.statusTagNames];
+  if (!config.populateSourceTags || names.length === 0) {
+    return { ids: [] as number[], created: 0, linked: 0 };
+  }
+  const ids: number[] = [];
+  let created = 0;
+  for (const name of names) {
+    const tag = await tagRecordId(config, registry, name, config.createMissingSourceTags, fetcher);
+    if (!tag.id) continue;
+    ids.push(tag.id);
+    created += Number(tag.created);
+  }
+  return { ids, created, linked: ids.length };
+}
+
+type TagRegistry = {
+  byId: Map<number, string>;
+  byName: Map<string, number>;
+};
+
+const SOURCE_TAG_NAMES = new Set([
+  "BI", "PL", "NPR", "DCC", "TD", "EU",
+  "Source: BuildingInfo", "Source: PlanningLeads", "Source: National Planning Register",
+  "Source: DCC", "Source: eTenders", "Source: TED",
+].map((name) => name.toLowerCase()));
+
+const EMAIL_TAG_NAMES = new Set([
+  "Verified Email Match - Glen", "Verified Email Match - Eoghan", "Verified Email Match",
+  "Email Match - Multiple Owners", "Email Match: Glen", "Email Match: Eoghan",
+  "Email Match: Glen + Eoghan", "Email Match: Verified",
+].map((name) => name.toLowerCase()));
+
+const STATUS_TAG_NAMES = new Set([
+  "Already Won: iAcoustics", "Competitor Appointed", "Appointment: Verify",
+].map((name) => name.toLowerCase()));
+
+const SOURCE_SYSTEM_CODES = new Map([
+  ["buildinginfo", "BI"],
+  ["planningleads", "PL"],
+  ["national planning register", "NPR"],
+  ["dcc", "DCC"],
+  ["etenders", "TD"],
+  ["ted", "EU"],
+]);
+
+const SOURCE_CODE_ORDER = ["BI", "PL", "NPR", "DCC", "TD", "EU"];
+
+function managedTagName(name?: string) {
+  const normalized = String(name ?? "").trim().toLowerCase();
+  return SOURCE_TAG_NAMES.has(normalized) || EMAIL_TAG_NAMES.has(normalized) || STATUS_TAG_NAMES.has(normalized);
+}
+
+async function loadTagRegistry(
+  config: ReturnType<typeof requiredConfig>,
+  fetcher: typeof fetch,
+): Promise<TagRegistry> {
+  if (!config.populateEmailMatchTags && !config.populateSourceTags) {
+    return { byId: new Map(), byName: new Map() };
+  }
+  const records = await json2Call(config, "crm.tag", "search_read", {
+    domain: [],
+    fields: ["id", "name"],
+    limit: 1_000,
+  }, fetcher) as Array<{ id?: number; name?: string }>;
+  const byId = new Map<number, string>();
+  const byName = new Map<string, number>();
+  for (const record of records) {
+    if (!Number.isInteger(record.id) || !record.name) continue;
+    byId.set(record.id!, record.name);
+    byName.set(record.name.trim().toLowerCase(), record.id!);
+  }
+  return { byId, byName };
+}
+
+async function tagRecordId(
+  config: ReturnType<typeof requiredConfig>,
+  registry: TagRegistry,
+  name: string,
+  createMissing: boolean,
+  fetcher: typeof fetch,
+) {
+  const existing = registry.byName.get(name.trim().toLowerCase());
+  if (existing) return { id: existing, created: false };
+  if (!createMissing) return { id: false as const, created: false };
+  const id = createdId(await json2Call(config, "crm.tag", "create", { vals_list: [{ name }] }, fetcher));
+  registry.byId.set(id, name);
+  registry.byName.set(name.trim().toLowerCase(), id);
+  return { id, created: true };
+}
+
+function managedTagCommands(existingIds: number[], desiredIds: number[], registry: TagRegistry) {
+  const existing = new Set(existingIds);
+  const desired = new Set(desiredIds);
+  const remove = existingIds
+    .filter((id) => managedTagName(registry.byId.get(id)) && !desired.has(id))
+    .map((id): [number, number] => [3, id]);
+  const add = desiredIds
+    .filter((id) => !existing.has(id))
+    .map((id): [number, number] => [4, id]);
+  return [...remove, ...add];
+}
+
 async function primaryContactId(
   payload: OdooLeadDryRun,
   config: ReturnType<typeof requiredConfig>,
@@ -411,6 +552,8 @@ function valuesForOdoo(
 
 type ExistingLeadValues = {
   id?: number;
+  name?: string | false;
+  tag_ids?: number[];
   partner_name?: string | false;
   contact_name?: string | false;
   email_from?: string | false;
@@ -420,10 +563,132 @@ type ExistingLeadValues = {
   x_applicant?: string | false;
   x_party_details?: string | false;
   x_source_systems?: string | false;
+  x_project_reference?: string | false;
+  x_studio_reference?: string | false;
+  x_helmonic_external_id?: string | false;
   x_source_record_ids?: string | false;
   x_source_urls?: string | false;
   x_evidence_document_urls?: string | false;
+  x_assigned_person?: string | false;
+  x_warm_connection_verified?: boolean;
+  x_lead_quality?: string | false;
+  x_pipeline_bucket?: string | false;
+  x_pipeline_priority_rank?: number;
+  x_pipeline_priority_reason?: string | false;
+  x_classification?: string | false;
+  x_routing_reason?: string | false;
+  x_acoustic_appointment_status?: string | false;
+  x_appointed_acoustician?: string | false;
+  x_appointment_evidence?: string | false;
+  x_appointment_evidence_source_url?: string | false;
+  x_competitive_quote_opportunity?: boolean;
+  x_outreach_eligibility?: string | false;
+  x_outreach_suppression_reason?: string | false;
+  x_outreach_key?: string | false;
 };
+
+function appointmentTagName(status: unknown) {
+  if (status === "iacoustics-appointed") return "Already Won: iAcoustics";
+  if (status === "competitor-appointed") return "Competitor Appointed";
+  if (status === "needs-verification") return "Appointment: Verify";
+  return undefined;
+}
+
+function sourceCodesFromSystems(value: unknown) {
+  const codes = typeof value === "string"
+    ? value.split(";").map((system) => SOURCE_SYSTEM_CODES.get(system.trim().toLowerCase())).filter(Boolean) as string[]
+    : [];
+  return [...new Set(codes)].sort((left, right) => SOURCE_CODE_ORDER.indexOf(left) - SOURCE_CODE_ORDER.indexOf(right));
+}
+
+function sourcePrefixedName(name: unknown, codes: string[]) {
+  const current = typeof name === "string" ? name.trim() : "";
+  if (!current || codes.length === 0) return current;
+  const withoutManagedPrefix = current.replace(/^\[(?:BI|PL|NPR|DCC|TD|EU)(?:\+(?:BI|PL|NPR|DCC|TD|EU))*\]\s*/i, "");
+  return `[${codes.join("+")}] ${withoutManagedPrefix}`;
+}
+
+function historicalPipelinePriority(record: ExistingLeadValues) {
+  const quality = typeof record.x_lead_quality === "string" ? record.x_lead_quality : "";
+  const bucket = typeof record.x_pipeline_bucket === "string" ? record.x_pipeline_bucket : "";
+  const routeable = !["poor", "closed-background", "existing-project"].includes(quality)
+    && !["background", "already-won"].includes(bucket);
+  const verifiedEmailMatch = record.x_warm_connection_verified === true && routeable;
+  const rfi = record.x_classification === "noise-related-rfi" && routeable;
+  if (rfi && verifiedEmailMatch) return { rank: 1100, reason: "Immediate RFI with a verified consultant email relationship" };
+  if (rfi) return { rank: 1000, reason: "Immediate noise-related RFI" };
+  if (verifiedEmailMatch) return { rank: 900, reason: "Qualified opportunity with a verified consultant email relationship" };
+  if (quality === "excellent") return { rank: 800, reason: "Excellent opportunity without a verified email relationship" };
+  if (record.x_acoustic_appointment_status === "competitor-appointed") {
+    return { rank: 700, reason: "Competitive quotation opportunity requiring consultant review" };
+  }
+  if (quality === "good") return { rank: 600, reason: "Good opportunity" };
+  if (quality === "medium") return { rank: 400, reason: "Medium opportunity for monitoring" };
+  if (quality === "poor") return { rank: 200, reason: "Low-priority opportunity retained for background" };
+  if (quality === "existing-project") return { rank: 100, reason: "Already won by iAcoustics; excluded from outreach ordering" };
+  return { rank: 0, reason: "Closed or background record" };
+}
+
+async function normalizeHistoricalOdooRecords(
+  config: ReturnType<typeof requiredConfig>,
+  registry: TagRegistry,
+  fetcher: typeof fetch,
+) {
+  if (!config.normalizeHistoricalRecords) return 0;
+  const records = await json2Call(config, config.model, "search_read", {
+    domain: [[config.externalIdField, "!=", false]],
+    fields: [
+      "id", "name", "tag_ids", config.externalIdField, "x_source_systems", "x_project_reference",
+      "x_studio_reference", "x_warm_connection_verified", "x_assigned_person",
+      "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
+      "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
+    ],
+    limit: 5_000,
+  }, fetcher) as ExistingLeadValues[];
+  let normalized = 0;
+  for (const record of records) {
+    if (!Number.isInteger(record.id)) continue;
+    const codes = sourceCodesFromSystems(record.x_source_systems);
+    const desiredTagIds: number[] = [];
+    if (config.populateSourceTags) {
+      for (const code of codes) {
+        const tag = await tagRecordId(config, registry, code, config.createMissingSourceTags, fetcher);
+        if (tag.id) desiredTagIds.push(tag.id);
+      }
+    }
+    if (config.populateEmailMatchTags && record.x_warm_connection_verified === true) {
+      const tag = await tagRecordId(
+        config,
+        registry,
+        existingEmailMatchTag(record, registry),
+        config.createMissingEmailMatchTags,
+        fetcher,
+      );
+      if (tag.id) desiredTagIds.push(tag.id);
+    }
+    const appointmentTag = appointmentTagName(record.x_acoustic_appointment_status);
+    if (config.populateSourceTags && appointmentTag) {
+      const tag = await tagRecordId(config, registry, appointmentTag, config.createMissingSourceTags, fetcher);
+      if (tag.id) desiredTagIds.push(tag.id);
+    }
+    const tagCommands = managedTagCommands(record.tag_ids ?? [], desiredTagIds, registry);
+    const values: Record<string, unknown> = {};
+    const name = sourcePrefixedName(record.name, codes);
+    if (name && name !== record.name) values.name = name;
+    if (codes.length > 0 && record.x_project_reference) {
+      const reference = `${codes.join("+")}-${record.x_project_reference}`;
+      if (reference !== record.x_studio_reference) values.x_studio_reference = reference;
+    }
+    const priority = historicalPipelinePriority(record);
+    if (record.x_pipeline_priority_rank !== priority.rank) values.x_pipeline_priority_rank = priority.rank;
+    if (record.x_pipeline_priority_reason !== priority.reason) values.x_pipeline_priority_reason = priority.reason;
+    if (tagCommands.length > 0) values.tag_ids = tagCommands;
+    if (Object.keys(values).length === 0) continue;
+    await json2Call(config, config.model, "write", { ids: [record.id], vals: values }, fetcher);
+    normalized += 1;
+  }
+  return normalized;
+}
 
 function mergedValues(left: unknown, right: unknown, separator: string) {
   const items = [left, right]
@@ -433,12 +698,40 @@ function mergedValues(left: unknown, right: unknown, separator: string) {
   return [...new Set(items)].join(separator);
 }
 
-function payloadWithExistingEvidence(payload: OdooLeadDryRun, existing?: ExistingLeadValues): OdooLeadDryRun {
+function existingEmailMatchTag(existing: ExistingLeadValues, registry?: TagRegistry) {
+  const names = (existing.tag_ids ?? []).map((id) => registry?.byId.get(id) ?? "");
+  if (names.some((name) => /multiple owners|glen \+ eoghan/i.test(name))) return "Email Match: Glen + Eoghan";
+  if (names.some((name) => /glen/i.test(name))) return "Email Match: Glen";
+  if (names.some((name) => /eoghan/i.test(name))) return "Email Match: Eoghan";
+  if (names.some((name) => managedTagName(name) && /email match/i.test(name))) return "Email Match: Verified";
+  if (existing.x_assigned_person === "Glen Plunkett") return "Email Match: Glen";
+  if (existing.x_assigned_person === "Eoghan Tyrrell") return "Email Match: Eoghan";
+  return "Email Match: Verified";
+}
+
+function payloadWithExistingEvidence(
+  payload: OdooLeadDryRun,
+  existing?: ExistingLeadValues,
+  registry?: TagRegistry,
+): OdooLeadDryRun {
   if (!existing) return payload;
   const sourceSystems = mergedValues(existing.x_source_systems, payload.values.x_source_systems, "; ");
   const preserveWhenMissing = (incoming: string, prior: unknown) => incoming || (typeof prior === "string" ? prior : "");
+  const preserveVerifiedRelationship = existing.x_warm_connection_verified === true
+    && payload.values.x_warm_connection_verified !== true;
+  const preservedEmailMatchTag = existingEmailMatchTag(existing, registry);
+  const appointmentPriority = (status: unknown) => status === "iacoustics-appointed" ? 3
+    : status === "competitor-appointed" ? 2 : status === "needs-verification" ? 1 : 0;
+  const preserveAppointment = appointmentPriority(existing.x_acoustic_appointment_status)
+    > appointmentPriority(payload.values.x_acoustic_appointment_status);
+  const preservedAppointmentStatus = preserveAppointment
+    ? String(existing.x_acoustic_appointment_status)
+    : payload.values.x_acoustic_appointment_status;
+  const preservedStatusTag = appointmentTagName(preservedAppointmentStatus);
   return {
     ...payload,
+    emailMatchTagName: preserveVerifiedRelationship ? preservedEmailMatchTag : payload.emailMatchTagName,
+    statusTagNames: preservedStatusTag ? [preservedStatusTag] : [],
     attribution: {
       ...payload.attribution,
       sourceName: sourceSystems.includes(";") ? "Helmonic Tender Intelligence" : payload.attribution.sourceName,
@@ -461,6 +754,39 @@ function payloadWithExistingEvidence(payload: OdooLeadDryRun, existing?: Existin
         "\n",
       ),
       x_party_details: mergedValues(existing.x_party_details, payload.values.x_party_details, "\n"),
+      x_assigned_person: preserveVerifiedRelationship
+        ? preserveWhenMissing("", existing.x_assigned_person)
+        : payload.values.x_assigned_person,
+      x_warm_connection_verified: preserveVerifiedRelationship || payload.values.x_warm_connection_verified,
+      x_routing_reason: preserveVerifiedRelationship
+        ? preserveWhenMissing("", existing.x_routing_reason)
+        : payload.values.x_routing_reason,
+      x_acoustic_appointment_status: preservedAppointmentStatus,
+      x_appointed_acoustician: preserveAppointment
+        ? preserveWhenMissing("", existing.x_appointed_acoustician)
+        : payload.values.x_appointed_acoustician,
+      x_appointment_evidence: preserveAppointment
+        ? preserveWhenMissing("", existing.x_appointment_evidence)
+        : payload.values.x_appointment_evidence,
+      x_appointment_evidence_source_url: preserveAppointment
+        ? preserveWhenMissing("", existing.x_appointment_evidence_source_url)
+        : payload.values.x_appointment_evidence_source_url,
+      x_competitive_quote_opportunity: preserveAppointment
+        ? existing.x_competitive_quote_opportunity === true
+        : payload.values.x_competitive_quote_opportunity,
+      x_outreach_eligibility: preserveAppointment
+        ? preserveWhenMissing("", existing.x_outreach_eligibility)
+        : payload.values.x_outreach_eligibility,
+      x_outreach_suppression_reason: preserveAppointment
+        ? preserveWhenMissing("", existing.x_outreach_suppression_reason)
+        : payload.values.x_outreach_suppression_reason,
+      x_outreach_key: preserveWhenMissing(payload.values.x_outreach_key, existing.x_outreach_key),
+      x_lead_quality: preserveAppointment && preservedAppointmentStatus === "iacoustics-appointed"
+        ? "existing-project"
+        : payload.values.x_lead_quality,
+      x_pipeline_bucket: preserveAppointment && preservedAppointmentStatus === "iacoustics-appointed"
+        ? "already-won"
+        : payload.values.x_pipeline_bucket,
     },
   };
 }
@@ -480,6 +806,11 @@ export async function syncOdooLeads(
       contactsCreated: 0,
       contactsMatched: 0,
       attributionRecordsCreated: 0,
+      emailMatchTagsCreated: 0,
+      emailMatchTagsLinked: 0,
+      sourceTagsCreated: 0,
+      sourceTagsLinked: 0,
+      historicalRecordsNormalized: 0,
       failures: [],
     };
   }
@@ -488,6 +819,7 @@ export async function syncOdooLeads(
   assertRoutingConfig(config, payloads);
   await assertSupportedVersion(config, odooFetch);
   const { fields } = await assertFieldsExist(config, payloads, odooFetch);
+  const tagRegistry = await loadTagRegistry(config, odooFetch);
 
   const result: OdooSyncResult = {
     status: "completed",
@@ -498,6 +830,11 @@ export async function syncOdooLeads(
     contactsCreated: 0,
     contactsMatched: 0,
     attributionRecordsCreated: 0,
+    emailMatchTagsCreated: 0,
+    emailMatchTagsLinked: 0,
+    sourceTagsCreated: 0,
+    sourceTagsLinked: 0,
+    historicalRecordsNormalized: 0,
     failures: [],
   };
   for (const payload of payloads) {
@@ -506,6 +843,7 @@ export async function syncOdooLeads(
         domain: [[config.externalIdField, "=", payload.matchValue]],
         fields: [
           "id",
+          "tag_ids",
           "partner_name",
           "contact_name",
           "email_from",
@@ -518,18 +856,43 @@ export async function syncOdooLeads(
           "x_source_record_ids",
           "x_source_urls",
           "x_evidence_document_urls",
+          "x_assigned_person",
+          "x_warm_connection_verified",
+          "x_routing_reason",
+          "x_acoustic_appointment_status",
+          "x_appointed_acoustician",
+          "x_appointment_evidence",
+          "x_appointment_evidence_source_url",
+          "x_competitive_quote_opportunity",
+          "x_outreach_eligibility",
+          "x_outreach_suppression_reason",
+          "x_outreach_key",
         ],
         limit: 2,
       }, odooFetch) as ExistingLeadValues[];
       if (!Array.isArray(matches)) throw new Error("Odoo search_read returned an invalid response.");
       if (matches.length > 1) throw new Error("More than one Odoo lead has the same Helmonic external ID.");
-      const effectivePayload = payloadWithExistingEvidence(payload, matches[0]);
+      const effectivePayload = payloadWithExistingEvidence(payload, matches[0], tagRegistry);
       const attribution = await attributionValues(effectivePayload, config, odooFetch);
+      const sourceTags = await sourceTagValues(effectivePayload, config, tagRegistry, odooFetch);
+      const emailMatchTag = await emailMatchTagValues(effectivePayload, config, tagRegistry, odooFetch);
       const contact = await primaryContactId(effectivePayload, config, odooFetch);
-      const linkedValues: Record<string, unknown> = { ...attribution.values };
+      const tagCommands = managedTagCommands(
+        matches[0]?.tag_ids ?? [],
+        [...sourceTags.ids, ...emailMatchTag.ids],
+        tagRegistry,
+      );
+      const linkedValues: Record<string, unknown> = {
+        ...attribution.values,
+        ...(tagCommands.length ? { tag_ids: tagCommands } : {}),
+      };
       if (contact.id) linkedValues.partner_id = contact.id;
       const values = valuesForOdoo(effectivePayload, config, fields, linkedValues);
       result.attributionRecordsCreated += attribution.created;
+      result.emailMatchTagsCreated += emailMatchTag.created;
+      result.emailMatchTagsLinked += emailMatchTag.linked;
+      result.sourceTagsCreated += sourceTags.created;
+      result.sourceTagsLinked += sourceTags.linked;
       result.contactsCreated += Number(contact.created);
       result.contactsMatched += Number(contact.matched);
       if (matches.length === 1 && Number.isFinite(matches[0]?.id)) {
@@ -552,5 +915,10 @@ export async function syncOdooLeads(
       .join("; ");
     throw new Error(`Odoo synchronization completed with ${result.failures.length} failed record(s): ${details}`);
   }
+  result.historicalRecordsNormalized = await normalizeHistoricalOdooRecords(
+    config,
+    tagRegistry,
+    odooFetch,
+  );
   return result;
 }
