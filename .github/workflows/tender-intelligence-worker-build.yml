@@ -2,6 +2,16 @@ name: Build Tender Intelligence worker image
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/tender-intelligence-release
+    paths:
+      - Dockerfile.tender-intelligence
+      - package.json
+      - package-lock.json
+      - scripts/tender_intelligence/**
+      - src/lib/tender-intelligence/**
+      - .github/workflows/tender-intelligence-worker-build.yml
 
 permissions:
   contents: read
@@ -47,4 +57,3 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-
