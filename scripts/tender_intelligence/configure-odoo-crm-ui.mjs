@@ -141,9 +141,16 @@ const viewArchitecture = `<data>
     <attribute name="string">Acoustic Consultant</attribute>
   </xpath>
   <xpath expr="//field[@name='expected_revenue']/ancestor::h2" position="attributes">
-    <attribute name="invisible">x_helmonic_external_id</attribute>
+    <attribute name="invisible" add="x_helmonic_external_id" separator=" or "/>
+  </xpath>
+  <xpath expr="//field[@name='probability']" position="attributes">
+    <attribute name="invisible" add="x_helmonic_external_id" separator=" or "/>
+  </xpath>
+  <xpath expr="//field[@name='date_deadline']" position="attributes">
+    <attribute name="invisible" add="x_helmonic_external_id" separator=" or "/>
   </xpath>
   <xpath expr="//field[@name='date_deadline']" position="after">
+    <field name="x_deadline" string="Action Deadline" invisible="not x_helmonic_external_id"/>
     <field name="x_lead_quality" string="Lead Quality" invisible="not x_helmonic_external_id"/>
     <field name="x_warm_connection_verified" string="Verified Email Match" invisible="not x_helmonic_external_id"/>
     <field name="x_deadline_urgency" string="Deadline Urgency" invisible="not x_helmonic_external_id"/>
