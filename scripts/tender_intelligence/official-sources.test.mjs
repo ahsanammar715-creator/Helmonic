@@ -79,6 +79,8 @@ import {
   residentialUnitCount,
 } from "../../src/lib/tender-intelligence/lead-qualification.ts";
 import { xlsxFirstSheetToCsv } from "../../src/lib/tender-intelligence/xlsx.ts";
+import { applyAppointmentSafeguards } from "../../src/lib/tender-intelligence/appointment-classification.ts";
+import { BUILDINGINFO_NATIVE_SEARCH_PROFILE } from "../../src/lib/tender-intelligence/building-info-search-profile.ts";
 
 function planningLead(overrides = {}) {
   return {
@@ -144,6 +146,70 @@ test("closed leads remain retained as closed background records", () => {
   const assessed = assessLeadQuality(planningLead({ sourceStatus: "awarded" }));
   assert.equal(assessed.quality, "closed-background");
   assert.equal(assessed.disposition, "background");
+});
+
+test("explicit iAcoustics appointment is retained as already won and cold outreach is suppressed", () => {
+  const [guarded] = applyAppointmentSafeguards(annotateOpportunityDuplicates([planningLead({
+    evidenceExcerpt: "Integrated Acoustic Solutions Ltd has been appointed as the acoustic consultant for this development.",
+  })]));
+  const assessed = qualifyLead(guarded);
+  assert.equal(assessed.acousticAppointmentStatus, "iacoustics-appointed");
+  assert.equal(assessed.leadQuality, "existing-project");
+  assert.equal(assessed.leadDisposition, "already-won");
+  assert.equal(assessed.outreachEligibility, "suppressed-already-won");
+  assert.equal(assessed.competitiveQuoteOpportunity, false);
+  assert.match(assessed.outreachKey, /^planning-outreach:/);
+});
+
+test("an iAcoustics mention without explicit appointment is held for verification", () => {
+  const [guarded] = applyAppointmentSafeguards(annotateOpportunityDuplicates([planningLead({
+    evidenceExcerpt: "The applicant supplied an earlier iAcoustics report as background information.",
+  })]));
+  assert.equal(guarded.acousticAppointmentStatus, "needs-verification");
+  assert.equal(guarded.outreachEligibility, "consultant-review");
+  assert.equal(guarded.competitiveQuoteOpportunity, false);
+});
+
+test("an explicitly appointed competitor stays in the pipeline for a reviewed competitive quote", () => {
+  const [guarded] = applyAppointmentSafeguards(annotateOpportunityDuplicates([planningLead({
+    appointedAcoustician: "Example Noise Consultants Ltd",
+    appointmentEvidenceExcerpt: "Example Noise Consultants Ltd has been appointed as acoustic consultant.",
+  })]));
+  assert.equal(guarded.acousticAppointmentStatus, "competitor-appointed");
+  assert.equal(guarded.appointedAcoustician, "Example Noise Consultants Ltd");
+  assert.equal(guarded.competitiveQuoteOpportunity, true);
+  assert.equal(guarded.outreachEligibility, "consultant-review");
+});
+
+test("strict cross-source duplicates share one outreach guard and strongest appointment evidence", () => {
+  const guarded = applyAppointmentSafeguards(annotateOpportunityDuplicates([
+    planningLead({
+      id: "bi-appointment",
+      sourceSystem: "BuildingInfo",
+      sourceRecordId: "424562",
+      projectReference: "2660722",
+      planningAuthority: "Wicklow County Council",
+      appointedAcoustician: "iAcoustics",
+      appointmentEvidenceExcerpt: "iAcoustics has been appointed as acoustic consultant.",
+    }),
+    planningLead({
+      id: "npr-appointment",
+      sourceSystem: "National Planning Register",
+      sourceRecordId: "Wicklow County Council:2660722",
+      projectReference: "2660722",
+      planningAuthority: "Wicklow County Council",
+    }),
+  ]));
+  assert.equal(new Set(guarded.map((record) => record.outreachKey)).size, 1);
+  assert.ok(guarded.every((record) => record.acousticAppointmentStatus === "iacoustics-appointed"));
+  assert.ok(guarded.every((record) => record.outreachEligibility === "suppressed-already-won" || record.outreachEligibility === "suppressed-duplicate"));
+});
+
+test("the native BuildingInfo profile is an export boundary rather than a scraper", () => {
+  assert.match(BUILDINGINFO_NATIVE_SEARCH_PROFILE.operatingBoundary, /no automated website scraping/i);
+  assert.ok(BUILDINGINFO_NATIVE_SEARCH_PROFILE.geography.includedCounties.includes("Wicklow"));
+  assert.equal(BUILDINGINFO_NATIVE_SEARCH_PROFILE.geography.excludedRegion, "Northern Ireland");
+  assert.ok(BUILDINGINFO_NATIVE_SEARCH_PROFILE.preferredExportFields.includes("appointed_acoustician"));
 });
 
 test("recency boosts priority but never excludes an older worthwhile job", () => {
@@ -280,6 +346,8 @@ test("Odoo payload populates native contact, planning attribution, sector and re
       phone: "0402 33477",
     }],
     routedTo: "Glen",
+    emailRelationshipStatus: "verified-single-owner",
+    emailRelationshipOwner: "Glen",
   }), new Date("2026-10-07T12:00:00.000Z"))]);
   const [payload] = buildOdooDryRun(records);
   assert.equal(payload.values.partner_name, "Armstrong Timber Engineering Ltd.");
@@ -289,14 +357,117 @@ test("Odoo payload populates native contact, planning attribution, sector and re
   assert.equal(payload.values.function, "Applicant");
   assert.equal(payload.values.street, "Kish Business Park, Clogga Road, Arklow, Co. Wicklow");
   assert.equal(payload.values.date_deadline, "2026-10-28");
-  assert.equal(payload.values.x_studio_reference, "2660722");
+  assert.equal(payload.values.name, "[BI] €3.2m Industrial Unit Development in Arklow");
+  assert.equal(payload.values.x_studio_reference, "BI-2660722");
   assert.equal(payload.values.x_studio_project_sector, "Industrial");
-  assert.match(payload.values.description, /Original source: https:\/\/example\.test\/project/);
+  assert.match(payload.values.description, /LINKS\s+https:\/\/example\.test\/project/);
   assert.deepEqual(payload.attribution, {
     campaignName: "Planning Outreach - Acoustics",
     mediumName: "Planning Intelligence",
     sourceName: "BuildingInfo",
   });
+});
+
+test("Odoo exposes appointment evidence, competitive status and the outreach safeguard", () => {
+  const [guarded] = applyAppointmentSafeguards(annotateOpportunityDuplicates([planningLead({
+    sourceSystem: "BuildingInfo",
+    sourceRecordId: "BI-APPOINTED-1",
+    appointedAcoustician: "Example Acoustics Ltd",
+    appointmentEvidenceExcerpt: "Example Acoustics Ltd has been appointed as acoustic consultant.",
+    appointmentEvidenceSourceUrl: "https://example.test/appointment-evidence",
+    buildingInfoSearchProfile: "iAcoustics acoustic opportunity watch",
+  })]));
+  const [payload] = buildOdooDryRun([qualifyLead(guarded)]);
+  assert.equal(payload.values.x_acoustic_appointment_status, "competitor-appointed");
+  assert.equal(payload.values.x_appointed_acoustician, "Example Acoustics Ltd");
+  assert.equal(payload.values.x_competitive_quote_opportunity, true);
+  assert.equal(payload.values.x_outreach_eligibility, "consultant-review");
+  assert.match(payload.values.x_outreach_key, /^planning-outreach:/);
+  assert.equal(payload.values.x_buildinginfo_search_profile, "iAcoustics acoustic opportunity watch");
+  assert.deepEqual(payload.statusTagNames, ["Competitor Appointed"]);
+  assert.match(payload.values.description, /APPOINTMENT & OUTREACH SAFEGUARD/);
+  assert.match(payload.values.description, /Appointment evidence source: https:\/\/example\.test\/appointment-evidence/);
+});
+
+test("Odoo payload exposes an explicit visible tag for a verified email relationship", () => {
+  const lookup = buildRelationshipLookup([{
+    name: "Alan Armstrong",
+    email: "sales@ate.ie",
+    evidence_refs: ["[E:glen:424562]"],
+    email_subject: "Arklow industrial unit follow-up",
+    email_sent_at: "2026-09-18T10:15:00Z",
+    email_source_uri: "restricted-email://glen/424562",
+    previous_projects: ["Earlier Arklow industrial project"],
+  }]);
+  const routed = routeOpportunityByRelationships(planningLead({
+    id: "email-match-odoo",
+    evidenceStatus: "official-text",
+    classification: "noise-related-rfi",
+    parties: [{
+      role: "applicant",
+      name: "Alan Armstrong",
+      organisation: "Armstrong Timber Engineering Ltd.",
+      email: "sales@ate.ie",
+    }],
+  }), lookup);
+  const [payload] = buildOdooDryRun(annotateOpportunityDuplicates([
+    qualifyLead(routed, new Date("2026-10-09T12:00:00.000Z")),
+  ]));
+  assert.equal(payload.values.x_warm_connection_verified, true);
+  assert.equal(payload.emailMatchTagName, "Email Match: Glen");
+  assert.deepEqual(payload.sourceTagNames, ["DCC"]);
+  assert.match(payload.values.description, /Source: DCC \(DCC\)/);
+  assert.match(payload.values.description, /Alan Armstrong <sales@ate\.ie>/);
+  assert.match(payload.values.description, /Matched email date: 2026-09-18T10:15:00Z/);
+  assert.match(payload.values.description, /Matched email subject: Arklow industrial unit follow-up/);
+  assert.match(payload.values.description, /Evidence source: Restricted iAcoustics consultant email evidence index/);
+  assert.match(payload.values.description, /Source message URI: restricted-email:\/\/glen\/424562/);
+  assert.match(payload.values.description, /Evidence reference\(s\): \[E:glen:424562\]/);
+  assert.match(payload.values.description, /Consultant: Glen Plunkett/);
+});
+
+test("Odoo marks an exact email relationship to multiple owners as verified and visibly tagged", () => {
+  const [payload] = buildOdooDryRun([{
+    ...planningLead({
+      id: "multi-owner-email-match-odoo",
+      evidenceStatus: "official-text",
+      classification: "noise-related-rfi",
+      emailRelationshipStatus: "verified-multiple-owners",
+      routedTo: "Glen",
+      routingStatus: "routed",
+      routingReason: "balanced-assignment-to-glen-because-both-relationship-histories-exist",
+    }),
+    crmExternalId: "helmonic-lead:multi-owner-email-match-odoo",
+  }]);
+  assert.equal(payload.values.x_warm_connection_verified, true);
+  assert.equal(payload.emailMatchTagName, "Email Match: Glen");
+  assert.equal(payload.values.x_assigned_person, "Glen Plunkett");
+  assert.match(payload.values.description, /exact history exists for both Glen and Eoghan/);
+});
+
+test("Odoo selects a reachable project contact instead of an unreachable higher-role party", () => {
+  const [payload] = buildOdooDryRun([{
+    ...planningLead({
+      id: "reachable-contact-odoo",
+      applicant: "Applicant Holdings Limited",
+      parties: [
+        { role: "applicant", name: "Applicant Holdings Limited", organisation: "Applicant Holdings Limited" },
+        {
+          role: "architect",
+          name: "Alex Architect",
+          organisation: "Example Architects",
+          email: "alex@example.test",
+          phone: "01 234 5678",
+        },
+      ],
+    }),
+    crmExternalId: "helmonic-lead:reachable-contact-odoo",
+  }]);
+  assert.equal(payload.values.partner_name, "Example Architects");
+  assert.equal(payload.values.contact_name, "Alex Architect");
+  assert.equal(payload.values.email_from, "alex@example.test");
+  assert.equal(payload.values.phone, "01 234 5678");
+  assert.equal(payload.values.function, "Architect");
 });
 
 test("Odoo keeps planning and tender sources in explicitly separate attribution labels", () => {
@@ -380,6 +551,7 @@ test("Odoo preflight validates the complete contract and routing with zero write
           campaign_id: "many2one",
           medium_id: "many2one",
           source_id: "many2one",
+          tag_ids: "many2many",
           type: "selection",
           team_id: "many2one",
           user_id: "many2one",
@@ -445,6 +617,7 @@ test("Odoo JSON-2 upsert creates once and updates on a repeated run", async () =
           campaign_id: "many2one",
           medium_id: "many2one",
           source_id: "many2one",
+          tag_ids: "many2many",
           type: "selection",
           team_id: "many2one",
           user_id: "many2one",
@@ -487,6 +660,105 @@ test("Odoo JSON-2 upsert creates once and updates on a repeated run", async () =
   assert.equal(writes, 1);
 });
 
+test("Odoo pipeline priority leads with qualified verified email matches", async () => {
+  const payloads = buildOdooDryRun([
+    {
+      ...planningLead({
+        id: "warm-priority",
+        leadQuality: "good",
+        leadDisposition: "active",
+        emailRelationshipStatus: "verified-single-owner",
+        emailRelationshipOwner: "Glen",
+        routedTo: "Glen",
+      }),
+      crmExternalId: "helmonic-lead:warm-priority",
+    },
+    {
+      ...planningLead({
+        id: "excellent-unmatched-priority",
+        leadQuality: "excellent",
+        leadDisposition: "active",
+        emailRelationshipStatus: "no-confirmed-match",
+        routedTo: "Owen",
+      }),
+      crmExternalId: "helmonic-lead:excellent-unmatched-priority",
+    },
+  ]);
+  const writtenPriorities = new Map();
+  const fetcher = async (request, options = {}) => {
+    const url = String(request);
+    const body = options.body ? JSON.parse(String(options.body)) : {};
+    if (url.endsWith("/web/version")) return Response.json({ version_info: [19, 0, 0, "final"] });
+    if (url.endsWith("/crm.lead/fields_get")) {
+      return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
+        type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
+          name: "char", description: "html", partner_name: "char", contact_name: "char",
+          email_from: "char", phone: "char", function: "char", street: "char", date_deadline: "date",
+          partner_id: "many2one", campaign_id: "many2one", medium_id: "many2one", source_id: "many2one",
+          tag_ids: "many2many", type: "selection", team_id: "many2one", user_id: "many2one", priority: "selection",
+        }[field] ?? "char"),
+        ...(field === "x_studio_project_sector" ? { selection: [["other", "Other"]] } : {}),
+      }])));
+    }
+    if (url.endsWith("/crm.lead/search_read")) return Response.json([]);
+    if (url.endsWith("/crm.lead/create")) {
+      const values = body.vals_list[0];
+      writtenPriorities.set(values.x_helmonic_external_id, values.priority);
+      return Response.json([writtenPriorities.size]);
+    }
+    return new Response("Unexpected request", { status: 500 });
+  };
+  await syncOdooLeads(payloads, {
+    enabled: true,
+    baseUrl: "https://odoo.example.test",
+    apiKey: "test-only-key",
+    salesTeamId: 1,
+    glenUserId: 7,
+    eoghanUserId: 6,
+  }, fetcher);
+  assert.equal(writtenPriorities.get("helmonic-lead:warm-priority"), "3");
+  assert.equal(writtenPriorities.get("helmonic-lead:excellent-unmatched-priority"), "2");
+});
+
+test("Odoo pipeline rank keeps RFIs first and email matches first within the urgent queue", () => {
+  const records = [
+    planningLead({
+      id: "matched-rfi-rank",
+      classification: "noise-related-rfi",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      emailRelationshipStatus: "verified-single-owner",
+      emailRelationshipOwner: "Glen",
+      routedTo: "Glen",
+      crmExternalId: "helmonic-lead:matched-rfi-rank",
+    }),
+    planningLead({
+      id: "unmatched-rfi-rank",
+      classification: "noise-related-rfi",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      emailRelationshipStatus: "no-confirmed-match",
+      routedTo: "Owen",
+      crmExternalId: "helmonic-lead:unmatched-rfi-rank",
+    }),
+    planningLead({
+      id: "matched-standard-rank",
+      classification: "design-construction-potential",
+      leadQuality: "good",
+      leadDisposition: "active",
+      emailRelationshipStatus: "verified-single-owner",
+      emailRelationshipOwner: "Glen",
+      routedTo: "Glen",
+      crmExternalId: "helmonic-lead:matched-standard-rank",
+    }),
+  ];
+  const payloads = buildOdooDryRun(records);
+  const ranks = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values.x_pipeline_priority_rank]));
+  assert.equal(ranks["helmonic-lead:matched-rfi-rank"], 1100);
+  assert.equal(ranks["helmonic-lead:unmatched-rfi-rank"], 1000);
+  assert.equal(ranks["helmonic-lead:matched-standard-rank"], 900);
+});
+
 test("Odoo synchronization can create missing attribution records, link the primary contact and update one existing lead", async () => {
   const records = annotateOpportunityDuplicates([qualifyLead(planningLead({
     id: "buildinginfo-contact-sync",
@@ -507,6 +779,8 @@ test("Odoo synchronization can create missing attribution records, link the prim
       phone: "0402 33477",
     }],
     routedTo: "Glen",
+    emailRelationshipStatus: "verified-single-owner",
+    emailRelationshipOwner: "Glen",
   }), new Date("2026-10-07T12:00:00.000Z"))]);
   const payloads = buildOdooDryRun(records);
   const createdModels = [];
@@ -531,6 +805,7 @@ test("Odoo synchronization can create missing attribution records, link the prim
           campaign_id: "many2one",
           medium_id: "many2one",
           source_id: "many2one",
+          tag_ids: "many2many",
           type: "selection",
           team_id: "many2one",
           user_id: "many2one",
@@ -543,6 +818,7 @@ test("Odoo synchronization can create missing attribution records, link the prim
     if (url.endsWith("/utm.campaign/search_read")
       || url.endsWith("/utm.medium/search_read")
       || url.endsWith("/utm.source/search_read")
+      || url.endsWith("/crm.tag/search_read")
       || url.endsWith("/res.partner/search_read")) return Response.json([]);
     if (url.endsWith("/utm.campaign/create")) {
       createdModels.push("campaign");
@@ -555,6 +831,16 @@ test("Odoo synchronization can create missing attribution records, link the prim
     if (url.endsWith("/utm.source/create")) {
       createdModels.push("source");
       return Response.json([103]);
+    }
+    if (url.endsWith("/crm.tag/create")) {
+      const name = body.vals_list[0].name;
+      if (name === "BI") {
+        createdModels.push("source-tag");
+        return Response.json([105]);
+      }
+      createdModels.push("email-tag");
+      assert.equal(name, "Email Match: Glen");
+      return Response.json([106]);
     }
     if (url.endsWith("/res.partner/create")) {
       createdModels.push("contact");
@@ -576,20 +862,140 @@ test("Odoo synchronization can create missing attribution records, link the prim
     glenUserId: 7,
     populateAttribution: true,
     createMissingAttribution: true,
+    populateEmailMatchTags: true,
+    createMissingEmailMatchTags: true,
+    populateSourceTags: true,
+    createMissingSourceTags: true,
     linkPrimaryContact: true,
     createMissingContacts: true,
     requestIntervalMs: 0,
   }, fetcher);
-  assert.deepEqual(createdModels, ["campaign", "medium", "source", "contact"]);
+  assert.deepEqual(createdModels, ["campaign", "medium", "source", "source-tag", "email-tag", "contact"]);
   assert.equal(writtenValues.partner_id, 104);
   assert.equal(writtenValues.campaign_id, 101);
   assert.equal(writtenValues.medium_id, 102);
   assert.equal(writtenValues.source_id, 103);
+  assert.deepEqual(writtenValues.tag_ids, [[4, 105], [4, 106]]);
   assert.equal(writtenValues.x_studio_project_sector, "industrial");
-  assert.equal(writtenValues.x_studio_reference, "2660722");
+  assert.equal(writtenValues.x_studio_reference, "BI-2660722");
   assert.equal(result.updated, 1);
   assert.equal(result.contactsCreated, 1);
   assert.equal(result.attributionRecordsCreated, 3);
+  assert.equal(result.emailMatchTagsCreated, 1);
+  assert.equal(result.emailMatchTagsLinked, 1);
+  assert.equal(result.sourceTagsCreated, 1);
+  assert.equal(result.sourceTagsLinked, 1);
+});
+
+test("Odoo normalization upgrades every retained lead without touching manual tags", async () => {
+  const records = annotateOpportunityDuplicates([qualifyLead(planningLead({
+    id: "current-source-code-record",
+    sourceRecordId: "Dublin City:WEB2000/26",
+    projectReference: "WEB2000/26",
+    planningAuthority: "Dublin City Council",
+  }), new Date("2026-10-09T12:00:00.000Z"))]);
+  const payloads = buildOdooDryRun(records);
+  const writes = [];
+  const fetcher = async (request, options = {}) => {
+    const url = String(request);
+    const body = options.body ? JSON.parse(String(options.body)) : {};
+    if (url.endsWith("/web/version")) return Response.json({ version_info: [19, 0, 0, "final"] });
+    if (url.endsWith("/crm.lead/fields_get")) {
+      return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
+        type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
+          name: "char",
+          description: "html",
+          partner_name: "char",
+          contact_name: "char",
+          email_from: "char",
+          phone: "char",
+          function: "char",
+          street: "char",
+          date_deadline: "date",
+          partner_id: "many2one",
+          campaign_id: "many2one",
+          medium_id: "many2one",
+          source_id: "many2one",
+          tag_ids: "many2many",
+          type: "selection",
+          team_id: "many2one",
+          user_id: "many2one",
+          priority: "selection",
+        }[field] ?? "char"),
+      }])));
+    }
+    if (url.endsWith("/crm.tag/search_read")) return Response.json([
+      { id: 1, name: "Source: National Planning Register" },
+      { id: 2, name: "Email Match - Multiple Owners" },
+      { id: 3, name: "NPR" },
+      { id: 4, name: "Email Match: Glen + Eoghan" },
+      { id: 5, name: "Manual outreach tag" },
+      { id: 6, name: "DCC" },
+    ]);
+    if (url.endsWith("/crm.lead/search_read")) {
+      if (body.domain?.[0]?.[1] === "!=") return Response.json([
+        {
+          id: 69,
+          name: "J-current",
+          tag_ids: [3],
+          x_helmonic_external_id: payloads[0].matchValue,
+          x_source_systems: "DCC",
+          x_project_reference: "WEB2000/26",
+          x_studio_reference: "DCC-WEB2000/26",
+          x_warm_connection_verified: false,
+        },
+        {
+          id: 70,
+          name: "J-legacy",
+          tag_ids: [1, 2, 5],
+          x_helmonic_external_id: "helmonic-lead:retained-history",
+          x_source_systems: "National Planning Register",
+          x_project_reference: "WEB1999/26",
+          x_studio_reference: "WEB1999/26",
+          x_warm_connection_verified: true,
+          x_lead_quality: "good",
+          x_pipeline_bucket: "nurture",
+          x_pipeline_priority_rank: 0,
+          x_pipeline_priority_reason: false,
+          x_classification: "needs-council-evidence",
+        },
+      ]);
+      return Response.json([{ id: 69, tag_ids: [3] }]);
+    }
+    if (url.endsWith("/crm.lead/write")) {
+      writes.push({ ids: body.ids, vals: body.vals });
+      return Response.json(true);
+    }
+    return new Response("Unexpected request", { status: 500 });
+  };
+  const result = await syncOdooLeads(payloads, {
+    enabled: true,
+    baseUrl: "https://odoo.example.test",
+    database: "test",
+    apiKey: "test-only-key",
+    salesTeamId: 1,
+    glenUserId: 7,
+    eoghanUserId: 6,
+    populateEmailMatchTags: true,
+    createMissingEmailMatchTags: true,
+    populateSourceTags: true,
+    createMissingSourceTags: true,
+    normalizeHistoricalRecords: true,
+    requestIntervalMs: 0,
+  }, fetcher);
+  const current = writes.filter((write) => write.ids[0] === 69 && write.vals.name).at(-1);
+  const historical = writes.find((write) => write.ids[0] === 70);
+  assert.equal(result.historicalRecordsNormalized, 2);
+  assert.equal(current.vals.name, "[DCC] J-current");
+  assert.equal(historical.vals.name, "[NPR] J-legacy");
+  assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
+  assert.equal(historical.vals.x_pipeline_priority_rank, 900);
+  assert.equal(
+    historical.vals.x_pipeline_priority_reason,
+    "Qualified opportunity with a verified consultant email relationship",
+  );
+  assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
+  assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
 });
 
 test("Odoo updates preserve prior source and contact evidence from another intake", async () => {
@@ -625,6 +1031,7 @@ test("Odoo updates preserve prior source and contact evidence from another intak
           campaign_id: "many2one",
           medium_id: "many2one",
           source_id: "many2one",
+          tag_ids: "many2many",
           type: "selection",
           team_id: "many2one",
           user_id: "many2one",
@@ -647,6 +1054,17 @@ test("Odoo updates preserve prior source and contact evidence from another intak
       x_source_record_ids: "BuildingInfo:424562",
       x_source_urls: "https://app.buildinginfo.com/p-OTNsZQ==-",
       x_evidence_document_urls: "https://buildinginfo.example/evidence.pdf",
+      x_assigned_person: "Glen Plunkett",
+      x_warm_connection_verified: true,
+      x_routing_reason: "exact-party-match-supported-by-glen-email-evidence",
+      x_acoustic_appointment_status: "iacoustics-appointed",
+      x_appointed_acoustician: "iAcoustics",
+      x_appointment_evidence: "iAcoustics has been appointed as acoustic consultant.",
+      x_appointment_evidence_source_url: "https://buildinginfo.example/appointment.pdf",
+      x_competitive_quote_opportunity: false,
+      x_outreach_eligibility: "suppressed-already-won",
+      x_outreach_suppression_reason: "Already won; cold outreach blocked.",
+      x_outreach_key: "planning-outreach:existing-key",
     }]);
     if (url.endsWith("/utm.campaign/search_read")) return Response.json([{ id: 201, name: "Planning Outreach - Acoustics" }]);
     if (url.endsWith("/utm.medium/search_read")) return Response.json([{ id: 202, name: "Planning Intelligence" }]);
@@ -666,6 +1084,7 @@ test("Odoo updates preserve prior source and contact evidence from another intak
     database: "test",
     apiKey: "test-only-key",
     salesTeamId: 1,
+    glenUserId: 7,
     eoghanUserId: 6,
     populateAttribution: true,
     requestIntervalMs: 0,
@@ -678,6 +1097,13 @@ test("Odoo updates preserve prior source and contact evidence from another intak
   assert.equal(writtenValues.email_from, "sales@ate.ie");
   assert.equal(writtenValues.phone, "0402 33477");
   assert.equal(writtenValues.source_id, 203);
+  assert.equal(writtenValues.x_warm_connection_verified, true);
+  assert.equal(writtenValues.user_id, 7);
+  assert.equal(writtenValues.x_acoustic_appointment_status, "iacoustics-appointed");
+  assert.equal(writtenValues.x_appointed_acoustician, "iAcoustics");
+  assert.equal(writtenValues.x_outreach_eligibility, "suppressed-already-won");
+  assert.equal(writtenValues.x_lead_quality, "existing-project");
+  assert.equal(writtenValues.x_pipeline_bucket, "already-won");
 });
 
 test("Odoo preflight refuses every write when a required field is missing", async () => {
@@ -884,6 +1310,19 @@ test("repeated BuildingInfo weekly rows collapse to one stable project while pre
   assert.equal(records[0].evidenceDocuments.length, 2);
   assert.match(records[0].evidenceExcerpt, /acoustic assessment/);
   assert.match(records[0].evidenceExcerpt, /vibration report/);
+});
+
+test("BuildingInfo export carries appointment evidence and the saved-search identity", () => {
+  const csv = [
+    "project_id,project_title,county,project_url,trigger_type,evidence_document,evidence_excerpt,appointed_acoustician,appointment_evidence,appointment_evidence_url,appointment_evidence_date,source_search_name",
+    "BI-AP-1,Office Development,Dublin,https://app.buildinginfo.test/p-ap-1,RFI,noise.pdf,Submit an acoustic report.,Example Acoustics Ltd,Example Acoustics Ltd has been appointed as acoustic consultant.,https://example.test/appointment,2026-10-10,iAcoustics acoustic opportunity watch",
+  ].join("\n");
+  const [record] = parseBuildingInfoCsv(csv, "appointments.csv");
+  assert.equal(record.appointedAcoustician, "Example Acoustics Ltd");
+  assert.match(record.appointmentEvidenceExcerpt, /appointed as acoustic consultant/);
+  assert.equal(record.appointmentEvidenceSourceUrl, "https://example.test/appointment");
+  assert.equal(record.appointmentEvidenceDate, "2026-10-10");
+  assert.equal(record.buildingInfoSearchProfile, "iAcoustics acoustic opportunity watch");
 });
 
 test("BuildingInfo CSV fails closed on missing contract columns or malformed row widths", () => {
@@ -1337,6 +1776,10 @@ test("restricted Search lookup uses exact party evidence without exposing messag
         subject: "Example Architect",
         body_text: "Previous correspondence with contact@example-architect.ie",
         mailbox_owner: "Glen",
+        sent_at: "2025-02-03T09:15:00Z",
+        participants: ["contact@example-architect.ie", "glen.plunkett@iacoustics.net"],
+        project_names: ["Earlier Architect Project"],
+        source_uri: "restricted-email://remote-1",
       }] });
     };
     const result = await loadSearchRelationshipLookup([planningLead({
@@ -1351,6 +1794,8 @@ test("restricted Search lookup uses exact party evidence without exposing messag
     assert.equal(result.queriedParties, 1);
     assert.equal(result.matchedEntities, 1);
     assert.match(requestBody.select, /evidence_ref/);
+    assert.match(requestBody.select, /participants/);
+    assert.match(requestBody.select, /project_names/);
     const routed = routeOpportunityByRelationships(planningLead({
       applicant: "Example Architect Ltd",
       parties: [{
@@ -1361,6 +1806,11 @@ test("restricted Search lookup uses exact party evidence without exposing messag
     }), result.lookup);
     assert.equal(routed.routedTo, "Glen");
     assert.deepEqual(routed.routingEvidence[0].evidenceRefs, ["[E:glen:remote-1]"]);
+    assert.deepEqual(routed.routingEvidence[0].historicalEmails, ["contact@example-architect.ie"]);
+    assert.equal(routed.routingEvidence[0].emailSubject, "Example Architect");
+    assert.equal(routed.routingEvidence[0].emailSentAt, "2025-02-03T09:15:00Z");
+    assert.deepEqual(routed.routingEvidence[0].previousProjects, ["Earlier Architect Project"]);
+    assert.equal(routed.routingEvidence[0].emailSourceUri, "restricted-email://remote-1");
   } finally {
     if (previous.enabled === undefined) delete process.env.HELMONIC_EMAIL_RELATIONSHIP_SEARCH_ENABLED;
     else process.env.HELMONIC_EMAIL_RELATIONSHIP_SEARCH_ENABLED = previous.enabled;
@@ -1395,6 +1845,7 @@ test("party routing uses exact evidence and balanced batch assignment for everyt
   const routed = routeOpportunityByRelationships({ ...base, applicant: "Example Developments Limited" }, lookup);
   assert.equal(routed.routedTo, "Glen");
   assert.equal(routed.routingEvidence[0].evidenceRefs[0], "[E:glen:100]");
+  assert.deepEqual(routed.routingEvidence[0].evidenceOwners, ["Glen"]);
   const ambiguous = routeOpportunityByRelationships({ ...base, applicant: "Dual Contact" }, lookup);
   assert.equal(ambiguous.routedTo, "unassigned");
   assert.equal(ambiguous.routingStatus, "needs-triage");
@@ -1426,6 +1877,31 @@ test("party routing uses exact evidence and balanced batch assignment for everyt
   assert.equal(distributed.filter((record) => record.routingStatus === "needs-triage").length, 0);
   assert.equal(distributed.find((record) => record.id === "exact").routingReason, "exact-party-match-supported-by-glen-email-evidence");
   assert.ok(distributed.filter((record) => record.id !== "exact").every((record) => record.routingReason.startsWith("balanced-assignment-")));
+});
+
+test("email relationship matching checks every lead without promoting an unqualified lead", () => {
+  const lookup = buildRelationshipLookup([{
+    name: "Known Architect",
+    email: "known@example.test",
+    evidence_refs: ["[E:owen:900]"],
+  }]);
+  const routed = routeOpportunityByRelationships(planningLead({
+    id: "unqualified-email-match",
+    evidenceStatus: "discovery-only",
+    classification: "design-construction-potential",
+    parties: [{
+      name: "Known Architect",
+      role: "architect",
+      email: "known@example.test",
+    }],
+  }), lookup);
+  assert.equal(routed.routingStatus, "not-qualified");
+  assert.equal(routed.routedTo, "unassigned");
+  assert.equal(routed.emailRelationshipStatus, "verified-single-owner");
+  assert.equal(routed.emailRelationshipOwner, "Owen");
+  assert.equal(routed.routingEvidence[0].evidenceRefs[0], "[E:owen:900]");
+  assert.equal(routed.routingEvidence[0].matchedEmail, "known@example.test");
+  assert.deepEqual(routed.routingEvidence[0].evidenceOwners, ["Owen"]);
 });
 
 test("PlanningLeads free connector stays within the bounded search contract", () => {
