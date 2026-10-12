@@ -86,6 +86,7 @@ export type OdooLeadDryRun = {
 function actionableDeadline(record: TenderOpportunity) {
   if (record.classification === "noise-related-rfi") return record.responseDeadline ?? "";
   if (record.type === "formal-public-tender") return record.deadline ?? "";
+  if (record.type === "planning-pipeline-lead") return record.deadline ?? "";
   return "";
 }
 
@@ -148,13 +149,81 @@ function ownerDisplayName(record: TenderOpportunity) {
   return "";
 }
 
+function normalizedEmail(value: string | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizedName(value: string | undefined) {
+  return String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function verifiedRelationshipEmails(record: TenderOpportunity) {
+  if (!verifiedWarmConnection(record)) return new Set<string>();
+  return new Set((record.routingEvidence ?? [])
+    .filter((match) => match.matchType !== "exact-domain"
+      && (match.evidenceOwners?.length ?? 0) > 0
+      && match.evidenceRefs.some((reference) => /^\[E:(?:glen|owen):/i.test(reference)))
+    .flatMap((match) => [
+      match.matchedEmail,
+      match.matchType === "exact-email" && match.matchedEntity.includes("@") ? match.matchedEntity : undefined,
+      ...(match.historicalEmails ?? []),
+    ])
+    .map(normalizedEmail)
+    .filter((email) => email.includes("@")));
+}
+
+function enrichedParties(record: TenderOpportunity) {
+  const parties = (record.parties ?? []).map((party) => ({ ...party }));
+  const seenEmails = new Set(parties.map((party) => normalizedEmail(party.email)).filter(Boolean));
+  if (!verifiedWarmConnection(record)) return parties;
+
+  for (const match of record.routingEvidence ?? []) {
+    const evidenceBacked = match.matchType !== "exact-domain"
+      && (match.evidenceOwners?.length ?? 0) > 0
+      && match.evidenceRefs.some((reference) => /^\[E:(?:glen|owen):/i.test(reference));
+    if (!evidenceBacked) continue;
+    const matchedParty = parties.find((party) => normalizedName(party.name) === normalizedName(match.party));
+    const emails = [
+      match.matchedEmail,
+      match.matchType === "exact-email" && match.matchedEntity.includes("@") ? match.matchedEntity : undefined,
+      ...(match.historicalEmails ?? []),
+    ]
+      .map(normalizedEmail)
+      .filter((email) => email.includes("@") && !seenEmails.has(email));
+    for (const email of emails) {
+      const matchedEntityIsParty = normalizedName(match.matchedEntity) === normalizedName(match.party);
+      if (matchedParty && !matchedParty.email && matchedEntityIsParty) {
+        matchedParty.email = email;
+      } else {
+        parties.push({
+          name: match.matchedEntity && !match.matchedEntity.includes("@") ? match.matchedEntity : match.party,
+          role: matchedParty?.role ?? "other",
+          email,
+          ...(matchedParty?.phone ? { phone: matchedParty.phone } : {}),
+          ...(matchedParty?.organisation
+            ? { organisation: matchedParty.organisation }
+            : match.party && normalizedName(match.party) !== normalizedName(match.matchedEntity)
+              ? { organisation: match.party }
+              : {}),
+        });
+      }
+      seenEmails.add(email);
+    }
+  }
+  return parties;
+}
+
 function partyDetails(record: TenderOpportunity) {
-  return (record.parties ?? []).map((party) => [
+  const verifiedEmails = verifiedRelationshipEmails(record);
+  return enrichedParties(record).map((party) => [
     party.role,
     party.name,
     party.organisation,
     party.email || "email not supplied by source",
     party.phone || "phone not supplied by source",
+    party.email && verifiedEmails.has(normalizedEmail(party.email))
+      ? "verified iAcoustics email-history contact"
+      : "source-supplied contact",
   ].filter(Boolean).join(" | ")).join("\n");
 }
 
@@ -262,7 +331,7 @@ function partyContactScore(party: LeadParty) {
 }
 
 function primaryParty(record: TenderOpportunity) {
-  const parties = [...(record.parties ?? [])].sort((left, right) => {
+  const parties = enrichedParties(record).sort((left, right) => {
     const score = partyContactScore(right) - partyContactScore(left);
     if (score !== 0) return score;
     return partyPriority.indexOf(left.role) - partyPriority.indexOf(right.role);
@@ -376,10 +445,11 @@ function htmlLinks(title: string, urls: string[]) {
 }
 
 function allPartyRows(record: TenderOpportunity) {
-  const parties = record.parties ?? [];
+  const parties = enrichedParties(record);
+  const verifiedEmails = verifiedRelationshipEmails(record);
   if (parties.length === 0) return "<p>No project parties were supplied by the source.</p>";
-  return `<table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left">Role</th><th style="text-align:left">Name</th><th style="text-align:left">Organisation</th><th style="text-align:left">Email</th><th style="text-align:left">Phone</th></tr>${parties.map((party) =>
-    `<tr><td>${htmlText(organisationRole(party))}</td><td>${htmlText(party.name)}</td><td>${htmlText(party.organisation)}</td><td>${htmlText(party.email)}</td><td>${htmlText(party.phone)}</td></tr>`,
+  return `<table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left">Role</th><th style="text-align:left">Name</th><th style="text-align:left">Organisation</th><th style="text-align:left">Email</th><th style="text-align:left">Phone</th><th style="text-align:left">Contact provenance</th></tr>${parties.map((party) =>
+    `<tr><td>${htmlText(organisationRole(party))}</td><td>${htmlText(party.name)}</td><td>${htmlText(party.organisation)}</td><td>${htmlText(party.email)}</td><td>${htmlText(party.phone)}</td><td>${htmlText(party.email && verifiedEmails.has(normalizedEmail(party.email)) ? "Verified iAcoustics email-history match" : "Source supplied")}</td></tr>`,
   ).join("")}</table>`;
 }
 
@@ -403,17 +473,70 @@ function appointmentDetails(record: TenderOpportunity) {
   ].filter(Boolean).join("\n");
 }
 
-function pipelinePriority(record: TenderOpportunity) {
+function isPostDecisionStage(record: TenderOpportunity) {
+  return /granted|commencement|construction|on site|completed/i.test(
+    `${record.projectStage ?? ""} ${record.sourceStatus ?? ""}`,
+  );
+}
+
+function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
+  const received = rfiReceivedOrDetectedAt(record);
+  if (!received) return false;
+  const age = calendarDaysRemaining(received, now);
+  return age !== false && age <= 0 && age >= -42;
+}
+
+function pipelinePriority(record: TenderOpportunity, now: Date) {
   const routeable = !["poor", "closed-background", "existing-project"].includes(record.leadQuality ?? "")
     && !["background", "already-won"].includes(record.leadDisposition ?? "");
   const verifiedEmailMatch = verifiedWarmConnection(record) && routeable;
   const rfi = record.classification === "noise-related-rfi" && routeable;
   const buildingInfo = sourceValues(record).codes.split("+").includes("BI");
-  if (buildingInfo && rfi && verifiedEmailMatch) {
-    return { rank: 1200, reason: "BuildingInfo RFI with a verified consultant email relationship" };
+  const rfiDaysRemaining = calendarDaysRemaining(record.responseDeadline ?? "", now);
+  const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
+  const recentUndatedRfi = rfi && rfiDaysRemaining === false && recentRfiWithoutDueDate(record, now);
+  const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
+  const decisionDaysRemaining = calendarDaysRemaining(planningDecisionDueAt(record), now);
+  const stalePendingPlanningDecision = record.type === "planning-pipeline-lead"
+    && !rfi
+    && decisionDaysRemaining !== false
+    && decisionDaysRemaining < 0
+    && !isPostDecisionStage(record);
+
+  if (buildingInfo && liveDatedRfi && verifiedEmailMatch) {
+    return { rank: 1550, reason: "Live human-reviewed BuildingInfo acoustic RFI with a due date and verified consultant email relationship" };
   }
-  if (rfi && verifiedEmailMatch) return { rank: 1100, reason: "Immediate RFI with a verified consultant email relationship" };
-  if (rfi) return { rank: 1000, reason: "Immediate noise-related RFI" };
+  if (buildingInfo && liveDatedRfi) {
+    return { rank: 1500, reason: "Live human-reviewed BuildingInfo acoustic RFI with a published response due date" };
+  }
+  if (buildingInfo && recentUndatedRfi && verifiedEmailMatch) {
+    return { rank: 1450, reason: "Recent human-reviewed BuildingInfo acoustic RFI with verified consultant email history; response due date not supplied" };
+  }
+  if (buildingInfo && recentUndatedRfi) {
+    return { rank: 1400, reason: "Recent human-reviewed BuildingInfo acoustic RFI; response due date not supplied" };
+  }
+  if (liveDatedRfi && verifiedEmailMatch) {
+    return { rank: 1350, reason: "Live acoustic RFI with a due date and verified consultant email relationship" };
+  }
+  if (liveDatedRfi) return { rank: 1300, reason: "Live acoustic RFI with a published response due date" };
+  if (recentUndatedRfi && verifiedEmailMatch) {
+    return { rank: 1200, reason: "Recent acoustic RFI with verified consultant email history; response due date not supplied" };
+  }
+  if (recentUndatedRfi) return { rank: 1100, reason: "Recent acoustic RFI; response due date not supplied" };
+  if (expiredRfi) {
+    return verifiedEmailMatch
+      ? { rank: 450, reason: "RFI response date has passed; retained with verified relationship for consultant review" }
+      : { rank: 250, reason: "RFI response date has passed; retained as background until refreshed" };
+  }
+  if (rfi && verifiedEmailMatch) {
+    return { rank: 1000, reason: "Acoustic RFI with verified consultant email history; RFI dates unavailable" };
+  }
+  if (rfi) return { rank: 950, reason: "Acoustic RFI retained for review; RFI dates unavailable" };
+  if (stalePendingPlanningDecision) {
+    return verifiedEmailMatch
+      ? { rank: 350, reason: "Planning decision due date has passed with no confirmed outcome; refresh required before action" }
+      : { rank: 150, reason: "Planning decision due date has passed with no confirmed outcome; retained as background" };
+  }
   if (verifiedEmailMatch) return { rank: 900, reason: "Qualified opportunity with a verified consultant email relationship" };
   if (record.leadQuality === "excellent") return { rank: 800, reason: "Excellent opportunity without a verified email relationship" };
   if (record.acousticAppointmentStatus === "competitor-appointed") return { rank: 700, reason: "Competitive quotation opportunity requiring consultant review" };
@@ -499,10 +622,10 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
     const externalId = record.crmExternalId;
     if (!externalId) throw new Error(`Record ${record.id} has no stable CRM external ID.`);
     const sources = sourceValues(record);
-    const priority = pipelinePriority(record);
+    const priority = pipelinePriority(record, now);
     const primary = primaryParty(record);
     const organisation = primary?.organisation ?? record.applicant ?? record.buyer ?? "";
-    const contact = primary?.name && primary.name !== organisation ? primary.name : "";
+    const contact = primary?.name ?? "";
     const deadline = actionableDeadline(record);
     payloads.push({
       operation: "upsert",

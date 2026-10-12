@@ -207,6 +207,8 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
     const documentUrl = documentUrlInput
       ? validHttpUrl(documentUrlInput, "evidence document URL", sourceName, rowNumber)
       : projectUrl;
+    const rfiExportContract = Object.keys(row).some((name) =>
+      ["rfireference", "rfideadline", "rfidate"].includes(normalizedHeader(name)));
     const stage = optionalValue(row, ["project_stage", "project stage", "planning_stage", "stage", "status"]);
     const sector = optionalValue(row, ["sector", "project_sector", "project sector", "planning_category", "category"]);
     const projectType = optionalValue(row, ["project_type", "project type", "planning_type", "type", "subsector"]);
@@ -222,7 +224,7 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       projectValue !== undefined && `Value: ${projectValue}`,
     ].filter(Boolean).join("\n");
     const classification = classifyPlanningEvidence({
-      stage: `${triggerType} ${stage}`,
+      stage: `${rfiExportContract ? "Further Information Request" : ""} ${triggerType} ${stage}`,
       evidenceText: excerpt,
       description: `${title} ${description}`,
       evidenceUrl: documentUrl,

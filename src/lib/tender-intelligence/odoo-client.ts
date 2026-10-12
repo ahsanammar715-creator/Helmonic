@@ -577,6 +577,12 @@ type ExistingLeadValues = {
   x_pipeline_priority_rank?: number;
   x_pipeline_priority_reason?: string | false;
   x_classification?: string | false;
+  x_rfi_received_at?: string | false;
+  x_rfi_response_due_at?: string | false;
+  x_decision_due_at?: string | false;
+  x_source_major_updated_at?: string | false;
+  x_first_seen_at?: string | false;
+  x_project_stage?: string | false;
   x_routing_reason?: string | false;
   x_acoustic_appointment_status?: string | false;
   x_appointed_acoustician?: string | false;
@@ -609,7 +615,22 @@ function sourcePrefixedName(name: unknown, codes: string[]) {
   return `[${codes.join("+")}] ${withoutManagedPrefix}`;
 }
 
-function historicalPipelinePriority(record: ExistingLeadValues) {
+function historicalDaysRemaining(value: unknown, now: Date) {
+  if (typeof value !== "string" || !value) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const target = Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate());
+  const current = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.round((target - current) / 86_400_000);
+}
+
+function historicalRecentRfi(record: ExistingLeadValues, now: Date) {
+  const received = record.x_rfi_received_at || record.x_source_major_updated_at || record.x_first_seen_at;
+  const age = historicalDaysRemaining(received, now);
+  return age !== false && age <= 0 && age >= -42;
+}
+
+function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const quality = typeof record.x_lead_quality === "string" ? record.x_lead_quality : "";
   const bucket = typeof record.x_pipeline_bucket === "string" ? record.x_pipeline_bucket : "";
   const routeable = !["poor", "closed-background", "existing-project"].includes(quality)
@@ -617,11 +638,31 @@ function historicalPipelinePriority(record: ExistingLeadValues) {
   const verifiedEmailMatch = record.x_warm_connection_verified === true && routeable;
   const rfi = record.x_classification === "noise-related-rfi" && routeable;
   const buildingInfo = sourceCodesFromSystems(record.x_source_systems).includes("BI");
-  if (buildingInfo && rfi && verifiedEmailMatch) {
-    return { rank: 1200, reason: "BuildingInfo RFI with a verified consultant email relationship" };
+  const rfiDaysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
+  const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
+  const recentUndatedRfi = rfi && rfiDaysRemaining === false && historicalRecentRfi(record, now);
+  const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
+  const decisionDaysRemaining = historicalDaysRemaining(record.x_decision_due_at, now);
+  const postDecisionStage = /granted|commencement|construction|on site|completed/i.test(String(record.x_project_stage ?? ""));
+  const stalePendingPlanningDecision = !rfi && decisionDaysRemaining !== false && decisionDaysRemaining < 0 && !postDecisionStage;
+  if (buildingInfo && liveDatedRfi && verifiedEmailMatch) {
+    return { rank: 1550, reason: "Live human-reviewed BuildingInfo acoustic RFI with a due date and verified consultant email relationship" };
   }
-  if (rfi && verifiedEmailMatch) return { rank: 1100, reason: "Immediate RFI with a verified consultant email relationship" };
-  if (rfi) return { rank: 1000, reason: "Immediate noise-related RFI" };
+  if (buildingInfo && liveDatedRfi) return { rank: 1500, reason: "Live human-reviewed BuildingInfo acoustic RFI with a published response due date" };
+  if (buildingInfo && recentUndatedRfi && verifiedEmailMatch) return { rank: 1450, reason: "Recent human-reviewed BuildingInfo acoustic RFI with verified consultant email history; response due date not supplied" };
+  if (buildingInfo && recentUndatedRfi) return { rank: 1400, reason: "Recent human-reviewed BuildingInfo acoustic RFI; response due date not supplied" };
+  if (liveDatedRfi && verifiedEmailMatch) return { rank: 1350, reason: "Live acoustic RFI with a due date and verified consultant email relationship" };
+  if (liveDatedRfi) return { rank: 1300, reason: "Live acoustic RFI with a published response due date" };
+  if (recentUndatedRfi && verifiedEmailMatch) return { rank: 1200, reason: "Recent acoustic RFI with verified consultant email history; response due date not supplied" };
+  if (recentUndatedRfi) return { rank: 1100, reason: "Recent acoustic RFI; response due date not supplied" };
+  if (expiredRfi) return verifiedEmailMatch
+    ? { rank: 450, reason: "RFI response date has passed; retained with verified relationship for consultant review" }
+    : { rank: 250, reason: "RFI response date has passed; retained as background until refreshed" };
+  if (rfi && verifiedEmailMatch) return { rank: 1000, reason: "Acoustic RFI with verified consultant email history; RFI dates unavailable" };
+  if (rfi) return { rank: 950, reason: "Acoustic RFI retained for review; RFI dates unavailable" };
+  if (stalePendingPlanningDecision) return verifiedEmailMatch
+    ? { rank: 350, reason: "Planning decision due date has passed with no confirmed outcome; refresh required before action" }
+    : { rank: 150, reason: "Planning decision due date has passed with no confirmed outcome; retained as background" };
   if (verifiedEmailMatch) return { rank: 900, reason: "Qualified opportunity with a verified consultant email relationship" };
   if (quality === "excellent") return { rank: 800, reason: "Excellent opportunity without a verified email relationship" };
   if (record.x_acoustic_appointment_status === "competitor-appointed") {
@@ -647,10 +688,13 @@ async function normalizeHistoricalOdooRecords(
       "x_studio_reference", "x_warm_connection_verified", "x_assigned_person",
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
       "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
+      "x_rfi_received_at", "x_rfi_response_due_at", "x_decision_due_at",
+      "x_source_major_updated_at", "x_first_seen_at", "x_project_stage",
     ],
     limit: 5_000,
   }, fetcher) as ExistingLeadValues[];
   let normalized = 0;
+  const normalizationNow = new Date();
   for (const record of records) {
     if (!Number.isInteger(record.id)) continue;
     const codes = sourceCodesFromSystems(record.x_source_systems);
@@ -684,7 +728,7 @@ async function normalizeHistoricalOdooRecords(
       const reference = `${codes.join("+")}-${record.x_project_reference}`;
       if (reference !== record.x_studio_reference) values.x_studio_reference = reference;
     }
-    const priority = historicalPipelinePriority(record);
+    const priority = historicalPipelinePriority(record, normalizationNow);
     if (record.x_pipeline_priority_rank !== priority.rank) values.x_pipeline_priority_rank = priority.rank;
     if (record.x_pipeline_priority_reason !== priority.reason) values.x_pipeline_priority_reason = priority.reason;
     if (tagCommands.length > 0) values.tag_ids = tagCommands;
