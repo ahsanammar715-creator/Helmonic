@@ -9,6 +9,9 @@ export type OdooLeadDryRun = {
     mediumName: string;
     sourceName: string;
   };
+  emailMatchTagName?: string;
+  sourceTagNames: string[];
+  statusTagNames: string[];
   values: {
     name: string;
     description: string;
@@ -21,11 +24,14 @@ export type OdooLeadDryRun = {
     date_deadline: string | false;
     x_helmonic_external_id: string;
     x_pipeline_bucket: string;
+    x_pipeline_priority_rank: number;
+    x_pipeline_priority_reason: string;
     x_lead_quality: string;
     x_evidence_status: string;
     x_classification: string;
     x_source_systems: string;
     x_source_record_ids: string;
+    x_project_link: string;
     x_source_urls: string;
     x_evidence_excerpt: string;
     x_source_published_at: string | false;
@@ -57,6 +63,15 @@ export type OdooLeadDryRun = {
     x_last_confirmed_at: string | false;
     x_cycle_status: string;
     x_scope_status: string;
+    x_acoustic_appointment_status: string;
+    x_appointed_acoustician: string;
+    x_appointment_evidence: string;
+    x_appointment_evidence_source_url: string;
+    x_competitive_quote_opportunity: boolean;
+    x_outreach_eligibility: string;
+    x_outreach_suppression_reason: string;
+    x_outreach_key: string;
+    x_buildinginfo_search_profile: string;
     x_studio_reference: string;
     x_studio_project_sector: string;
   };
@@ -93,9 +108,84 @@ function partyDetails(record: TenderOpportunity) {
     party.role,
     party.name,
     party.organisation,
-    party.email,
-    party.phone,
+    party.email || "email not supplied by source",
+    party.phone || "phone not supplied by source",
   ].filter(Boolean).join(" | ")).join("\n");
+}
+
+function compact(value: string | undefined, limit: number) {
+  const normalized = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+}
+
+function relationshipDetails(record: TenderOpportunity) {
+  const matches = record.routingEvidence ?? [];
+  if (record.emailRelationshipStatus === "index-unavailable") {
+    return "Relationship index unavailable; no email-history claim was made.";
+  }
+  if (matches.length === 0) {
+    return "No exact project-party match was found in the restricted email evidence.";
+  }
+  return [...matches].sort((left, right) => String(right.emailSentAt ?? "").localeCompare(String(left.emailSentAt ?? "")))
+    .map((match) => {
+      const owners = match.evidenceOwners?.length
+        ? match.evidenceOwners.map((owner) => owner === "Owen" ? "Eoghan" : owner).join(" + ")
+        : "owner not resolved";
+      const matchedContact = match.matchedEmail
+        ? `${match.matchedEntity} <${match.matchedEmail}>`
+        : match.matchedEntity;
+      return [
+        `Matched project party: ${match.party}`,
+        `Matched email contact: ${matchedContact}`,
+        `Verified consultant history: ${owners}`,
+        `Match method: ${match.matchType}`,
+        match.previousProjects?.length
+          ? `Earlier job(s): ${match.previousProjects.join(", ")}`
+          : "",
+        match.emailSentAt ? `Matched email date: ${match.emailSentAt}` : "Matched email date: Not available in the evidence index",
+        match.emailSubject ? `Matched email subject: ${compact(match.emailSubject, 120)}` : "Matched email subject: Not available in the evidence index",
+        "Evidence source: Restricted iAcoustics consultant email evidence index",
+        match.emailSourceUri ? `Source message URI: ${match.emailSourceUri}` : "",
+        match.evidenceRefs.length ? `Evidence reference(s): ${match.evidenceRefs.join(", ")}` : "",
+      ].filter(Boolean).join(" | ");
+    }).join("\n");
+}
+
+function assignmentDetails(record: TenderOpportunity) {
+  const owner = record.routedTo === "Glen" ? "Glen Plunkett"
+    : record.routedTo === "Owen" ? "Eoghan Tyrrell" : "Unassigned";
+  if (record.emailRelationshipStatus === "verified-single-owner") {
+    const relationshipOwner = record.emailRelationshipOwner === "Glen" ? "Glen Plunkett"
+      : record.emailRelationshipOwner === "Owen" ? "Eoghan Tyrrell" : "not resolved";
+    if (record.routedTo === "unassigned") {
+      return `Unassigned — lead is not yet consultant-routeable; exact historical relationship belongs to ${relationshipOwner}.`;
+    }
+    return `${owner} — assigned from an exact single-owner email-evidence match.`;
+  }
+  if (record.emailRelationshipStatus === "verified-multiple-owners") {
+    return record.routedTo === "unassigned"
+      ? "Unassigned — exact history exists for both Glen and Eoghan; lead is not yet consultant-routeable."
+      : `${owner} — workload assignment; exact history exists for both Glen and Eoghan.`;
+  }
+  return record.routedTo === "unassigned"
+    ? "Unassigned — no consultant-routeable owner yet."
+    : `${owner} — balanced workload assignment; no confirmed warm relationship.`;
+}
+
+const SOURCE_CODES: Record<TenderOpportunity["sourceSystem"], string> = {
+  BuildingInfo: "BI",
+  PlanningLeads: "PL",
+  "National Planning Register": "NPR",
+  DCC: "DCC",
+  eTenders: "TD",
+  TED: "EU",
+};
+
+const SOURCE_CODE_ORDER = ["BI", "PL", "NPR", "DCC", "TD", "EU"];
+
+function classificationLabel(record: TenderOpportunity) {
+  return (record.classification ?? record.type).replaceAll("-", " ");
 }
 
 const partyPriority: LeadParty["role"][] = [
@@ -108,13 +198,29 @@ const partyPriority: LeadParty["role"][] = [
   "other",
 ];
 
+const partyRoleScore: Record<LeadParty["role"], number> = {
+  applicant: 70,
+  developer: 65,
+  agent: 60,
+  architect: 55,
+  contractor: 45,
+  consultant: 35,
+  other: 0,
+};
+
+function partyContactScore(party: LeadParty) {
+  const individualContact = Boolean(party.name && party.organisation && party.name !== party.organisation);
+  return partyRoleScore[party.role]
+    + (party.email ? 35 : 0)
+    + (party.phone ? 20 : 0)
+    + (individualContact ? 10 : 0);
+}
+
 function primaryParty(record: TenderOpportunity) {
   const parties = [...(record.parties ?? [])].sort((left, right) => {
-    const role = partyPriority.indexOf(left.role) - partyPriority.indexOf(right.role);
-    if (role !== 0) return role;
-    const leftReachable = Number(Boolean(left.email)) + Number(Boolean(left.phone));
-    const rightReachable = Number(Boolean(right.email)) + Number(Boolean(right.phone));
-    return rightReachable - leftReachable;
+    const score = partyContactScore(right) - partyContactScore(left);
+    if (score !== 0) return score;
+    return partyPriority.indexOf(left.role) - partyPriority.indexOf(right.role);
   });
   return parties[0];
 }
@@ -149,7 +255,22 @@ function evidenceDocumentUrls(record: TenderOpportunity) {
 }
 
 function verifiedWarmConnection(record: TenderOpportunity) {
-  return /^exact-party-match-supported-by-(?:glen|owen)-email-evidence$/i.test(record.routingReason ?? "");
+  return record.emailRelationshipStatus === "verified-single-owner"
+    || record.emailRelationshipStatus === "verified-multiple-owners"
+    || /^exact-party-match-supported-by-(?:glen|owen)-email-evidence$/i.test(record.routingReason ?? "");
+}
+
+function emailMatchTagName(record: TenderOpportunity) {
+  if (record.emailRelationshipStatus === "verified-multiple-owners") {
+    if (record.routedTo === "Glen") return "Email Match: Glen";
+    if (record.routedTo === "Owen") return "Email Match: Eoghan";
+    return "Email Match: Verified";
+  }
+  if (!verifiedWarmConnection(record)) return undefined;
+  const owner = record.emailRelationshipOwner ?? record.routedTo;
+  if (owner === "Glen") return "Email Match: Glen";
+  if (owner === "Owen") return "Email Match: Eoghan";
+  return "Email Match: Verified";
 }
 
 function sourceValues(record: TenderOpportunity) {
@@ -161,22 +282,161 @@ function sourceValues(record: TenderOpportunity) {
     evidenceStatus: record.evidenceStatus,
   }];
   return {
+    codes: [...new Set(sources.map((source) => SOURCE_CODES[source.sourceSystem]))]
+      .sort((left, right) => SOURCE_CODE_ORDER.indexOf(left) - SOURCE_CODE_ORDER.indexOf(right))
+      .join("+"),
     systems: [...new Set(sources.map((source) => source.sourceSystem))].join("; "),
     recordIds: sources.map((source) => `${source.sourceSystem}:${source.sourceRecordId}`).join("; "),
     urls: [...new Set(sources.map((source) => source.sourceUrl).filter(Boolean))].join("\n"),
   };
 }
 
+function projectLink(record: TenderOpportunity) {
+  const sources = record.duplicateSources?.length ? record.duplicateSources : [{
+    sourceSystem: record.sourceSystem,
+    sourceUrl: record.sourceUrl,
+  }];
+  return sources.find((source) => source.sourceSystem === "BuildingInfo" && source.sourceUrl)?.sourceUrl
+    ?? sources.find((source) => source.sourceUrl)?.sourceUrl
+    ?? record.sourceUrl
+    ?? "";
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function htmlText(value: unknown, fallback = "Not supplied") {
+  const text = String(value ?? "").trim();
+  return escapeHtml(text || fallback).replaceAll("\n", "<br>");
+}
+
+function htmlRows(rows: Array<[string, unknown]>) {
+  return `<table style="width:100%;border-collapse:collapse">${rows.map(([label, value]) =>
+    `<tr><td style="width:220px;padding:3px 12px 3px 0;vertical-align:top"><strong>${escapeHtml(label)}</strong></td><td style="padding:3px 0;vertical-align:top">${htmlText(value)}</td></tr>`,
+  ).join("")}</table>`;
+}
+
+function htmlLinks(title: string, urls: string[]) {
+  const unique = [...new Set(urls.map((url) => String(url ?? "").trim()).filter(Boolean))];
+  if (unique.length === 0) return `<h3>${escapeHtml(title)}</h3><p>Not supplied</p>`;
+  return `<h3>${escapeHtml(title)}</h3><ul>${unique.map((url) =>
+    `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a></li>`,
+  ).join("")}</ul>`;
+}
+
+function allPartyRows(record: TenderOpportunity) {
+  const parties = record.parties ?? [];
+  if (parties.length === 0) return "<p>No project parties were supplied by the source.</p>";
+  return `<table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left">Role</th><th style="text-align:left">Name</th><th style="text-align:left">Organisation</th><th style="text-align:left">Email</th><th style="text-align:left">Phone</th></tr>${parties.map((party) =>
+    `<tr><td>${htmlText(organisationRole(party))}</td><td>${htmlText(party.name)}</td><td>${htmlText(party.organisation)}</td><td>${htmlText(party.email)}</td><td>${htmlText(party.phone)}</td></tr>`,
+  ).join("")}</table>`;
+}
+
+function appointmentTagNames(record: TenderOpportunity) {
+  if (record.acousticAppointmentStatus === "iacoustics-appointed") return ["Already Won: iAcoustics"];
+  if (record.acousticAppointmentStatus === "competitor-appointed") return ["Competitor Appointed"];
+  if (record.acousticAppointmentStatus === "needs-verification") return ["Appointment: Verify"];
+  return [];
+}
+
+function appointmentDetails(record: TenderOpportunity) {
+  return [
+    `Status: ${record.acousticAppointmentStatus ?? "not-identified"}`,
+    `Appointed acoustician: ${record.appointedAcoustician ?? "Not identified"}`,
+    `Competitive quote opportunity: ${record.competitiveQuoteOpportunity ? "Yes — consultant review required" : "No"}`,
+    `Outreach eligibility: ${record.outreachEligibility ?? "eligible"}`,
+    record.outreachSuppressionReason ? `Safeguard: ${record.outreachSuppressionReason}` : "Safeguard: No appointment-based suppression applied.",
+    record.appointmentEvidenceExcerpt ? `Appointment evidence: ${compact(record.appointmentEvidenceExcerpt, 420)}` : "Appointment evidence: Not supplied",
+    record.appointmentEvidenceSourceUrl ? `Appointment evidence source: ${record.appointmentEvidenceSourceUrl}` : "",
+    record.outreachKey ? `Outreach deduplication key: ${record.outreachKey}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function pipelinePriority(record: TenderOpportunity) {
+  const routeable = !["poor", "closed-background", "existing-project"].includes(record.leadQuality ?? "")
+    && !["background", "already-won"].includes(record.leadDisposition ?? "");
+  const verifiedEmailMatch = verifiedWarmConnection(record) && routeable;
+  const rfi = record.classification === "noise-related-rfi" && routeable;
+  const buildingInfo = sourceValues(record).codes.split("+").includes("BI");
+  if (buildingInfo && rfi && verifiedEmailMatch) {
+    return { rank: 1200, reason: "BuildingInfo RFI with a verified consultant email relationship" };
+  }
+  if (rfi && verifiedEmailMatch) return { rank: 1100, reason: "Immediate RFI with a verified consultant email relationship" };
+  if (rfi) return { rank: 1000, reason: "Immediate noise-related RFI" };
+  if (verifiedEmailMatch) return { rank: 900, reason: "Qualified opportunity with a verified consultant email relationship" };
+  if (record.leadQuality === "excellent") return { rank: 800, reason: "Excellent opportunity without a verified email relationship" };
+  if (record.acousticAppointmentStatus === "competitor-appointed") return { rank: 700, reason: "Competitive quotation opportunity requiring consultant review" };
+  if (record.leadQuality === "good") return { rank: 600, reason: "Good opportunity" };
+  if (record.leadQuality === "medium") return { rank: 400, reason: "Medium opportunity for monitoring" };
+  if (record.leadQuality === "poor") return { rank: 200, reason: "Low-priority opportunity retained for background" };
+  if (record.leadQuality === "existing-project") return { rank: 100, reason: "Already won by iAcoustics; excluded from outreach ordering" };
+  return { rank: 0, reason: "Closed or background record" };
+}
+
 function description(record: TenderOpportunity) {
   const sources = sourceValues(record);
+  const primary = primaryParty(record);
+  const primaryOrganisation = primary?.organisation ?? record.applicant ?? record.buyer ?? "Not supplied";
+  const primaryName = primary?.name && primary.name !== primaryOrganisation ? primary.name : "Not supplied";
+  const sourceUrls = sources.urls.split("\n").filter(Boolean);
+  const documentUrls = evidenceDocumentUrls(record).split("\n").filter(Boolean);
   return [
-    record.description,
-    `Original source: ${sources.urls || record.sourceUrl}`,
-    `Qualification: ${record.qualificationReason ?? "Not yet commercially graded."}`,
-    `Freshness: ${record.freshnessReason ?? "Source publication date unavailable."}`,
-    `Evidence: ${record.evidenceExcerpt ?? "No exact excerpt retained; observe the evidence-status field before outreach."}`,
-    `Routing: ${record.routingReason ?? "No owner route assigned."}`,
-  ].filter(Boolean).join("\n\n");
+    "<h2>Project Summary</h2>",
+    `<p>${htmlText(record.description, "No additional project description supplied.")}</p>`,
+    htmlRows([
+      ["Source", `${sources.systems} (${sources.codes})`],
+      ["Source record(s)", sources.recordIds],
+      ["Project reference", record.projectReference],
+      ["Location", record.location],
+      ["Planning authority", record.planningAuthority],
+      ["Sector", record.projectSector],
+      ["Stage", record.projectStage ?? record.sourceStatus],
+      ["Classification", classificationLabel(record)],
+      ["Lead quality", record.leadQuality ?? "medium"],
+      ["Pipeline disposition", record.leadDisposition ?? "monitor"],
+      ["Project value", Number.isFinite(record.projectValue) ? record.projectValue : "Not supplied"],
+      ["Project units", Number.isFinite(record.projectUnits) ? record.projectUnits : record.residentialUnitCount],
+      ["Published", record.publishedAt],
+      ["Source updated", record.sourceUpdatedAt],
+      ["Response deadline", actionableDeadline(record)],
+      ["First seen", record.firstSeenAt],
+      ["Last confirmed", record.lastConfirmedAt],
+    ]),
+    "<h2>Primary Project Contact</h2>",
+    htmlRows([
+      ["Name", primaryName],
+      ["Organisation", primaryOrganisation],
+      ["Role", organisationRole(primary)],
+      ["Email", primary?.email],
+      ["Phone", primary?.phone],
+    ]),
+    "<h2>All Project Parties and Contacts</h2>",
+    allPartyRows(record),
+    "<h2>Email Relationship and Consultant Assignment</h2>",
+    `<p>${htmlText(relationshipDetails(record))}</p>`,
+    htmlRows([["Assigned consultant", assignmentDetails(record)], ["Routing reason", record.routingReason]]),
+    "<h2>Appointment and Outreach Safeguard</h2>",
+    `<p>${htmlText(appointmentDetails(record))}</p>`,
+    "<h2>Acoustic Evidence and Qualification</h2>",
+    `<p>${htmlText(record.evidenceExcerpt, "No exact excerpt retained; check the evidence-status field before outreach.")}</p>`,
+    htmlRows([
+      ["Evidence status", record.evidenceStatus],
+      ["Matched acoustic terms", record.matchedTerms.join("; ")],
+      ["CPV codes", record.cpvCodes.join("; ")],
+      ["Qualification", record.qualificationReason ?? "Not yet commercially graded."],
+      ["Freshness", record.freshnessReason ?? "Source publication date unavailable."],
+      ["Deduplication status", record.deduplicationStatus ?? "unique"],
+      ["Possible duplicates", (record.possibleDuplicateIds ?? []).join("; ")],
+    ]),
+    htmlLinks("Project and Source Links", sourceUrls.length ? sourceUrls : [record.sourceUrl]),
+    htmlLinks("Evidence Document Links", documentUrls),
+  ].join("");
 }
 
 export function buildOdooDryRun(records: TenderOpportunity[]) {
@@ -186,6 +446,7 @@ export function buildOdooDryRun(records: TenderOpportunity[]) {
     const externalId = record.crmExternalId;
     if (!externalId) throw new Error(`Record ${record.id} has no stable CRM external ID.`);
     const sources = sourceValues(record);
+    const priority = pipelinePriority(record);
     const primary = primaryParty(record);
     const organisation = primary?.organisation ?? record.applicant ?? record.buyer ?? "";
     const contact = primary?.name && primary.name !== organisation ? primary.name : "";
@@ -203,8 +464,11 @@ export function buildOdooDryRun(records: TenderOpportunity[]) {
           : "Tender Intelligence",
         sourceName: sources.systems.includes(";") ? "Helmonic Tender Intelligence" : sources.systems,
       },
+      emailMatchTagName: emailMatchTagName(record),
+      sourceTagNames: sources.codes.split("+").filter(Boolean),
+      statusTagNames: appointmentTagNames(record),
       values: {
-        name: record.title,
+        name: `[${sources.codes}] ${record.title}`,
         description: description(record),
         partner_name: organisation,
         contact_name: contact,
@@ -215,11 +479,14 @@ export function buildOdooDryRun(records: TenderOpportunity[]) {
         date_deadline: odooDate(deadline),
         x_helmonic_external_id: externalId,
         x_pipeline_bucket: record.leadDisposition ?? "monitor",
+        x_pipeline_priority_rank: priority.rank,
+        x_pipeline_priority_reason: priority.reason,
         x_lead_quality: record.leadQuality ?? "medium",
         x_evidence_status: record.evidenceStatus,
         x_classification: record.classification ?? record.type,
         x_source_systems: sources.systems,
         x_source_record_ids: sources.recordIds,
+        x_project_link: projectLink(record),
         x_source_urls: sources.urls,
         x_evidence_excerpt: record.evidenceExcerpt ?? "",
         x_source_published_at: odooDatetime(record.publishedAt),
@@ -253,7 +520,16 @@ export function buildOdooDryRun(records: TenderOpportunity[]) {
         x_last_confirmed_at: odooDatetime(record.lastConfirmedAt),
         x_cycle_status: record.cycleStatus ?? "",
         x_scope_status: record.scopeStatus ?? "unknown",
-        x_studio_reference: record.projectReference ?? record.sourceRecordId,
+        x_acoustic_appointment_status: record.acousticAppointmentStatus ?? "not-identified",
+        x_appointed_acoustician: record.appointedAcoustician ?? "",
+        x_appointment_evidence: record.appointmentEvidenceExcerpt ?? "",
+        x_appointment_evidence_source_url: record.appointmentEvidenceSourceUrl ?? "",
+        x_competitive_quote_opportunity: record.competitiveQuoteOpportunity === true,
+        x_outreach_eligibility: record.outreachEligibility ?? "eligible",
+        x_outreach_suppression_reason: record.outreachSuppressionReason ?? "",
+        x_outreach_key: record.outreachKey ?? "",
+        x_buildinginfo_search_profile: record.buildingInfoSearchProfile ?? "",
+        x_studio_reference: `${sources.codes}-${record.projectReference ?? record.sourceRecordId}`,
         x_studio_project_sector: canonicalProjectSector(record),
       },
     });
@@ -276,11 +552,15 @@ export function summarizeOdooDryRun(payloads: OdooLeadDryRun[]) {
     nurture: count("x_pipeline_bucket", "nurture"),
     monitor: count("x_pipeline_bucket", "monitor"),
     background: count("x_pipeline_bucket", "background"),
+    alreadyWon: count("x_pipeline_bucket", "already-won"),
     excellent: count("x_lead_quality", "excellent"),
     good: count("x_lead_quality", "good"),
     medium: count("x_lead_quality", "medium"),
     poor: count("x_lead_quality", "poor"),
     closedBackground: count("x_lead_quality", "closed-background"),
+    existingProjects: count("x_lead_quality", "existing-project"),
+    competitorAppointed: count("x_acoustic_appointment_status", "competitor-appointed"),
+    outreachSuppressedAlreadyWon: count("x_outreach_eligibility", "suppressed-already-won"),
     verifiedWarmConnections: count("x_warm_connection_verified", true),
     withActionableDeadline: payloads.filter((payload) => Boolean(payload.values.x_deadline)).length,
     evidenceUnavailable: count("x_evidence_status", "evidence-unavailable"),
