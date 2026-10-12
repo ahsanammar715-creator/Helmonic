@@ -10,6 +10,10 @@ type SearchDocument = {
   subject?: string;
   body_text?: string;
   mailbox_owner?: string;
+  sent_at?: string;
+  participants?: unknown;
+  project_names?: unknown;
+  source_uri?: string;
 };
 
 type RelationshipEntity = {
@@ -17,7 +21,26 @@ type RelationshipEntity = {
   email?: string;
   domains?: string[];
   evidence_refs?: string[];
+  historical_emails?: string[];
+  email_subject?: string;
+  email_sent_at?: string;
+  previous_projects?: string[];
+  email_source_uri?: string;
 };
+
+function textValues(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => normalizeText(String(item))).filter(Boolean);
+  const text = normalizeText(typeof value === "string" ? value : "");
+  return text ? [text] : [];
+}
+
+function historicalEmails(document: SearchDocument) {
+  const matches = textValues(document.participants)
+    .flatMap((value) => value.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) ?? [])
+    .map((value) => value.toLowerCase())
+    .filter((value) => !/@(?:iacoustics\.net|smartstudioinc\.com)$/i.test(value));
+  return [...new Set(matches)].slice(0, 20);
+}
 
 function config() {
   if (process.env.HELMONIC_EMAIL_RELATIONSHIP_SEARCH_ENABLED !== "true") return undefined;
@@ -104,7 +127,7 @@ export async function loadSearchRelationshipLookup(
             queryType: "simple",
             searchMode: "all",
             searchFields: "subject,body_text",
-            select: "message_id,evidence_ref,subject,body_text,mailbox_owner",
+            select: "message_id,evidence_ref,subject,body_text,mailbox_owner,sent_at,participants,project_names,source_uri",
             top: 20,
           }),
           signal: AbortSignal.timeout(12_000),
@@ -123,6 +146,11 @@ export async function loadSearchRelationshipLookup(
           email: email || undefined,
           domains: email.includes("@") ? [email.split("@")[1]] : [],
           evidence_refs: [evidenceRef],
+          historical_emails: historicalEmails(document),
+          email_subject: normalizeText(document.subject),
+          email_sent_at: normalizeText(document.sent_at),
+          previous_projects: textValues(document.project_names),
+          email_source_uri: normalizeText(document.source_uri),
         });
       }
     }

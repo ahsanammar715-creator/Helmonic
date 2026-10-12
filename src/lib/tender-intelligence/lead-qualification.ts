@@ -122,6 +122,16 @@ export function assessLeadQuality(record: TenderOpportunity) {
   const hasGenericNoiseOnly = genericNoisePatterns.some((pattern) => pattern.test(text)) && !hasHighIntent;
   const isConfirmed = record.evidenceStatus === "official-text";
 
+  if (record.acousticAppointmentStatus === "iacoustics-appointed") {
+    return commercialResult(
+      "existing-project",
+      "already-won",
+      "Strong source evidence says iAcoustics is already appointed. Retained for project and relationship tracking, with cold outreach suppressed.",
+      isResidential ? (isLrd ? "lrd-100-plus" : isAttached && (count ?? 0) >= 4 ? "attached-4-plus" : isSmallResidential ? "small-residential" : "multi-unit-unconfirmed-attachment") : "not-residential",
+      count,
+    );
+  }
+
   if (record.cycleStatus === "resolved" || (status && closedStatuses.has(status))) {
     return commercialResult(
       "closed-background",
@@ -333,5 +343,7 @@ export function isSalesRouteable(record: TenderOpportunity) {
   return record.deduplicationStatus !== "duplicate"
     && record.leadQuality !== "poor"
     && record.leadQuality !== "closed-background"
-    && record.leadDisposition !== "background";
+    && record.leadQuality !== "existing-project"
+    && record.leadDisposition !== "background"
+    && record.leadDisposition !== "already-won";
 }

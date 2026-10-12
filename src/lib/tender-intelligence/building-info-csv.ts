@@ -228,6 +228,12 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       evidenceUrl: documentUrl,
     });
     const updatedAt = optionalValue(row, ["last_updated", "last updated", "last_updated_date", "last updated date", "source_updated_at", "source updated at", "api_date"]);
+    const appointedAcoustician = optionalValue(row, ["appointed_acoustician", "appointed acoustician", "appointed_acoustic_consultant", "appointed acoustic consultant", "acoustic_consultant", "acoustic consultant"]);
+    const appointmentEvidenceExcerpt = optionalValue(row, ["appointment_evidence", "appointment evidence", "appointment_evidence_excerpt", "appointment evidence excerpt"]);
+    const appointmentEvidenceUrlInput = optionalValue(row, ["appointment_evidence_url", "appointment evidence url", "appointment_source_url", "appointment source url"]);
+    const appointmentEvidenceSourceUrl = appointmentEvidenceUrlInput
+      ? validHttpUrl(appointmentEvidenceUrlInput, "appointment evidence URL", sourceName, rowNumber)
+      : undefined;
     const partyRows = partiesFromRow(row);
     const opportunity: TenderOpportunity = {
       id: stableOpportunityId("BuildingInfo", projectId),
@@ -268,6 +274,11 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       projectValue,
       projectUnits: units,
       firstSeenAt: optionalValue(row, ["first_detected_date", "first detected date", "first_seen_at", "first seen at"]) || undefined,
+      appointedAcoustician: appointedAcoustician || undefined,
+      appointmentEvidenceExcerpt: appointmentEvidenceExcerpt || undefined,
+      appointmentEvidenceSourceUrl,
+      appointmentEvidenceDate: optionalValue(row, ["appointment_evidence_date", "appointment evidence date", "appointment_date", "appointment date"]) || undefined,
+      buildingInfoSearchProfile: optionalValue(row, ["source_search_name", "source search name", "saved_search", "saved search", "search_profile", "search profile"]) || undefined,
     };
     opportunity.fitScore = scoreOpportunity(opportunity);
     return opportunity;
@@ -322,6 +333,11 @@ export function mergeBuildingInfoCsvRecords(records: TenderOpportunity[]) {
       parties: [...parties.values()],
       matchedTerms: [...new Set(ordered.flatMap((record) => record.matchedTerms))],
       responseDeadline: [...ordered].reverse().map((record) => record.responseDeadline).find(Boolean),
+      appointedAcoustician: [...ordered].reverse().map((record) => record.appointedAcoustician).find(Boolean),
+      appointmentEvidenceExcerpt: [...ordered].reverse().map((record) => record.appointmentEvidenceExcerpt).find(Boolean),
+      appointmentEvidenceSourceUrl: [...ordered].reverse().map((record) => record.appointmentEvidenceSourceUrl).find(Boolean),
+      appointmentEvidenceDate: [...ordered].reverse().map((record) => record.appointmentEvidenceDate).find(Boolean),
+      buildingInfoSearchProfile: [...ordered].reverse().map((record) => record.buildingInfoSearchProfile).find(Boolean),
     };
     merged.fitScore = scoreOpportunity(merged);
     return merged;

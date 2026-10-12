@@ -18,9 +18,28 @@ export type OpportunityCycleStatus =
 
 export type LeadOwner = "Glen" | "Owen" | "unassigned";
 
-export type LeadQuality = "excellent" | "good" | "medium" | "poor" | "closed-background";
+export type EmailRelationshipStatus =
+  | "verified-single-owner"
+  | "verified-multiple-owners"
+  | "no-confirmed-match"
+  | "index-unavailable";
 
-export type LeadDisposition = "active" | "nurture" | "monitor" | "background";
+export type LeadQuality = "excellent" | "good" | "medium" | "poor" | "closed-background" | "existing-project";
+
+export type LeadDisposition = "active" | "nurture" | "monitor" | "background" | "already-won";
+
+export type AcousticAppointmentStatus =
+  | "not-identified"
+  | "needs-verification"
+  | "competitor-appointed"
+  | "iacoustics-appointed";
+
+export type OutreachEligibility =
+  | "eligible"
+  | "consultant-review"
+  | "suppressed-already-won"
+  | "suppressed-duplicate"
+  | "suppressed-closed";
 
 export type LeadFreshness =
   | "updated-today"
@@ -64,7 +83,14 @@ export type LeadParty = {
 export type RelationshipRoutingEvidence = {
   party: string;
   matchedEntity: string;
+  matchedEmail?: string;
+  historicalEmails?: string[];
+  emailSubject?: string;
+  emailSentAt?: string;
+  previousProjects?: string[];
+  emailSourceUri?: string;
   matchType: "exact-name" | "exact-email" | "exact-domain";
+  evidenceOwners?: Array<Exclude<LeadOwner, "unassigned">>;
   evidenceRefs: string[];
 };
 
@@ -143,6 +169,18 @@ export type TenderOpportunity = {
   routingStatus?: "routed" | "needs-triage" | "not-qualified" | "relationship-index-unavailable";
   routingEvidence?: RelationshipRoutingEvidence[];
   routingReason?: string;
+  emailRelationshipStatus?: EmailRelationshipStatus;
+  emailRelationshipOwner?: Exclude<LeadOwner, "unassigned">;
+  acousticAppointmentStatus?: AcousticAppointmentStatus;
+  appointedAcoustician?: string;
+  appointmentEvidenceExcerpt?: string;
+  appointmentEvidenceSourceUrl?: string;
+  appointmentEvidenceDate?: string;
+  competitiveQuoteOpportunity?: boolean;
+  outreachEligibility?: OutreachEligibility;
+  outreachSuppressionReason?: string;
+  outreachKey?: string;
+  buildingInfoSearchProfile?: string;
 };
 
 export type OfficialSourceSnapshot = {

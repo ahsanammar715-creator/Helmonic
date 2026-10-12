@@ -40,6 +40,12 @@ export type OdooLeadDryRun = {
     x_source_age_days: number | false;
     x_freshness_band: string;
     x_deadline: string | false;
+    x_rfi_received_at: string | false;
+    x_rfi_response_due_at: string | false;
+    x_decision_due_at: string | false;
+    x_action_days_remaining: number | false;
+    x_deadline_urgency: string;
+    x_rfi_trigger: string;
     x_assigned_person: string;
     x_warm_connection_verified: boolean;
     x_routing_reason: string;
@@ -81,6 +87,45 @@ function actionableDeadline(record: TenderOpportunity) {
   if (record.classification === "noise-related-rfi") return record.responseDeadline ?? "";
   if (record.type === "formal-public-tender") return record.deadline ?? "";
   return "";
+}
+
+function rfiReceivedOrDetectedAt(record: TenderOpportunity) {
+  if (record.classification !== "noise-related-rfi") return "";
+  const documentReceivedAt = (record.evidenceDocuments ?? [])
+    .map((document) => document.receivedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => right.localeCompare(left))[0];
+  return record.sourceMajorUpdatedAt
+    ?? documentReceivedAt
+    ?? record.firstSeenAt
+    ?? record.publishedAt
+    ?? "";
+}
+
+function planningDecisionDueAt(record: TenderOpportunity) {
+  return record.type === "planning-pipeline-lead" ? record.deadline ?? "" : "";
+}
+
+function calendarDaysRemaining(value: string, now: Date) {
+  if (!value) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const deadlineDay = Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate());
+  const currentDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.round((deadlineDay - currentDay) / 86_400_000);
+}
+
+function deadlineUrgency(daysRemaining: number | false) {
+  if (daysRemaining === false) return "No actionable due date supplied";
+  if (daysRemaining < 0) {
+    const days = Math.abs(daysRemaining);
+    return `Overdue by ${days} day${days === 1 ? "" : "s"} — acoustic consultant review required`;
+  }
+  if (daysRemaining === 0) return "Due today — immediate acoustic consultant review";
+  if (daysRemaining <= 7) return `Immediate — due in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}`;
+  if (daysRemaining <= 28) return `Due in ${daysRemaining} days — within the 28-day RFI window`;
+  if (daysRemaining <= 180) return `Due in ${daysRemaining} days — within the six-month opportunity window`;
+  return `Longer-term — due in ${daysRemaining} days`;
 }
 
 function odooDatetime(value?: string) {
@@ -379,13 +424,15 @@ function pipelinePriority(record: TenderOpportunity) {
   return { rank: 0, reason: "Closed or background record" };
 }
 
-function description(record: TenderOpportunity) {
+function description(record: TenderOpportunity, now: Date) {
   const sources = sourceValues(record);
   const primary = primaryParty(record);
   const primaryOrganisation = primary?.organisation ?? record.applicant ?? record.buyer ?? "Not supplied";
   const primaryName = primary?.name && primary.name !== primaryOrganisation ? primary.name : "Not supplied";
   const sourceUrls = sources.urls.split("\n").filter(Boolean);
   const documentUrls = evidenceDocumentUrls(record).split("\n").filter(Boolean);
+  const actionDeadline = actionableDeadline(record);
+  const daysRemaining = calendarDaysRemaining(actionDeadline, now);
   return [
     "<h2>Project Summary</h2>",
     `<p>${htmlText(record.description, "No additional project description supplied.")}</p>`,
@@ -398,13 +445,19 @@ function description(record: TenderOpportunity) {
       ["Sector", record.projectSector],
       ["Stage", record.projectStage ?? record.sourceStatus],
       ["Classification", classificationLabel(record)],
+      ["RFI / acoustic trigger", record.triggerType ?? record.classification],
       ["Lead quality", record.leadQuality ?? "medium"],
       ["Pipeline disposition", record.leadDisposition ?? "monitor"],
       ["Project value", Number.isFinite(record.projectValue) ? record.projectValue : "Not supplied"],
       ["Project units", Number.isFinite(record.projectUnits) ? record.projectUnits : record.residentialUnitCount],
       ["Published", record.publishedAt],
       ["Source updated", record.sourceUpdatedAt],
-      ["Response deadline", actionableDeadline(record)],
+      ["RFI received / detected", rfiReceivedOrDetectedAt(record)],
+      ["RFI response due", record.classification === "noise-related-rfi" ? record.responseDeadline : ""],
+      ["Planning decision due", planningDecisionDueAt(record)],
+      ["Action deadline", actionDeadline],
+      ["Days remaining", daysRemaining === false ? "Not supplied" : daysRemaining],
+      ["Urgency", deadlineUrgency(daysRemaining)],
       ["First seen", record.firstSeenAt],
       ["Last confirmed", record.lastConfirmedAt],
     ]),
@@ -439,7 +492,7 @@ function description(record: TenderOpportunity) {
   ].join("");
 }
 
-export function buildOdooDryRun(records: TenderOpportunity[]) {
+export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) {
   const payloads: OdooLeadDryRun[] = [];
   for (const record of records) {
     if (record.deduplicationStatus === "duplicate") continue;
@@ -469,7 +522,7 @@ export function buildOdooDryRun(records: TenderOpportunity[]) {
       statusTagNames: appointmentTagNames(record),
       values: {
         name: `[${sources.codes}] ${record.title}`,
-        description: description(record),
+        description: description(record, now),
         partner_name: organisation,
         contact_name: contact,
         email_from: primary?.email ?? "",
@@ -495,6 +548,12 @@ export function buildOdooDryRun(records: TenderOpportunity[]) {
         x_source_age_days: Number.isFinite(record.sourceAgeDays) ? record.sourceAgeDays! : false,
         x_freshness_band: record.leadFreshness ?? "date-unknown",
         x_deadline: odooDatetime(deadline),
+        x_rfi_received_at: odooDatetime(rfiReceivedOrDetectedAt(record)),
+        x_rfi_response_due_at: odooDatetime(record.classification === "noise-related-rfi" ? record.responseDeadline : ""),
+        x_decision_due_at: odooDatetime(planningDecisionDueAt(record)),
+        x_action_days_remaining: calendarDaysRemaining(deadline, now),
+        x_deadline_urgency: deadlineUrgency(calendarDaysRemaining(deadline, now)),
+        x_rfi_trigger: record.triggerType ?? record.classification ?? "",
         x_assigned_person: ownerDisplayName(record),
         x_warm_connection_verified: verifiedWarmConnection(record),
         x_routing_reason: record.routingReason ?? "",

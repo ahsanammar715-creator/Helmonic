@@ -15,6 +15,11 @@ type RelationshipEntity = {
   email?: string;
   domains?: string[];
   evidence_refs?: string[];
+  historical_emails?: string[];
+  email_subject?: string;
+  email_sent_at?: string;
+  previous_projects?: string[];
+  email_source_uri?: string;
 };
 
 export type RelationshipLookup = {
@@ -91,7 +96,17 @@ function ownersFromEvidence(refs: string[]) {
 function uniqueEntities(entities: RelationshipEntity[]) {
   const seen = new Set<string>();
   return entities.filter((entity) => {
-    const key = `${entity.email ?? ""}|${entity.name ?? ""}|${(entity.domains ?? []).join(",")}|${(entity.evidence_refs ?? []).join(",")}`;
+    const key = [
+      entity.email ?? "",
+      entity.name ?? "",
+      (entity.domains ?? []).join(","),
+      (entity.evidence_refs ?? []).join(","),
+      (entity.historical_emails ?? []).join(","),
+      entity.email_subject ?? "",
+      entity.email_sent_at ?? "",
+      (entity.previous_projects ?? []).join(","),
+      entity.email_source_uri ?? "",
+    ].join("|");
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -106,38 +121,7 @@ function recordParties(record: TenderOpportunity) {
   return parties;
 }
 
-function isQualified(record: TenderOpportunity) {
-  if (!isSalesRouteable(record)) return false;
-  if (record.evidenceStatus !== "official-text") return false;
-  if (record.classification === "no-relevant-opportunity" || record.classification === "needs-council-evidence") return false;
-  return record.type === "formal-public-tender" || Boolean(record.classification);
-}
-
-export function routeOpportunityByRelationships(
-  record: TenderOpportunity,
-  lookup: RelationshipLookup | undefined,
-): TenderOpportunity {
-  if (!isQualified(record)) {
-    return {
-      ...record,
-      routedTo: "unassigned",
-      routingStatus: "not-qualified",
-      routingEvidence: [],
-      routingReason: record.evidenceStatus === "official-text"
-        ? "official-document-did-not-confirm-an-approved-opportunity-category"
-        : "authoritative-document-evidence-not-confirmed",
-    };
-  }
-  if (!lookup) {
-    return {
-      ...record,
-      routedTo: "unassigned",
-      routingStatus: "relationship-index-unavailable",
-      routingEvidence: [],
-      routingReason: "local-restricted-relationship-index-not-found",
-    };
-  }
-
+function relationshipMatches(record: TenderOpportunity, lookup: RelationshipLookup) {
   const routingEvidence: RelationshipRoutingEvidence[] = [];
   const owners = new Set<Exclude<LeadOwner, "unassigned">>();
   for (const party of recordParties(record)) {
@@ -151,15 +135,76 @@ export function routeOpportunityByRelationships(
       for (const entity of uniqueEntities(match.entities)) {
         const refs = [...new Set(entity.evidence_refs ?? [])];
         if (refs.length === 0) continue;
-        ownersFromEvidence(refs).forEach((owner) => owners.add(owner));
+        const evidenceOwners = [...ownersFromEvidence(refs)];
+        evidenceOwners.forEach((owner) => owners.add(owner));
         routingEvidence.push({
           party: party.name,
           matchedEntity: entity.name || entity.email || entity.domains?.[0] || party.name,
+          ...(entity.email ? { matchedEmail: normalizedEmail(entity.email) } : {}),
+          ...(entity.historical_emails?.length
+            ? { historicalEmails: [...new Set(entity.historical_emails.map(normalizedEmail).filter((value) => value.includes("@")))] }
+            : {}),
+          ...(entity.email_subject ? { emailSubject: normalizeText(entity.email_subject) } : {}),
+          ...(entity.email_sent_at ? { emailSentAt: normalizeText(entity.email_sent_at) } : {}),
+          ...(entity.previous_projects?.length
+            ? { previousProjects: [...new Set(entity.previous_projects.map(normalizeText).filter(Boolean))] }
+            : {}),
+          ...(entity.email_source_uri ? { emailSourceUri: normalizeText(entity.email_source_uri) } : {}),
           matchType: match.matchType,
+          evidenceOwners,
           evidenceRefs: refs.slice(0, 20),
         });
       }
     }
+  }
+  return { routingEvidence, owners };
+}
+
+function isQualified(record: TenderOpportunity) {
+  if (!isSalesRouteable(record)) return false;
+  if (record.evidenceStatus !== "official-text") return false;
+  if (record.classification === "no-relevant-opportunity" || record.classification === "needs-council-evidence") return false;
+  return record.type === "formal-public-tender" || Boolean(record.classification);
+}
+
+export function routeOpportunityByRelationships(
+  record: TenderOpportunity,
+  lookup: RelationshipLookup | undefined,
+): TenderOpportunity {
+  if (!lookup) {
+    return {
+      ...record,
+      routedTo: "unassigned",
+      routingStatus: isQualified(record) ? "relationship-index-unavailable" : "not-qualified",
+      routingEvidence: [],
+      routingReason: isQualified(record)
+        ? "local-restricted-relationship-index-not-found"
+        : record.evidenceStatus === "official-text"
+          ? "official-document-did-not-confirm-an-approved-opportunity-category"
+          : "authoritative-document-evidence-not-confirmed",
+      emailRelationshipStatus: "index-unavailable",
+      emailRelationshipOwner: undefined,
+    };
+  }
+
+  const { routingEvidence, owners } = relationshipMatches(record, lookup);
+  const emailRelationshipStatus = owners.size === 1
+    ? "verified-single-owner"
+    : owners.size > 1 ? "verified-multiple-owners" : "no-confirmed-match";
+  const emailRelationshipOwner = owners.size === 1 ? [...owners][0] : undefined;
+
+  if (!isQualified(record)) {
+    return {
+      ...record,
+      routedTo: "unassigned",
+      routingStatus: "not-qualified",
+      routingEvidence,
+      routingReason: record.evidenceStatus === "official-text"
+        ? "official-document-did-not-confirm-an-approved-opportunity-category"
+        : "authoritative-document-evidence-not-confirmed",
+      emailRelationshipStatus,
+      emailRelationshipOwner,
+    };
   }
 
   if (owners.size === 1) {
@@ -170,6 +215,8 @@ export function routeOpportunityByRelationships(
       routingStatus: "routed" as const,
       routingEvidence,
       routingReason: `exact-party-match-supported-by-${owner.toLowerCase()}-email-evidence`,
+      emailRelationshipStatus,
+      emailRelationshipOwner,
     };
   }
   return {
@@ -180,6 +227,8 @@ export function routeOpportunityByRelationships(
     routingReason: owners.size > 1
       ? "verified-party-history-exists-for-both-glen-and-owen"
       : "no-exact-party-level-email-evidence-match",
+    emailRelationshipStatus,
+    emailRelationshipOwner,
   };
 }
 
@@ -196,7 +245,15 @@ export function routeOpportunitiesByRelationships(
       && (record.routedTo === "Glen" || record.routedTo === "Owen")
       && Boolean(record.routingReason)
       && !/^exact-party-match-supported-by-(?:glen|owen)-email-evidence$/i.test(recalculated.routingReason ?? "");
-    return preserveExistingRoute ? record : recalculated;
+    return preserveExistingRoute ? {
+      ...recalculated,
+      routedTo: record.routedTo,
+      routingStatus: record.routingStatus,
+      routingEvidence: record.routingEvidence ?? recalculated.routingEvidence,
+      routingReason: record.routingReason,
+      emailRelationshipStatus: record.emailRelationshipStatus ?? recalculated.emailRelationshipStatus,
+      emailRelationshipOwner: record.emailRelationshipOwner ?? recalculated.emailRelationshipOwner,
+    } : recalculated;
   });
   const ownerCounts = {
     Glen: routed.filter((record) => record.routedTo === "Glen").length,
@@ -214,7 +271,8 @@ export function routeOpportunitiesByRelationships(
   };
   const allocations = new Map<string, Exclude<LeadOwner, "unassigned">>();
   routed
-    .filter((record) => isQualified(record) && record.routedTo === "unassigned")
+    .filter((record) => record.routedTo === "unassigned"
+      && (isQualified(record) || record.emailRelationshipStatus === "verified-multiple-owners"))
     .sort((left, right) => priority(right) - priority(left)
       || right.fitScore - left.fitScore
       || left.id.localeCompare(right.id))

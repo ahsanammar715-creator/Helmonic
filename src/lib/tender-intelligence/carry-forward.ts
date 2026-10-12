@@ -84,6 +84,18 @@ function preferPriorEvidence(current: TenderOpportunity, prior: TenderOpportunit
     routingStatus: prior.routingStatus,
     routingEvidence: prior.routingEvidence,
     routingReason: prior.routingReason,
+    emailRelationshipStatus: prior.emailRelationshipStatus,
+    emailRelationshipOwner: prior.emailRelationshipOwner,
+    acousticAppointmentStatus: prior.acousticAppointmentStatus,
+    appointedAcoustician: prior.appointedAcoustician,
+    appointmentEvidenceExcerpt: prior.appointmentEvidenceExcerpt,
+    appointmentEvidenceSourceUrl: prior.appointmentEvidenceSourceUrl,
+    appointmentEvidenceDate: prior.appointmentEvidenceDate,
+    competitiveQuoteOpportunity: prior.competitiveQuoteOpportunity,
+    outreachEligibility: prior.outreachEligibility,
+    outreachSuppressionReason: prior.outreachSuppressionReason,
+    outreachKey: prior.outreachKey,
+    buildingInfoSearchProfile: prior.buildingInfoSearchProfile,
   } satisfies TenderOpportunity;
 }
 
@@ -102,14 +114,19 @@ export function routingMetadataWithDurablePrecedence(
   legacy: TenderOpportunity,
 ) {
   const selected = hasPreservableRoute(durable) ? durable : legacy;
+  const emailRelationshipStatus = selected.emailRelationshipStatus ?? durable.emailRelationshipStatus;
+  const emailRelationshipOwner = selected.emailRelationshipOwner ?? durable.emailRelationshipOwner;
   return {
     routedTo: selected.routedTo ?? durable.routedTo,
     routingStatus: selected.routingStatus ?? durable.routingStatus,
     routingEvidence: selected.routingEvidence ?? durable.routingEvidence,
     routingReason: selected.routingReason ?? durable.routingReason,
+    ...(emailRelationshipStatus ? { emailRelationshipStatus } : {}),
+    ...(emailRelationshipOwner ? { emailRelationshipOwner } : {}),
   } satisfies Pick<
     TenderOpportunity,
     "routedTo" | "routingStatus" | "routingEvidence" | "routingReason"
+      | "emailRelationshipStatus" | "emailRelationshipOwner"
   >;
 }
 
@@ -177,11 +194,18 @@ export function mergeCurrentSnapshotWithLedger(input: {
       merged.set(key, {
         ...currentMerged,
         firstSeenAt: prior.firstSeenAt ?? prior.lastConfirmedAt ?? timestamp,
+        appointedAcoustician: currentMerged.appointedAcoustician ?? prior.appointedAcoustician,
+        appointmentEvidenceExcerpt: currentMerged.appointmentEvidenceExcerpt ?? prior.appointmentEvidenceExcerpt,
+        appointmentEvidenceSourceUrl: currentMerged.appointmentEvidenceSourceUrl ?? prior.appointmentEvidenceSourceUrl,
+        appointmentEvidenceDate: currentMerged.appointmentEvidenceDate ?? prior.appointmentEvidenceDate,
+        buildingInfoSearchProfile: currentMerged.buildingInfoSearchProfile ?? prior.buildingInfoSearchProfile,
         ...(preservePriorRoute ? {
           routedTo: prior.routedTo,
           routingStatus: prior.routingStatus,
           routingEvidence: prior.routingEvidence,
           routingReason: prior.routingReason,
+          emailRelationshipStatus: prior.emailRelationshipStatus,
+          emailRelationshipOwner: prior.emailRelationshipOwner,
         } : {}),
       });
       continue;
