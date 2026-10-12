@@ -34,6 +34,9 @@ jobs:
       - name: Check out the selected commit
         uses: actions/checkout@v4
 
+      - name: Install exact dependencies
+        run: npm ci
+
       - name: Run Tender Intelligence tests
         run: npm run test:tender-intelligence
 
