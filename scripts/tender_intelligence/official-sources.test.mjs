@@ -372,7 +372,8 @@ test("Odoo payload populates native contact, planning attribution, sector and re
   assert.match(payload.values.description, /Project and Source Links/);
   assert.match(payload.values.description, /href="https:\/\/example\.test\/project"/);
   assert.match(payload.values.description, /All Project Parties and Contacts/);
-  assert.match(payload.values.description, /RFI received \/ detected/);
+  assert.match(payload.values.description, /RFI published \/ received date/);
+  assert.match(payload.values.description, /RFI response due date/);
   assert.match(payload.values.description, /Planning decision due/);
   assert.match(payload.values.description, /Due in 16 days/);
   assert.deepEqual(payload.attribution, {
