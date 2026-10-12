@@ -568,6 +568,7 @@ type ExistingLeadValues = {
   x_helmonic_external_id?: string | false;
   x_source_record_ids?: string | false;
   x_source_urls?: string | false;
+  x_project_link?: string | false;
   x_evidence_document_urls?: string | false;
   x_assigned_person?: string | false;
   x_warm_connection_verified?: boolean;
@@ -615,6 +616,10 @@ function historicalPipelinePriority(record: ExistingLeadValues) {
     && !["background", "already-won"].includes(bucket);
   const verifiedEmailMatch = record.x_warm_connection_verified === true && routeable;
   const rfi = record.x_classification === "noise-related-rfi" && routeable;
+  const buildingInfo = sourceCodesFromSystems(record.x_source_systems).includes("BI");
+  if (buildingInfo && rfi && verifiedEmailMatch) {
+    return { rank: 1200, reason: "BuildingInfo RFI with a verified consultant email relationship" };
+  }
   if (rfi && verifiedEmailMatch) return { rank: 1100, reason: "Immediate RFI with a verified consultant email relationship" };
   if (rfi) return { rank: 1000, reason: "Immediate noise-related RFI" };
   if (verifiedEmailMatch) return { rank: 900, reason: "Qualified opportunity with a verified consultant email relationship" };
@@ -747,6 +752,7 @@ function payloadWithExistingEvidence(
       x_applicant: preserveWhenMissing(payload.values.x_applicant, existing.x_applicant),
       x_source_systems: sourceSystems,
       x_source_record_ids: mergedValues(existing.x_source_record_ids, payload.values.x_source_record_ids, "; "),
+      x_project_link: preserveWhenMissing(payload.values.x_project_link, existing.x_project_link),
       x_source_urls: mergedValues(existing.x_source_urls, payload.values.x_source_urls, "\n"),
       x_evidence_document_urls: mergedValues(
         existing.x_evidence_document_urls,
@@ -854,6 +860,7 @@ export async function syncOdooLeads(
           "x_party_details",
           "x_source_systems",
           "x_source_record_ids",
+          "x_project_link",
           "x_source_urls",
           "x_evidence_document_urls",
           "x_assigned_person",
