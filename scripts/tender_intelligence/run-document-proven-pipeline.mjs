@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { collectOfficialSourceSnapshot } from "../../src/lib/tender-intelligence/official-sources.ts";
 import { annotateOpportunityDuplicates, deduplicationSummary } from "../../src/lib/tender-intelligence/deduplication.ts";
+import { applyAppointmentSafeguards } from "../../src/lib/tender-intelligence/appointment-classification.ts";
 import { enrichFormalTenderOpportunities } from "../../src/lib/tender-intelligence/formal-document-evidence.ts";
 import { enrichNationalPlanningOpportunities } from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
 import { isSalesRouteable, qualifyLead } from "../../src/lib/tender-intelligence/lead-qualification.ts";
@@ -156,6 +157,10 @@ function routeCurrentAndPreserveCarryForward(records, lookup = undefined) {
   return records.map((record) => routed.get(opportunityIdentity(record)) ?? record);
 }
 
+function prepareCommercialRecords(records) {
+  return applyAppointmentSafeguards(annotateOpportunityDuplicates(records)).map((record) => qualifyLead(record));
+}
+
 let state;
 let previousCompletedState;
 try {
@@ -258,18 +263,14 @@ for (let offset = state.nationalProcessed || 0; offset < nationalIndexes.length;
       enriched[batchIndex],
     );
   });
-  state.opportunities = routeCurrentAndPreserveCarryForward(annotateOpportunityDuplicates(
-    state.opportunities.map((record) => qualifyLead(record)),
-  ));
+  state.opportunities = routeCurrentAndPreserveCarryForward(prepareCommercialRecords(state.opportunities));
   state.nationalProcessed = offset + indexes.length;
   state.updatedAt = new Date().toISOString();
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
   console.log(`Council document evidence ${state.nationalProcessed}/${nationalIndexes.length}`);
 }
 
-state.opportunities = routeCurrentAndPreserveCarryForward(annotateOpportunityDuplicates(
-  state.opportunities.map((record) => qualifyLead(record)),
-));
+state.opportunities = routeCurrentAndPreserveCarryForward(prepareCommercialRecords(state.opportunities));
 const relationshipSearch = await loadSearchRelationshipLookup(state.opportunities);
 if (relationshipSearch.lookup) {
   state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities, relationshipSearch.lookup);
@@ -379,6 +380,10 @@ const report = {
     nurtureWatchList: state.opportunities.filter((record) => record.leadDisposition === "nurture").length,
     monitored: state.opportunities.filter((record) => record.leadDisposition === "monitor").length,
     background: state.opportunities.filter((record) => record.leadDisposition === "background").length,
+    alreadyWon: state.opportunities.filter((record) => record.leadDisposition === "already-won").length,
+    competitorAppointed: state.opportunities.filter((record) => record.acousticAppointmentStatus === "competitor-appointed").length,
+    appointmentNeedsVerification: state.opportunities.filter((record) => record.acousticAppointmentStatus === "needs-verification").length,
+    outreachSuppressedAlreadyWon: state.opportunities.filter((record) => record.outreachEligibility === "suppressed-already-won").length,
     ...deduplication,
     publishedOrUpdatedWithinThreeDays: state.opportunities.filter((record) => ["updated-today", "updated-1-3-days", "published-today", "published-1-3-days"].includes(record.leadFreshness)).length,
     olderOrUndatedRetained: state.opportunities.filter((record) => ["updated-over-30-days", "published-over-30-days", "date-unknown", "newly-detected-date-unknown"].includes(record.leadFreshness)).length,
@@ -416,6 +421,14 @@ const report = {
     possibleDuplicateIds: record.possibleDuplicateIds,
     residentialUnitCount: record.residentialUnitCount,
     residentialScale: record.residentialScale,
+    acousticAppointmentStatus: record.acousticAppointmentStatus,
+    appointedAcoustician: record.appointedAcoustician,
+    appointmentEvidenceExcerpt: record.appointmentEvidenceExcerpt,
+    appointmentEvidenceSourceUrl: record.appointmentEvidenceSourceUrl,
+    competitiveQuoteOpportunity: record.competitiveQuoteOpportunity,
+    outreachEligibility: record.outreachEligibility,
+    outreachSuppressionReason: record.outreachSuppressionReason,
+    outreachKey: record.outreachKey,
     cycleStatus: record.cycleStatus,
     carryForwardReason: record.carryForwardReason,
     missingSince: record.missingSince,
@@ -430,9 +443,7 @@ const weeklyLists = {
   dailyFreshLeads: state.opportunities.filter((record) =>
     ["updated-today", "updated-1-3-days", "published-today", "published-1-3-days"].includes(record.leadFreshness)
     && record.cycleStatus !== "resolved"
-    && record.leadQuality !== "poor"
-    && record.leadQuality !== "closed-background"
-    && record.deduplicationStatus !== "duplicate"),
+    && isSalesRouteable(record)),
 };
 
 function deliveryNote(record) {
@@ -454,6 +465,8 @@ function renderRecipientDigest(owner, records) {
     `- Deadline: ${record.responseDeadline || record.deadline || "Not published"}`,
     `- Fit: ${record.fitScore}`,
     `- Assignment note: ${deliveryNote(record)}`,
+    `- Appointment status: ${record.acousticAppointmentStatus ?? "not-identified"}${record.appointedAcoustician ? ` · ${record.appointedAcoustician}` : ""}`,
+    `- Outreach safeguard: ${record.outreachEligibility ?? "eligible"}${record.outreachSuppressionReason ? ` · ${record.outreachSuppressionReason}` : ""}`,
     `- Evidence: ${record.evidenceExcerpt || "Authoritative document inspected; open the source for the retained evidence."}`,
     `- Source document: ${record.sourceUrl}`,
   ].join("\n"));

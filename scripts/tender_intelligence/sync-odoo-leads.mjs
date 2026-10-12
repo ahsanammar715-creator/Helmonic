@@ -31,6 +31,11 @@ const result = await syncOdooLeads(payloads, {
   createMissingAttribution: process.env.ODOO_CREATE_MISSING_ATTRIBUTION === "true",
   linkPrimaryContact: process.env.ODOO_LINK_PRIMARY_CONTACT === "true",
   createMissingContacts: process.env.ODOO_CREATE_MISSING_CONTACTS === "true",
+  populateEmailMatchTags: process.env.ODOO_POPULATE_EMAIL_MATCH_TAGS === "true",
+  createMissingEmailMatchTags: process.env.ODOO_CREATE_MISSING_EMAIL_MATCH_TAGS === "true",
+  populateSourceTags: process.env.ODOO_POPULATE_SOURCE_TAGS === "true",
+  createMissingSourceTags: process.env.ODOO_CREATE_MISSING_SOURCE_TAGS === "true",
+  normalizeHistoricalRecords: process.env.ODOO_NORMALIZE_HISTORICAL_RECORDS === "true",
   requestIntervalMs: Number.parseInt(process.env.ODOO_REQUEST_INTERVAL_MS || "1000", 10),
   timeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
 });

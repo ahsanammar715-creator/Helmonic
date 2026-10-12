@@ -337,6 +337,8 @@ test("Odoo payload populates native contact, planning attribution, sector and re
     projectStage: "Plans Applied",
     triggerType: "Further Information Request",
     classification: "noise-related-rfi",
+    sourceMajorUpdatedAt: "2026-10-06",
+    deadline: "2026-11-20",
     responseDeadline: "2026-10-28",
     parties: [{
       role: "applicant",
@@ -349,7 +351,7 @@ test("Odoo payload populates native contact, planning attribution, sector and re
     emailRelationshipStatus: "verified-single-owner",
     emailRelationshipOwner: "Glen",
   }), new Date("2026-10-07T12:00:00.000Z"))]);
-  const [payload] = buildOdooDryRun(records);
+  const [payload] = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   assert.equal(payload.values.partner_name, "Armstrong Timber Engineering Ltd.");
   assert.equal(payload.values.contact_name, "Alan Armstrong");
   assert.equal(payload.values.email_from, "sales@ate.ie");
@@ -361,9 +363,18 @@ test("Odoo payload populates native contact, planning attribution, sector and re
   assert.equal(payload.values.x_studio_reference, "BI-2660722");
   assert.equal(payload.values.x_studio_project_sector, "Industrial");
   assert.equal(payload.values.x_project_link, "https://example.test/project");
+  assert.equal(payload.values.x_rfi_received_at, "2026-10-06 00:00:00");
+  assert.equal(payload.values.x_rfi_response_due_at, "2026-10-28 00:00:00");
+  assert.equal(payload.values.x_decision_due_at, "2026-11-20 00:00:00");
+  assert.equal(payload.values.x_action_days_remaining, 16);
+  assert.equal(payload.values.x_deadline_urgency, "Due in 16 days — within the 28-day RFI window");
+  assert.equal(payload.values.x_rfi_trigger, "Further Information Request");
   assert.match(payload.values.description, /Project and Source Links/);
   assert.match(payload.values.description, /href="https:\/\/example\.test\/project"/);
   assert.match(payload.values.description, /All Project Parties and Contacts/);
+  assert.match(payload.values.description, /RFI received \/ detected/);
+  assert.match(payload.values.description, /Planning decision due/);
+  assert.match(payload.values.description, /Due in 16 days/);
   assert.deepEqual(payload.attribution, {
     campaignName: "Planning Outreach - Acoustics",
     mediumName: "Planning Intelligence",
