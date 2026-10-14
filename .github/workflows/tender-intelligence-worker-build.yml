@@ -45,7 +45,7 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Run Tender Intelligence tests
+       - name: Run Tender Intelligence tests
         run: npm run test:tender-intelligence
 
       - name: Sign in to Azure with GitHub OIDC
@@ -70,7 +70,9 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
       - name: Migrate managed Tender Desk records to the Odoo Leads review queue
-        if: github.event_name == 'workflow_dispatch' && inputs.deploy_odoo_leads_migration
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.deploy_odoo_leads_migration) ||
+          (github.event_name == 'push' && contains(github.event.head_commit.message, '[odoo-leads-migration]'))
         shell: bash
         run: |
           set -euo pipefail
