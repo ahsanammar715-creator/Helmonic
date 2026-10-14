@@ -599,7 +599,7 @@ test("Odoo preflight validates the complete contract and routing with zero write
   assert.ok(calls.every(({ url }) => !url.endsWith("/create") && !url.endsWith("/write")));
 });
 
-test("Odoo JSON-2 upsert creates once and updates on a repeated run", async () => {
+test("Odoo creates new Tender Desk records as leads, preserves conversion and supports a controlled migration", async () => {
   const records = annotateOpportunityDuplicates([qualifyLead(planningLead({
     id: "odoo-repeatable",
     sourceRecordId: "WEB1000/26",
@@ -613,6 +613,7 @@ test("Odoo JSON-2 upsert creates once and updates on a repeated run", async () =
   let existingId;
   let creates = 0;
   let writes = 0;
+  const writtenTypes = [];
   const fetcher = async (request, options = {}) => {
     const url = String(request);
     const body = options.body ? JSON.parse(String(options.body)) : {};
@@ -642,19 +643,20 @@ test("Odoo JSON-2 upsert creates once and updates on a repeated run", async () =
         }[field] ?? "char"),
       }])));
     }
-    if (url.endsWith("/search_read")) return Response.json(existingId ? [{ id: existingId }] : []);
+    if (url.endsWith("/search_read")) return Response.json(existingId ? [{ id: existingId, type: "opportunity" }] : []);
     if (url.endsWith("/create")) {
       assert.equal(body.vals_list[0].x_helmonic_external_id, payloads[0].matchValue);
       assert.equal(body.vals_list[0].team_id, 41);
       assert.equal(body.vals_list[0].x_assigned_person, "Eoghan Tyrrell");
       assert.equal(body.vals_list[0].user_id, 6);
-      assert.equal(body.vals_list[0].type, "opportunity");
+      assert.equal(body.vals_list[0].type, "lead");
       creates += 1;
       existingId = 731;
       return Response.json([existingId]);
     }
     if (url.endsWith("/write")) {
       assert.deepEqual(body.ids, [existingId]);
+      writtenTypes.push(body.vals.type);
       writes += 1;
       return Response.json(true);
     }
@@ -670,10 +672,14 @@ test("Odoo JSON-2 upsert creates once and updates on a repeated run", async () =
   };
   const first = await syncOdooLeads(payloads, config, fetcher);
   const second = await syncOdooLeads(payloads, config, fetcher);
+  const migration = await syncOdooLeads(payloads, { ...config, migrateManagedRecordsToLeads: true }, fetcher);
   assert.equal(first.created, 1);
   assert.equal(second.updated, 1);
+  assert.equal(migration.updated, 1);
+  assert.equal(migration.managedRecordsMovedToLeads, 1);
   assert.equal(creates, 1);
-  assert.equal(writes, 1);
+  assert.equal(writes, 2);
+  assert.deepEqual(writtenTypes, ["opportunity", "lead"]);
 });
 
 test("Odoo pipeline priority leads with qualified verified email matches", async () => {
@@ -736,7 +742,7 @@ test("Odoo pipeline priority leads with qualified verified email matches", async
   assert.equal(writtenPriorities.get("helmonic-lead:excellent-unmatched-priority"), "1");
 });
 
-test("Odoo pipeline rank keeps RFIs first and email matches first within the urgent queue", () => {
+test("Odoo pipeline rank makes RFI due date primary and source or email matches tie-breakers", () => {
   const records = [
     planningLead({
       id: "buildinginfo-matched-rfi-rank",
@@ -774,6 +780,16 @@ test("Odoo pipeline rank keeps RFIs first and email matches first within the urg
       crmExternalId: "helmonic-lead:unmatched-rfi-rank",
     }),
     planningLead({
+      id: "earlier-unmatched-rfi-rank",
+      classification: "noise-related-rfi",
+      responseDeadline: "2026-10-19",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      emailRelationshipStatus: "no-confirmed-match",
+      routedTo: "Owen",
+      crmExternalId: "helmonic-lead:earlier-unmatched-rfi-rank",
+    }),
+    planningLead({
       id: "matched-standard-rank",
       classification: "design-construction-potential",
       leadQuality: "good",
@@ -786,9 +802,11 @@ test("Odoo pipeline rank keeps RFIs first and email matches first within the urg
   ];
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   const ranks = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values.x_pipeline_priority_rank]));
-  assert.equal(ranks["helmonic-lead:buildinginfo-matched-rfi-rank"], 1550);
-  assert.equal(ranks["helmonic-lead:matched-rfi-rank"], 1350);
-  assert.equal(ranks["helmonic-lead:unmatched-rfi-rank"], 1300);
+  assert.equal(ranks["helmonic-lead:buildinginfo-matched-rfi-rank"], 1_999_230);
+  assert.equal(ranks["helmonic-lead:matched-rfi-rank"], 1_999_210);
+  assert.equal(ranks["helmonic-lead:unmatched-rfi-rank"], 1_999_200);
+  assert.equal(ranks["helmonic-lead:earlier-unmatched-rfi-rank"], 1_999_300);
+  assert.ok(ranks["helmonic-lead:earlier-unmatched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-matched-rfi-rank"]);
   assert.equal(ranks["helmonic-lead:matched-standard-rank"], 900);
 });
 
@@ -836,7 +854,7 @@ test("Odoo pipeline demotes expired RFIs and planning decisions below live dated
   ];
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
-  assert.equal(values["helmonic-lead:live-buildinginfo-rfi"].x_pipeline_priority_rank, 1500);
+  assert.equal(values["helmonic-lead:live-buildinginfo-rfi"].x_pipeline_priority_rank, 1_999_420);
   assert.equal(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_rank, 450);
   assert.match(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_reason, /has passed/i);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_rank, 350);
@@ -1152,11 +1170,11 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   );
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
-  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1550);
+  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1_000_030);
   assert.equal(buildingInfoHistorical.vals.priority, "3");
-  assert.equal(
+  assert.match(
     buildingInfoHistorical.vals.x_pipeline_priority_reason,
-    "Live human-reviewed BuildingInfo acoustic RFI with a due date and verified consultant email relationship",
+    /^Active acoustic RFI due in \d+ days; response deadline takes precedence; human-reviewed BuildingInfo source; verified acoustic consultant email relationship$/,
   );
 });
 

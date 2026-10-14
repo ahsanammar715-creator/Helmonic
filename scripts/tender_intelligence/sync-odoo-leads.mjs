@@ -36,6 +36,7 @@ const result = await syncOdooLeads(payloads, {
   populateSourceTags: process.env.ODOO_POPULATE_SOURCE_TAGS === "true",
   createMissingSourceTags: process.env.ODOO_CREATE_MISSING_SOURCE_TAGS === "true",
   normalizeHistoricalRecords: process.env.ODOO_NORMALIZE_HISTORICAL_RECORDS === "true",
+  migrateManagedRecordsToLeads: process.env.ODOO_MIGRATE_MANAGED_RECORDS_TO_LEADS === "true",
   requestIntervalMs: Number.parseInt(process.env.ODOO_REQUEST_INTERVAL_MS || "1000", 10),
   timeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
 });
