@@ -93,6 +93,9 @@ function runScript(script, args = []) {
 }
 
 const steps = [
+  ...(process.env.ODOO_CRM_UI_CONFIG_ENABLED === "true"
+    ? [{ script: "scripts/tender_intelligence/configure-odoo-crm-ui.mjs", args: [] }]
+    : []),
   { script: "scripts/tender_intelligence/run-document-proven-pipeline.mjs", args: summarizeOnly ? ["--summarize-only"] : [] },
   { script: "scripts/tender_intelligence/export-review-artifacts.mjs", args: [] },
   { script: "scripts/tender_intelligence/generate-review-digest.mjs", args: [] },
