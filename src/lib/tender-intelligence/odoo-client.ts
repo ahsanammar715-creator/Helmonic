@@ -587,6 +587,7 @@ type ExistingLeadValues = {
   x_project_link?: string | false;
   x_evidence_document_urls?: string | false;
   x_assigned_person?: string | false;
+  user_id?: [number, string] | number | false;
   x_warm_connection_verified?: boolean;
   x_lead_quality?: string | false;
   x_pipeline_bucket?: string | false;
@@ -740,6 +741,7 @@ async function normalizeHistoricalOdooRecords(
     fields: [
       "id", "name", "priority", "tag_ids", config.externalIdField, "x_source_systems", "x_project_reference",
       "x_studio_reference", "x_warm_connection_verified", "x_assigned_person",
+      "user_id", "x_routing_reason",
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
       "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
       "x_evidence_status", "x_evidence_excerpt", "x_matched_terms", "x_cpv_codes", "x_opportunity_type",
@@ -785,8 +787,14 @@ async function normalizeHistoricalOdooRecords(
     }
     const priority = historicalPipelinePriority(record, normalizationNow);
     const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
-    const staleAutomatedAssignment = !confirmedAcoustic
-      && ["Glen Plunkett", "Eoghan Tyrrell"].includes(String(record.x_assigned_person ?? ""));
+    const nativeOwnerId = Array.isArray(record.user_id)
+      ? Number(record.user_id[0])
+      : Number(record.user_id || 0);
+    const staleAutomatedAssignment = !confirmedAcoustic && (
+      ["Glen Plunkett", "Eoghan Tyrrell"].includes(String(record.x_assigned_person ?? ""))
+      || nativeOwnerId === config.glenUserId
+      || nativeOwnerId === config.eoghanUserId
+    );
     if (record.x_pipeline_priority_rank !== priority.rank) values.x_pipeline_priority_rank = priority.rank;
     if (record.x_pipeline_priority_reason !== priority.reason) values.x_pipeline_priority_reason = priority.reason;
     const visualPriority = odooPriorityFromRank(priority.rank);
