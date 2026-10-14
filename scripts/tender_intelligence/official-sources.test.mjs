@@ -1120,6 +1120,8 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_pipeline_priority_rank: 0,
           x_pipeline_priority_reason: false,
           x_classification: "needs-council-evidence",
+          x_assigned_person: "Glen Plunkett",
+          x_routing_reason: "exact-party-match-supported-by-glen-email-evidence",
         },
         {
           id: 71,
@@ -1174,6 +1176,10 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
   assert.equal(historical.vals.x_pipeline_priority_rank, 320);
   assert.equal(historical.vals.priority, "0");
+  assert.equal(historical.vals.x_assigned_person, "");
+  assert.equal(historical.vals.user_id, false);
+  assert.match(historical.vals.x_routing_reason, /historical email relationship retained for context/i);
+  assert.match(historical.vals.x_routing_reason, /Prior route: exact-party-match-supported-by-glen-email-evidence/);
   assert.equal(
     historical.vals.x_pipeline_priority_reason,
     "Potential acoustic fit only; current-project acoustic evidence is unconfirmed. Verified historical relationship retained for context, not opportunity proof",
@@ -1186,6 +1192,31 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
     buildingInfoHistorical.vals.x_pipeline_priority_reason,
     /^Active acoustic RFI due in \d+ days; response deadline takes precedence; human-reviewed BuildingInfo source; verified acoustic consultant email relationship$/,
   );
+});
+
+test("Odoo never assigns a consultant when only historical email evidence exists", () => {
+  const [payload] = buildOdooDryRun([{
+    ...planningLead({
+      id: "relationship-only-not-acoustic",
+      evidenceStatus: "discovery-only",
+      evidenceExcerpt: "Mixed-use development with an architect previously known to iAcoustics.",
+      classification: "design-construction-potential",
+      matchedTerms: [],
+      routedTo: "Glen",
+      routingStatus: "routed",
+      routingReason: "exact-party-match-supported-by-glen-email-evidence",
+      emailRelationshipStatus: "verified-single-owner",
+      emailRelationshipOwner: "Glen",
+    }),
+    crmExternalId: "helmonic-lead:relationship-only-not-acoustic",
+  }], new Date("2026-10-14T12:00:00Z"));
+  assert.equal(payload.values.x_warm_connection_verified, true);
+  assert.equal(payload.emailMatchTagName, "Email Match: Glen");
+  assert.equal(payload.values.x_assigned_person, "");
+  assert.match(payload.values.x_routing_reason, /historical email relationship retained for context/i);
+  assert.match(payload.values.x_routing_reason, /Match context: exact-party-match-supported-by-glen-email-evidence/);
+  assert.match(payload.values.description, /Potential only.*current-project acoustic evidence unconfirmed/i);
+  assert.ok(payload.values.x_pipeline_priority_rank < 600);
 });
 
 test("Odoo updates preserve prior source and contact evidence from another intake", async () => {
