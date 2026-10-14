@@ -1120,7 +1120,8 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_pipeline_priority_rank: 0,
           x_pipeline_priority_reason: false,
           x_classification: "needs-council-evidence",
-          x_assigned_person: "Glen Plunkett",
+          x_assigned_person: false,
+          user_id: [7, "Glen Plunkett"],
           x_routing_reason: "exact-party-match-supported-by-glen-email-evidence",
         },
         {
