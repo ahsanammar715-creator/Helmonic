@@ -2,18 +2,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { hasConfirmedCurrentAcousticEvidence } from "../../src/lib/tender-intelligence/acoustic-evidence-guard.ts";
+import { isSalesRouteable } from "../../src/lib/tender-intelligence/lead-qualification.ts";
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
 const artifactRoot = process.env.HELMONIC_TENDER_ARTIFACT_ROOT
   ? path.resolve(process.env.HELMONIC_TENDER_ARTIFACT_ROOT)
   : path.join(repoRoot, "local-artifacts", "tender-intelligence");
 const ledgerPath = path.join(artifactRoot, "document-proven", "confirmed-ledger.json");
-const planningClasses = new Set([
-  "noise-related-rfi",
-  "granted-with-noise-conditions",
-  "refused-on-noise-grounds",
-  "design-construction-potential",
-]);
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -25,11 +22,9 @@ function escapeHtml(value) {
 }
 
 function qualified(record) {
-  if (record.cycleStatus === "resolved" || record.evidenceStatus !== "official-text") return false;
-  if (record.deduplicationStatus === "duplicate") return false;
-  if (["poor", "closed-background"].includes(record.leadQuality) || record.leadDisposition === "background") return false;
-  if (record.type === "formal-public-tender") return record.classification !== "no-relevant-opportunity";
-  return planningClasses.has(record.classification ?? "");
+  return record.cycleStatus !== "resolved"
+    && isSalesRouteable(record)
+    && hasConfirmedCurrentAcousticEvidence(record);
 }
 
 function category(record) {

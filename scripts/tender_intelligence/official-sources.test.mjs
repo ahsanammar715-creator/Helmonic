@@ -2190,6 +2190,7 @@ test("a hotel-sector relationship match remains visible but cannot prove a curre
   assert.equal(routed.emailRelationshipStatus, "verified-single-owner");
   assert.equal(routed.routedTo, "unassigned");
   assert.equal(routed.routingStatus, "not-qualified");
+  assert.equal(confirmedLedgerRecords([routed]).length, 0);
   assert.equal(payload.values.x_warm_connection_verified, true);
   assert.equal(payload.values.x_assigned_person, "");
   assert.equal(payload.values.x_pipeline_priority_rank, 180);

@@ -1,11 +1,5 @@
 import type { TenderOpportunity } from "./types.ts";
-
-const confirmedPlanningClasses = new Set([
-  "noise-related-rfi",
-  "granted-with-noise-conditions",
-  "refused-on-noise-grounds",
-  "design-construction-potential",
-]);
+import { hasConfirmedCurrentAcousticEvidence } from "./acoustic-evidence-guard.ts";
 
 const resolvedSourceStatuses = new Set([
   "awarded",
@@ -23,11 +17,7 @@ export function opportunityIdentity(record: Pick<TenderOpportunity, "sourceSyste
 
 export function isConfirmedOpportunity(record: TenderOpportunity) {
   if (record.cycleStatus === "resolved") return false;
-  if (record.evidenceStatus !== "official-text") return false;
-  if (record.type === "formal-public-tender") {
-    return record.classification !== "no-relevant-opportunity";
-  }
-  return confirmedPlanningClasses.has(record.classification ?? "");
+  return hasConfirmedCurrentAcousticEvidence(record);
 }
 
 function parseDate(value: string | undefined) {

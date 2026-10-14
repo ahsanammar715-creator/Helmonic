@@ -8,6 +8,7 @@ import { applyAppointmentSafeguards } from "../../src/lib/tender-intelligence/ap
 import { enrichFormalTenderOpportunities } from "../../src/lib/tender-intelligence/formal-document-evidence.ts";
 import { enrichNationalPlanningOpportunities } from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
 import { isSalesRouteable, qualifyLead } from "../../src/lib/tender-intelligence/lead-qualification.ts";
+import { hasConfirmedCurrentAcousticEvidence } from "../../src/lib/tender-intelligence/acoustic-evidence-guard.ts";
 import { routeOpportunitiesByRelationships } from "../../src/lib/tender-intelligence/relationship-routing.ts";
 import { loadSearchRelationshipLookup } from "../../src/lib/tender-intelligence/search-relationship-index.ts";
 import { applyTargetScope } from "../../src/lib/tender-intelligence/source-scope.ts";
@@ -286,12 +287,6 @@ state.status = "complete";
 state.completedAt = new Date().toISOString();
 state.updatedAt = state.completedAt;
 
-const confirmedClasses = new Set([
-  "noise-related-rfi",
-  "granted-with-noise-conditions",
-  "refused-on-noise-grounds",
-  "design-construction-potential",
-]);
 const planningStageClasses = new Set([
   "noise-related-rfi",
   "granted-with-noise-conditions",
@@ -300,15 +295,13 @@ const planningStageClasses = new Set([
 const isFormalConfirmed = (record) => record.evidenceStatus === "official-text"
   && record.cycleStatus !== "resolved"
   && record.type === "formal-public-tender"
-  && record.classification !== "no-relevant-opportunity";
+  && hasConfirmedCurrentAcousticEvidence(record);
 const isPlanningStageConfirmed = (record) => record.evidenceStatus === "official-text"
   && record.cycleStatus !== "resolved"
-  && planningStageClasses.has(record.classification);
-const isConfirmed = (record) => isFormalConfirmed(record) || (
-  record.evidenceStatus === "official-text"
-  && record.cycleStatus !== "resolved"
-  && confirmedClasses.has(record.classification)
-);
+  && planningStageClasses.has(record.classification)
+  && hasConfirmedCurrentAcousticEvidence(record);
+const isConfirmed = (record) => record.cycleStatus !== "resolved"
+  && hasConfirmedCurrentAcousticEvidence(record);
 const deduplication = deduplicationSummary(state.opportunities);
 const sourceNames = ["TED", "eTenders", "National Planning Register", "DCC", "PlanningLeads", "BuildingInfo"];
 const sources = sourceNames.map((name) => {
