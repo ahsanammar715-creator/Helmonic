@@ -1108,6 +1108,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
         },
         {
           id: 70,
+          type: "opportunity",
           name: "J-legacy",
           tag_ids: [1, 2, 5],
           x_helmonic_external_id: "helmonic-lead:retained-history",
@@ -1126,6 +1127,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
         },
         {
           id: 71,
+          type: "opportunity",
           name: "[BI] J-buildinginfo-rfi",
           tag_ids: [4, 7],
           x_helmonic_external_id: "helmonic-lead:buildinginfo-rfi-history",
@@ -1166,12 +1168,14 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
     populateSourceTags: true,
     createMissingSourceTags: true,
     normalizeHistoricalRecords: true,
+    migrateManagedRecordsToLeads: true,
     requestIntervalMs: 0,
   }, fetcher);
   const current = writes.filter((write) => write.ids[0] === 69 && write.vals.name).at(-1);
   const historical = writes.find((write) => write.ids[0] === 70);
   const buildingInfoHistorical = writes.find((write) => write.ids[0] === 71);
   assert.equal(result.historicalRecordsNormalized, 3);
+  assert.equal(result.managedRecordsMovedToLeads, 2);
   assert.equal(current.vals.name, "[DCC] J-current");
   assert.equal(historical.vals.name, "[NPR] J-legacy");
   assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
@@ -1179,6 +1183,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(historical.vals.priority, "0");
   assert.equal(historical.vals.x_assigned_person, "");
   assert.equal(historical.vals.user_id, false);
+  assert.equal(historical.vals.type, "lead");
   assert.match(historical.vals.x_routing_reason, /historical email relationship retained for context/i);
   assert.match(historical.vals.x_routing_reason, /Prior route: exact-party-match-supported-by-glen-email-evidence/);
   assert.equal(
@@ -1188,6 +1193,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
   assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1_000_030);
+  assert.equal(buildingInfoHistorical.vals.type, "lead");
   assert.equal(buildingInfoHistorical.vals.priority, "3");
   assert.match(
     buildingInfoHistorical.vals.x_pipeline_priority_reason,
