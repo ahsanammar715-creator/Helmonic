@@ -208,7 +208,10 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       ? validHttpUrl(documentUrlInput, "evidence document URL", sourceName, rowNumber)
       : projectUrl;
     const rfiExportContract = Object.keys(row).some((name) =>
-      ["rfireference", "rfideadline", "rfidate"].includes(normalizedHeader(name)));
+      [
+        "rfireference", "rfidate", "rfireceiveddate", "rfipublisheddate",
+        "rfideadline", "rfiresponsedeadline", "rfiresponseduedate",
+      ].includes(normalizedHeader(name)));
     const stage = optionalValue(row, ["project_stage", "project stage", "planning_stage", "stage", "status"]);
     const sector = optionalValue(row, ["sector", "project_sector", "project sector", "planning_category", "category"]);
     const projectType = optionalValue(row, ["project_type", "project type", "planning_type", "type", "subsector"]);
@@ -251,9 +254,18 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       location: optionalValue(row, ["site_address", "site address", "project_address", "project address", "address"]) || county,
       publishedAt: optionalValue(row, ["application_date", "application date", "published_at", "published at", "first_seen", "first seen"]) || undefined,
       sourceUpdatedAt: updatedAt || undefined,
-      sourceMajorUpdatedAt: optionalValue(row, ["rfi_date", "rfi date", "trigger_date", "trigger date", "major_update_date", "major update date"]) || undefined,
-      deadline: optionalValue(row, ["planning_deadline", "planning deadline", "decision_due_date", "decision due date"]) || undefined,
-      responseDeadline: optionalValue(row, ["rfi_deadline", "rfi deadline", "response_deadline", "response deadline", "deadline"]) || undefined,
+      sourceMajorUpdatedAt: optionalValue(row, [
+        "rfi_received_date", "rfi received date", "rfi_published_date", "rfi published date",
+        "rfi_date", "rfi date", "trigger_date", "trigger date", "major_update_date", "major update date",
+      ]) || undefined,
+      deadline: optionalValue(row, [
+        "planning_decision_due_date", "planning decision due date", "planning_deadline", "planning deadline",
+        "decision_due_date", "decision due date",
+      ]) || undefined,
+      responseDeadline: optionalValue(row, [
+        "rfi_response_due_date", "rfi response due date", "rfi_response_deadline", "rfi response deadline",
+        "rfi_deadline", "rfi deadline", "response_deadline", "response deadline", "deadline",
+      ]) || undefined,
       sourceUrl: projectUrl,
       evidenceStatus: evidenceStatus(excerpt),
       evidenceExcerpt: excerpt,
@@ -335,6 +347,8 @@ export function mergeBuildingInfoCsvRecords(records: TenderOpportunity[]) {
       parties: [...parties.values()],
       matchedTerms: [...new Set(ordered.flatMap((record) => record.matchedTerms))],
       responseDeadline: [...ordered].reverse().map((record) => record.responseDeadline).find(Boolean),
+      sourceMajorUpdatedAt: [...ordered].reverse().map((record) => record.sourceMajorUpdatedAt).find(Boolean),
+      deadline: [...ordered].reverse().map((record) => record.deadline).find(Boolean),
       appointedAcoustician: [...ordered].reverse().map((record) => record.appointedAcoustician).find(Boolean),
       appointmentEvidenceExcerpt: [...ordered].reverse().map((record) => record.appointmentEvidenceExcerpt).find(Boolean),
       appointmentEvidenceSourceUrl: [...ordered].reverse().map((record) => record.appointmentEvidenceSourceUrl).find(Boolean),

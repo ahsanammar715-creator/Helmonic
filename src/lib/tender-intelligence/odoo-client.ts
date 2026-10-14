@@ -298,11 +298,17 @@ function ownerUserId(payload: OdooLeadDryRun, config: ReturnType<typeof required
   return false;
 }
 
-function odooPriority(payload: OdooLeadDryRun) {
-  if (payload.values.x_pipeline_priority_rank >= 900) return "3";
-  if (payload.values.x_pipeline_priority_rank >= 700) return "2";
-  if (payload.values.x_pipeline_priority_rank >= 400) return "1";
+function odooPriorityFromRank(rank: number) {
+  // Reserve Odoo's three-star treatment for current, actionable RFIs. This
+  // prevents an older generic email match from visually outranking a live RFI.
+  if (rank >= 1300) return "3";
+  if (rank >= 900) return "2";
+  if (rank >= 600) return "1";
   return "0";
+}
+
+function odooPriority(payload: OdooLeadDryRun) {
+  return odooPriorityFromRank(payload.values.x_pipeline_priority_rank);
 }
 
 function selectionValue(field: OdooFieldInfo | undefined, label: string) {
@@ -553,6 +559,7 @@ function valuesForOdoo(
 type ExistingLeadValues = {
   id?: number;
   name?: string | false;
+  priority?: string | false;
   tag_ids?: number[];
   partner_name?: string | false;
   contact_name?: string | false;
@@ -684,7 +691,7 @@ async function normalizeHistoricalOdooRecords(
   const records = await json2Call(config, config.model, "search_read", {
     domain: [[config.externalIdField, "!=", false]],
     fields: [
-      "id", "name", "tag_ids", config.externalIdField, "x_source_systems", "x_project_reference",
+      "id", "name", "priority", "tag_ids", config.externalIdField, "x_source_systems", "x_project_reference",
       "x_studio_reference", "x_warm_connection_verified", "x_assigned_person",
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
       "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
@@ -731,6 +738,8 @@ async function normalizeHistoricalOdooRecords(
     const priority = historicalPipelinePriority(record, normalizationNow);
     if (record.x_pipeline_priority_rank !== priority.rank) values.x_pipeline_priority_rank = priority.rank;
     if (record.x_pipeline_priority_reason !== priority.reason) values.x_pipeline_priority_reason = priority.reason;
+    const visualPriority = odooPriorityFromRank(priority.rank);
+    if (record.priority !== visualPriority) values.priority = visualPriority;
     if (tagCommands.length > 0) values.tag_ids = tagCommands;
     if (Object.keys(values).length === 0) continue;
     await json2Call(config, config.model, "write", { ids: [record.id], vals: values }, fetcher);

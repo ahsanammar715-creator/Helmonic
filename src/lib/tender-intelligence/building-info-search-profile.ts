@@ -38,7 +38,9 @@ export const BUILDINGINFO_NATIVE_SEARCH_PROFILE = {
   ],
   preferredExportFields: [
     "planning_reference", "planning_authority", "project_stage", "project_value", "unit_count",
-    "site_address", "application_date", "last_updated", "rfi_date", "rfi_deadline",
+    "site_address", "application_date", "last_updated", "rfi_received_date", "rfi_response_due_date",
+    "planning_decision_due_date", "rfi_reference", "trigger_category", "fulfilment_status",
+    "acoustic_response_submitted_date",
     "applicant", "applicant_contact", "applicant_email", "applicant_phone",
     "architect", "architect_contact", "architect_email", "architect_phone",
     "developer", "developer_contact", "developer_email", "developer_phone",
