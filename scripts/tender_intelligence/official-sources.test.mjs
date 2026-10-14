@@ -92,9 +92,10 @@ function planningLead(overrides = {}) {
     description: "",
     sourceUrl: "https://example.test/project",
     evidenceStatus: "official-text",
+    evidenceExcerpt: "The applicant shall submit a noise assessment for the proposed development.",
     classification: "design-construction-potential",
     cpvCodes: [],
-    matchedTerms: [],
+    matchedTerms: ["noise"],
     fitScore: 60,
     ...overrides,
   };
@@ -367,7 +368,7 @@ test("Odoo payload populates native contact, planning attribution, sector and re
   assert.equal(payload.values.x_rfi_response_due_at, "2026-10-28 00:00:00");
   assert.equal(payload.values.x_decision_due_at, "2026-11-20 00:00:00");
   assert.equal(payload.values.x_action_days_remaining, 16);
-  assert.equal(payload.values.x_deadline_urgency, "Due in 16 days — within the 28-day RFI window");
+  assert.equal(payload.values.x_deadline_urgency, "Due in 16 days — within the 28-day RFI response window");
   assert.equal(payload.values.x_rfi_trigger, "Further Information Request");
   assert.match(payload.values.description, /Project and Source Links/);
   assert.match(payload.values.description, /href="https:\/\/example\.test\/project"/);
@@ -411,6 +412,7 @@ test("Odoo payload exposes an explicit visible tag for a verified email relation
     evidence_refs: ["[E:glen:424562]"],
     email_subject: "Arklow industrial unit follow-up",
     email_sent_at: "2026-09-18T10:15:00Z",
+    email_context: "We previously worked with Alan on the earlier Arklow industrial project.",
     email_source_uri: "restricted-email://glen/424562",
     previous_projects: ["Earlier Arklow industrial project"],
   }]);
@@ -436,6 +438,7 @@ test("Odoo payload exposes an explicit visible tag for a verified email relation
   assert.match(payload.values.description, /sales@ate\.ie/);
   assert.match(payload.values.description, /Matched email date: 2026-09-18T10:15:00Z/);
   assert.match(payload.values.description, /Matched email subject: Arklow industrial unit follow-up/);
+  assert.match(payload.values.description, /Email conversation context \(bounded excerpt\): We previously worked with Alan/);
   assert.match(payload.values.description, /Evidence source: Restricted iAcoustics consultant email evidence index/);
   assert.match(payload.values.description, /Source message URI: restricted-email:\/\/glen\/424562/);
   assert.match(payload.values.description, /Evidence reference\(s\): \[E:glen:424562\]/);
@@ -860,7 +863,10 @@ test("Odoo pipeline demotes expired RFIs and planning decisions below live dated
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_rank, 350);
   assert.match(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_reason, /refresh required/i);
   assert.equal(values["helmonic-lead:granted-post-decision"].x_pipeline_priority_rank, 800);
-  assert.equal(values["helmonic-lead:expired-planning-decision"].date_deadline, "2026-09-15");
+  assert.equal(values["helmonic-lead:expired-planning-decision"].date_deadline, false);
+  assert.equal(values["helmonic-lead:expired-planning-decision"].x_deadline, false);
+  assert.equal(values["helmonic-lead:expired-planning-decision"].x_action_days_remaining, false);
+  assert.match(values["helmonic-lead:expired-planning-decision"].x_deadline_urgency, /not an RFI response deadline/i);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_decision_due_at, "2026-09-15 00:00:00");
 });
 
@@ -1129,6 +1135,10 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_pipeline_priority_rank: 0,
           x_pipeline_priority_reason: false,
           x_classification: "noise-related-rfi",
+          x_evidence_status: "official-text",
+          x_evidence_excerpt: "The applicant shall submit a noise impact assessment.",
+          x_matched_terms: "noise",
+          x_opportunity_type: "planning-pipeline-lead",
           x_rfi_response_due_at: "2099-10-20 00:00:00",
         },
       ]);
@@ -1162,11 +1172,11 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(current.vals.name, "[DCC] J-current");
   assert.equal(historical.vals.name, "[NPR] J-legacy");
   assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
-  assert.equal(historical.vals.x_pipeline_priority_rank, 900);
-  assert.equal(historical.vals.priority, "2");
+  assert.equal(historical.vals.x_pipeline_priority_rank, 320);
+  assert.equal(historical.vals.priority, "0");
   assert.equal(
     historical.vals.x_pipeline_priority_reason,
-    "Qualified opportunity with a verified consultant email relationship",
+    "Potential acoustic fit only; current-project acoustic evidence is unconfirmed. Verified historical relationship retained for context, not opportunity proof",
   );
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
@@ -1962,7 +1972,7 @@ test("Agile council adapter retains a traceable official excerpt for design-stag
   assert.match(enriched.evidenceExcerpt, /120 apartments/i);
 });
 
-test("restricted Search lookup uses exact party evidence without exposing message bodies", async () => {
+test("restricted Search lookup uses exact party evidence and retains only a bounded conversation excerpt", async () => {
   const previous = {
     enabled: process.env.HELMONIC_EMAIL_RELATIONSHIP_SEARCH_ENABLED,
     endpoint: process.env.AZURE_EMAIL_SEARCH_ENDPOINT,
@@ -2016,6 +2026,8 @@ test("restricted Search lookup uses exact party evidence without exposing messag
     assert.deepEqual(routed.routingEvidence[0].historicalEmails, ["contact@example-architect.ie"]);
     assert.equal(routed.routingEvidence[0].emailSubject, "Example Architect");
     assert.equal(routed.routingEvidence[0].emailSentAt, "2025-02-03T09:15:00Z");
+    assert.equal(routed.routingEvidence[0].emailContext, "Previous correspondence with contact@example-architect.ie");
+    assert.ok(routed.routingEvidence[0].emailContext.length <= 422);
     assert.deepEqual(routed.routingEvidence[0].previousProjects, ["Earlier Architect Project"]);
     assert.equal(routed.routingEvidence[0].emailSourceUri, "restricted-email://remote-1");
   } finally {
@@ -2044,6 +2056,7 @@ test("party routing uses exact evidence and balanced batch assignment for everyt
     description: "Residential development",
     sourceUrl: "https://example.test/decision.pdf",
     evidenceStatus: "official-text",
+    evidenceExcerpt: "The applicant shall submit a noise assessment.",
     classification: "noise-related-rfi",
     cpvCodes: [],
     matchedTerms: ["noise"],
@@ -2109,6 +2122,53 @@ test("email relationship matching checks every lead without promoting an unquali
   assert.equal(routed.routingEvidence[0].evidenceRefs[0], "[E:owen:900]");
   assert.equal(routed.routingEvidence[0].matchedEmail, "known@example.test");
   assert.deepEqual(routed.routingEvidence[0].evidenceOwners, ["Owen"]);
+});
+
+test("a hotel-sector relationship match remains visible but cannot prove a current acoustic opportunity", () => {
+  const lookup = buildRelationshipLookup([{
+    name: "Example Hotel Architects",
+    email: "projects@example-hotel.ie",
+    evidence_refs: ["[E:glen:hotel-history-1]"],
+    email_subject: "Earlier hotel project",
+    email_sent_at: "2025-03-14T10:00:00Z",
+    email_context: "Earlier correspondence about a completed hotel fit-out.",
+  }]);
+  const qualified = qualifyLead(planningLead({
+    id: "hotel-sector-with-history-only",
+    title: "Hunter's Yard Hotel Development",
+    description: "Hotel extension and alterations",
+    evidenceStatus: "evidence-unavailable",
+    evidenceExcerpt: "",
+    matchedTerms: [],
+    classification: "design-construction-potential",
+    deadline: "2026-09-15",
+    parties: [{
+      name: "Example Hotel Architects",
+      role: "architect",
+      email: "projects@example-hotel.ie",
+    }],
+  }), new Date("2026-10-12T12:00:00Z"));
+  const routed = routeOpportunityByRelationships(qualified, lookup);
+  const [payload] = buildOdooDryRun([{
+    ...routed,
+    crmExternalId: "helmonic-lead:hotel-sector-with-history-only",
+  }], new Date("2026-10-12T12:00:00Z"));
+  assert.equal(routed.leadQuality, "medium");
+  assert.equal(routed.leadDisposition, "monitor");
+  assert.equal(routed.emailRelationshipStatus, "verified-single-owner");
+  assert.equal(routed.routedTo, "unassigned");
+  assert.equal(routed.routingStatus, "not-qualified");
+  assert.equal(payload.values.x_warm_connection_verified, true);
+  assert.equal(payload.values.x_assigned_person, "");
+  assert.equal(payload.values.x_pipeline_priority_rank, 180);
+  assert.equal(payload.values.date_deadline, false);
+  assert.equal(payload.values.x_deadline, false);
+  assert.equal(payload.values.x_decision_due_at, "2026-09-15 00:00:00");
+  assert.match(payload.values.x_deadline_urgency, /planning decision date passed/i);
+  assert.doesNotMatch(payload.values.x_deadline_urgency, /within the 28-day RFI/i);
+  assert.match(payload.values.description, /Potential only — current-project acoustic evidence unconfirmed/);
+  assert.match(payload.values.description, /historical email match does not prove/i);
+  assert.match(payload.values.description, /Email conversation context \(bounded excerpt\)/);
 });
 
 test("PlanningLeads free connector stays within the bounded search contract", () => {
@@ -2258,9 +2318,10 @@ test("existing balanced owners stay sticky while only new records are balanced",
     description: "Residential development",
     sourceUrl: "https://example.test/existing",
     evidenceStatus: "official-text",
+    evidenceExcerpt: "The applicant shall submit an acoustic assessment.",
     classification: "design-construction-potential",
     cpvCodes: [],
-    matchedTerms: [],
+    matchedTerms: ["acoustic"],
     fitScore: 60,
     routedTo: "Glen",
     routingStatus: "routed",
@@ -2295,9 +2356,10 @@ test("a prior balanced owner survives a confirmed refresh unless a new exact ema
     description: "Residential development",
     sourceUrl: "https://example.test/prior",
     evidenceStatus: "official-text",
+    evidenceExcerpt: "The applicant shall submit an acoustic assessment.",
     classification: "design-construction-potential",
     cpvCodes: [],
-    matchedTerms: [],
+    matchedTerms: ["acoustic"],
     fitScore: 60,
     routedTo: "Glen",
     routingStatus: "routed",
@@ -2328,9 +2390,10 @@ test("the durable ledger owner takes precedence over an older legacy audit owner
     description: "Residential development",
     sourceUrl: "https://example.test/durable",
     evidenceStatus: "official-text",
+    evidenceExcerpt: "The applicant shall submit an acoustic assessment.",
     classification: "design-construction-potential",
     cpvCodes: [],
-    matchedTerms: [],
+    matchedTerms: ["acoustic"],
     fitScore: 60,
     routedTo: "Owen",
     routingStatus: "routed",
@@ -2364,9 +2427,10 @@ test("a new exact email-evidence match supersedes a sticky balanced owner", () =
     description: "Residential development",
     sourceUrl: "https://example.test/new-exact-route",
     evidenceStatus: "official-text",
+    evidenceExcerpt: "The applicant shall submit an acoustic assessment.",
     classification: "design-construction-potential",
     cpvCodes: [],
-    matchedTerms: [],
+    matchedTerms: ["acoustic"],
     fitScore: 60,
     parties: [{ name: "Exact Owen Contact", email: "exact.owen@example.test", role: "applicant" }],
     routedTo: "Glen",
