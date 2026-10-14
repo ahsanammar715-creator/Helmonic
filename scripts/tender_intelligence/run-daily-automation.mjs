@@ -92,10 +92,10 @@ function runScript(script, args = []) {
   });
 }
 
+const optionalSteps = process.env.ODOO_CRM_UI_CONFIG_ENABLED === "true"
+  ? [{ script: "scripts/tender_intelligence/configure-odoo-crm-ui.mjs", args: [] }]
+  : [];
 const steps = [
-  ...(process.env.ODOO_CRM_UI_CONFIG_ENABLED === "true"
-    ? [{ script: "scripts/tender_intelligence/configure-odoo-crm-ui.mjs", args: [] }]
-    : []),
   { script: "scripts/tender_intelligence/run-document-proven-pipeline.mjs", args: summarizeOnly ? ["--summarize-only"] : [] },
   { script: "scripts/tender_intelligence/export-review-artifacts.mjs", args: [] },
   { script: "scripts/tender_intelligence/generate-review-digest.mjs", args: [] },
@@ -112,6 +112,7 @@ const summary = {
   buildingInfoEnabled: process.env.HELMONIC_BUILDINGINFO_ENABLED === "true",
   buildingInfoCsvEnabled: process.env.HELMONIC_BUILDINGINFO_CSV_ENABLED === "true",
   summarizeOnly,
+  optionalSteps: [],
   completedSteps: [],
   failedStep: undefined,
   error: undefined,
@@ -119,6 +120,17 @@ const summary = {
 
 await acquireLock();
 try {
+  for (const step of optionalSteps) {
+    try {
+      await runScript(step.script, step.args);
+      summary.optionalSteps.push({ script: step.script, status: "completed" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown optional-step error";
+      summary.optionalSteps.push({ script: step.script, status: "failed", error: message });
+      console.warn(JSON.stringify({ status: "optional-step-failed", script: step.script, error: message }));
+    }
+    await writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+  }
   for (const step of steps) {
     await runScript(step.script, step.args);
     summary.completedSteps.push(step.script);
