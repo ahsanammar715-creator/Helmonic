@@ -87,6 +87,7 @@ export type RelationshipRoutingEvidence = {
   historicalEmails?: string[];
   emailSubject?: string;
   emailSentAt?: string;
+  emailContext?: string;
   previousProjects?: string[];
   emailSourceUri?: string;
   matchType: "exact-name" | "exact-email" | "exact-domain";

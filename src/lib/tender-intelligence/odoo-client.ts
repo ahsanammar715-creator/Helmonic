@@ -1,5 +1,6 @@
 import type { OdooLeadDryRun } from "./odoo-payload.ts";
 import { ODOO_TENDER_FIELD_TYPES } from "./odoo-field-contract.ts";
+import { acousticCpvCodes, relevantTenderText } from "./policy.ts";
 
 export type OdooJson2Config = {
   enabled: boolean;
@@ -592,6 +593,11 @@ type ExistingLeadValues = {
   x_pipeline_priority_rank?: number;
   x_pipeline_priority_reason?: string | false;
   x_classification?: string | false;
+  x_evidence_status?: string | false;
+  x_evidence_excerpt?: string | false;
+  x_matched_terms?: string | false;
+  x_cpv_codes?: string | false;
+  x_opportunity_type?: string | false;
   x_rfi_received_at?: string | false;
   x_rfi_response_due_at?: string | false;
   x_decision_due_at?: string | false;
@@ -657,13 +663,28 @@ function historicalLiveRfiPriorityReason(daysRemaining: number, buildingInfo: bo
   return `Active acoustic RFI ${due}; response deadline takes precedence${source}${relationship}`;
 }
 
+function historicalConfirmedAcousticEvidence(record: ExistingLeadValues) {
+  if (record.x_evidence_status !== "official-text") return false;
+  if (["needs-council-evidence", "no-relevant-opportunity"].includes(String(record.x_classification ?? ""))) return false;
+  const excerpt = String(record.x_evidence_excerpt ?? "").trim();
+  const terms = String(record.x_matched_terms ?? "").trim();
+  if (!excerpt || !terms || !relevantTenderText(excerpt)) return false;
+  if (record.x_opportunity_type === "formal-public-tender") {
+    const cpvCodes = String(record.x_cpv_codes ?? "").split(/[;,\s]+/).filter(Boolean);
+    return cpvCodes.some((code) => acousticCpvCodes.includes(code as never));
+  }
+  return Boolean(record.x_classification);
+}
+
 function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const quality = typeof record.x_lead_quality === "string" ? record.x_lead_quality : "";
   const bucket = typeof record.x_pipeline_bucket === "string" ? record.x_pipeline_bucket : "";
   const routeable = !["poor", "closed-background", "existing-project"].includes(quality)
     && !["background", "already-won"].includes(bucket);
-  const verifiedEmailMatch = record.x_warm_connection_verified === true && routeable;
-  const rfi = record.x_classification === "noise-related-rfi" && routeable;
+  const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
+  const retainedRelationship = record.x_warm_connection_verified === true;
+  const verifiedEmailMatch = retainedRelationship && routeable && confirmedAcoustic;
+  const rfi = record.x_classification === "noise-related-rfi" && routeable && confirmedAcoustic;
   const buildingInfo = sourceCodesFromSystems(record.x_source_systems).includes("BI");
   const rfiDaysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
   const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
@@ -685,6 +706,14 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
     : { rank: 250, reason: "RFI response date has passed; retained as background until refreshed" };
   if (rfi && verifiedEmailMatch) return { rank: 1000, reason: "Acoustic RFI with verified consultant email history; RFI dates unavailable" };
   if (rfi) return { rank: 950, reason: "Acoustic RFI retained for review; RFI dates unavailable" };
+  if (!confirmedAcoustic) {
+    if (stalePendingPlanningDecision) return retainedRelationship
+      ? { rank: 180, reason: "Potential acoustic fit only; planning decision date has passed and current-project acoustic evidence is unconfirmed. Historical relationship retained for context" }
+      : { rank: 120, reason: "Potential acoustic fit only; planning decision date has passed and current-project acoustic evidence is unconfirmed" };
+    return retainedRelationship
+      ? { rank: 320, reason: "Potential acoustic fit only; current-project acoustic evidence is unconfirmed. Verified historical relationship retained for context, not opportunity proof" }
+      : { rank: 220, reason: "Potential acoustic fit only; current-project acoustic evidence is unconfirmed" };
+  }
   if (stalePendingPlanningDecision) return verifiedEmailMatch
     ? { rank: 350, reason: "Planning decision due date has passed with no confirmed outcome; refresh required before action" }
     : { rank: 150, reason: "Planning decision due date has passed with no confirmed outcome; retained as background" };
@@ -713,6 +742,7 @@ async function normalizeHistoricalOdooRecords(
       "x_studio_reference", "x_warm_connection_verified", "x_assigned_person",
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
       "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
+      "x_evidence_status", "x_evidence_excerpt", "x_matched_terms", "x_cpv_codes", "x_opportunity_type",
       "x_rfi_received_at", "x_rfi_response_due_at", "x_decision_due_at",
       "x_source_major_updated_at", "x_first_seen_at", "x_project_stage",
     ],

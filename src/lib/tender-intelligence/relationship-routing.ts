@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { normalizeText } from "./policy.ts";
+import { hasConfirmedCurrentAcousticEvidence } from "./acoustic-evidence-guard.ts";
 import { freshnessPriority, isSalesRouteable } from "./lead-qualification.ts";
 import type {
   LeadOwner,
@@ -18,6 +19,7 @@ type RelationshipEntity = {
   historical_emails?: string[];
   email_subject?: string;
   email_sent_at?: string;
+  email_context?: string;
   previous_projects?: string[];
   email_source_uri?: string;
 };
@@ -104,6 +106,7 @@ function uniqueEntities(entities: RelationshipEntity[]) {
       (entity.historical_emails ?? []).join(","),
       entity.email_subject ?? "",
       entity.email_sent_at ?? "",
+      entity.email_context ?? "",
       (entity.previous_projects ?? []).join(","),
       entity.email_source_uri ?? "",
     ].join("|");
@@ -146,6 +149,7 @@ function relationshipMatches(record: TenderOpportunity, lookup: RelationshipLook
             : {}),
           ...(entity.email_subject ? { emailSubject: normalizeText(entity.email_subject) } : {}),
           ...(entity.email_sent_at ? { emailSentAt: normalizeText(entity.email_sent_at) } : {}),
+          ...(entity.email_context ? { emailContext: normalizeText(entity.email_context) } : {}),
           ...(entity.previous_projects?.length
             ? { previousProjects: [...new Set(entity.previous_projects.map(normalizeText).filter(Boolean))] }
             : {}),
@@ -162,9 +166,7 @@ function relationshipMatches(record: TenderOpportunity, lookup: RelationshipLook
 
 function isQualified(record: TenderOpportunity) {
   if (!isSalesRouteable(record)) return false;
-  if (record.evidenceStatus !== "official-text") return false;
-  if (record.classification === "no-relevant-opportunity" || record.classification === "needs-council-evidence") return false;
-  return record.type === "formal-public-tender" || Boolean(record.classification);
+  return hasConfirmedCurrentAcousticEvidence(record);
 }
 
 export function routeOpportunityByRelationships(
@@ -272,7 +274,7 @@ export function routeOpportunitiesByRelationships(
   const allocations = new Map<string, Exclude<LeadOwner, "unassigned">>();
   routed
     .filter((record) => record.routedTo === "unassigned"
-      && (isQualified(record) || record.emailRelationshipStatus === "verified-multiple-owners"))
+      && isQualified(record))
     .sort((left, right) => priority(right) - priority(left)
       || right.fitScore - left.fitScore
       || left.id.localeCompare(right.id))

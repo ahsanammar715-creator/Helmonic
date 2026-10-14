@@ -1,4 +1,5 @@
 import { normalizeText } from "./policy.ts";
+import { hasConfirmedCurrentAcousticEvidence } from "./acoustic-evidence-guard.ts";
 import type {
   LeadDisposition,
   LeadFreshness,
@@ -120,7 +121,7 @@ export function assessLeadQuality(record: TenderOpportunity) {
     || (isResidential && count !== undefined && count < 4);
   const hasHighIntent = highIntentPatterns.some((pattern) => pattern.test(text));
   const hasGenericNoiseOnly = genericNoisePatterns.some((pattern) => pattern.test(text)) && !hasHighIntent;
-  const isConfirmed = record.evidenceStatus === "official-text";
+  const isConfirmed = hasConfirmedCurrentAcousticEvidence(record);
 
   if (record.acousticAppointmentStatus === "iacoustics-appointed") {
     return commercialResult(
@@ -186,6 +187,22 @@ export function assessLeadQuality(record: TenderOpportunity) {
       "active",
       "Official planning evidence confirms a noise-related condition or refusal ground, but no high-intent acoustic instruction was identified.",
       isLrd ? "lrd-100-plus" : isAttached && (count ?? 0) >= 4 ? "attached-4-plus" : isResidential ? "multi-unit-unconfirmed-attachment" : "not-residential",
+      count,
+    );
+  }
+
+  if (!isConfirmed && (isLrd || (isResidential && isAttached && (count ?? 0) >= 4)
+    || isResidential || longerTermSectorPatterns.some((pattern) => pattern.test(text))
+    || hasGenericNoiseOnly || hasHighIntent)) {
+    return commercialResult(
+      isSmallResidential ? "poor" : "medium",
+      isSmallResidential ? "background" : "monitor",
+      isSmallResidential
+        ? "Small residential record retained, but current-project acoustic evidence is unconfirmed and it is below the agreed residential priority threshold."
+        : "Potential acoustic fit based on project type, scale or wording; retained for monitoring, but authoritative current-project acoustic evidence is not confirmed.",
+      isLrd ? "lrd-100-plus"
+        : isAttached && (count ?? 0) >= 4 ? "attached-4-plus"
+          : isResidential ? "multi-unit-unconfirmed-attachment" : "not-residential",
       count,
     );
   }

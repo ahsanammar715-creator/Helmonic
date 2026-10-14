@@ -24,6 +24,7 @@ type RelationshipEntity = {
   historical_emails?: string[];
   email_subject?: string;
   email_sent_at?: string;
+  email_context?: string;
   previous_projects?: string[];
   email_source_uri?: string;
 };
@@ -97,6 +98,19 @@ function exactPartyMatch(party: LeadParty, document: SearchDocument) {
   return name.split(" ").filter(Boolean).length >= 2 && normalizedName(haystack).includes(name);
 }
 
+function boundedEmailContext(party: LeadParty, document: SearchDocument, limit = 420) {
+  const body = normalizeText(document.body_text);
+  if (!body) return undefined;
+  const needles = [normalizeText(party.email).toLowerCase(), normalizedName(party.name)]
+    .filter(Boolean);
+  const lower = body.toLowerCase();
+  const positions = needles.map((needle) => lower.indexOf(needle)).filter((position) => position >= 0);
+  const centre = positions.length > 0 ? Math.min(...positions) : 0;
+  const start = Math.max(0, centre - Math.floor(limit / 3));
+  const excerpt = body.slice(start, start + limit).trim();
+  return `${start > 0 ? "…" : ""}${excerpt}${start + limit < body.length ? "…" : ""}`;
+}
+
 export async function loadSearchRelationshipLookup(
   records: TenderOpportunity[],
   options: { fetcher?: typeof fetch; accessToken?: string } = {},
@@ -149,6 +163,7 @@ export async function loadSearchRelationshipLookup(
           historical_emails: historicalEmails(document),
           email_subject: normalizeText(document.subject),
           email_sent_at: normalizeText(document.sent_at),
+          email_context: boundedEmailContext(party, document),
           previous_projects: textValues(document.project_names),
           email_source_uri: normalizeText(document.source_uri),
         });
