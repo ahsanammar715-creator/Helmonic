@@ -165,9 +165,23 @@ function odooDate(value?: string) {
 }
 
 function ownerDisplayName(record: TenderOpportunity) {
+  // Relationship evidence proves that iAcoustics knows a project party; it
+  // does not prove that the current project needs acoustic work. Keep the
+  // relationship visible, but never turn it into an Odoo assignment unless
+  // the current-project acoustic evidence has passed the shared guard.
+  if (!hasConfirmedCurrentAcousticEvidence(record)) return "";
   if (record.routedTo === "Glen") return "Glen Plunkett";
   if (record.routedTo === "Owen") return "Eoghan Tyrrell";
   return "";
+}
+
+function odooRoutingReason(record: TenderOpportunity) {
+  const reason = record.routingReason ?? "";
+  if (hasConfirmedCurrentAcousticEvidence(record) || !verifiedWarmConnection(record)) return reason;
+  return [
+    "Verified historical email relationship retained for context; not assigned because current-project acoustic evidence is unconfirmed",
+    reason ? `Match context: ${reason}` : "",
+  ].filter(Boolean).join(". ");
 }
 
 function normalizedEmail(value: string | undefined) {
@@ -541,7 +555,7 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
     && decisionDaysRemaining < 0
     && !isPostDecisionStage(record);
 
-  if (liveDatedRfi && rfiDaysRemaining !== false) {
+  if (liveDatedRfi) {
     return {
       rank: liveRfiPriority(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
       reason: liveRfiPriorityReason(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
@@ -725,7 +739,7 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         x_rfi_trigger: record.triggerType ?? record.classification ?? "",
         x_assigned_person: ownerDisplayName(record),
         x_warm_connection_verified: verifiedWarmConnection(record),
-        x_routing_reason: record.routingReason ?? "",
+        x_routing_reason: odooRoutingReason(record),
         x_deduplication_status: record.deduplicationStatus ?? "unique",
         x_possible_duplicate_ids: (record.possibleDuplicateIds ?? []).join(";"),
         x_project_value: Number.isFinite(record.projectValue) ? record.projectValue! : false,

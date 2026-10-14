@@ -693,7 +693,7 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const decisionDaysRemaining = historicalDaysRemaining(record.x_decision_due_at, now);
   const postDecisionStage = /granted|commencement|construction|on site|completed/i.test(String(record.x_project_stage ?? ""));
   const stalePendingPlanningDecision = !rfi && decisionDaysRemaining !== false && decisionDaysRemaining < 0 && !postDecisionStage;
-  if (liveDatedRfi && rfiDaysRemaining !== false) return {
+  if (liveDatedRfi) return {
     rank: historicalLiveRfiPriority(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
     reason: historicalLiveRfiPriorityReason(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
   };
@@ -784,10 +784,25 @@ async function normalizeHistoricalOdooRecords(
       if (reference !== record.x_studio_reference) values.x_studio_reference = reference;
     }
     const priority = historicalPipelinePriority(record, normalizationNow);
+    const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
+    const staleAutomatedAssignment = !confirmedAcoustic
+      && ["Glen Plunkett", "Eoghan Tyrrell"].includes(String(record.x_assigned_person ?? ""));
     if (record.x_pipeline_priority_rank !== priority.rank) values.x_pipeline_priority_rank = priority.rank;
     if (record.x_pipeline_priority_reason !== priority.reason) values.x_pipeline_priority_reason = priority.reason;
     const visualPriority = odooPriorityFromRank(priority.rank);
     if (record.priority !== visualPriority) values.priority = visualPriority;
+    if (staleAutomatedAssignment) {
+      // Retain the verified relationship/tag/contact evidence, but remove the
+      // operational assignment created by older releases. A historical email
+      // match alone must never put a non-acoustic project on a consultant's list.
+      values.x_assigned_person = "";
+      values.user_id = false;
+      const priorRoute = String(record.x_routing_reason ?? "").trim();
+      values.x_routing_reason = [
+        "Verified historical email relationship retained for context; not assigned because current-project acoustic evidence is unconfirmed",
+        priorRoute ? `Prior route: ${priorRoute}` : "",
+      ].filter(Boolean).join(". ");
+    }
     if (tagCommands.length > 0) values.tag_ids = tagCommands;
     if (Object.keys(values).length === 0) continue;
     await json2Call(config, config.model, "write", { ids: [record.id], vals: values }, fetcher);
@@ -825,6 +840,7 @@ function payloadWithExistingEvidence(
   const preserveWhenMissing = (incoming: string, prior: unknown) => incoming || (typeof prior === "string" ? prior : "");
   const preserveVerifiedRelationship = existing.x_warm_connection_verified === true
     && payload.values.x_warm_connection_verified !== true;
+  const incomingAssignmentIsAllowed = Boolean(payload.values.x_assigned_person);
   const preservedEmailMatchTag = existingEmailMatchTag(existing, registry);
   const appointmentPriority = (status: unknown) => status === "iacoustics-appointed" ? 3
     : status === "competitor-appointed" ? 2 : status === "needs-verification" ? 1 : 0;
@@ -861,12 +877,20 @@ function payloadWithExistingEvidence(
         "\n",
       ),
       x_party_details: mergedValues(existing.x_party_details, payload.values.x_party_details, "\n"),
-      x_assigned_person: preserveVerifiedRelationship
-        ? preserveWhenMissing("", existing.x_assigned_person)
+      // Never revive a prior consultant assignment merely because the
+      // relationship itself is preserved. The incoming payload applies the
+      // current acoustic-evidence guard and is the authority for assignment.
+      x_assigned_person: preserveVerifiedRelationship && incomingAssignmentIsAllowed
+        ? preserveWhenMissing("", existing.x_assigned_person) || payload.values.x_assigned_person
         : payload.values.x_assigned_person,
       x_warm_connection_verified: preserveVerifiedRelationship || payload.values.x_warm_connection_verified,
       x_routing_reason: preserveVerifiedRelationship
-        ? preserveWhenMissing("", existing.x_routing_reason)
+        ? (incomingAssignmentIsAllowed
+          ? preserveWhenMissing("", existing.x_routing_reason) || payload.values.x_routing_reason
+          : [
+            "Verified historical email relationship retained for context; current-project acoustic evidence is unconfirmed",
+            existing.x_routing_reason ? `Prior route: ${existing.x_routing_reason}` : "",
+          ].filter(Boolean).join(". "))
         : payload.values.x_routing_reason,
       x_acoustic_appointment_status: preservedAppointmentStatus,
       x_appointed_acoustician: preserveAppointment
