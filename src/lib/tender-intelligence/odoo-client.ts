@@ -735,11 +735,11 @@ async function normalizeHistoricalOdooRecords(
   registry: TagRegistry,
   fetcher: typeof fetch,
 ) {
-  if (!config.normalizeHistoricalRecords) return 0;
+  if (!config.normalizeHistoricalRecords) return { normalized: 0, movedToLeads: 0 };
   const records = await json2Call(config, config.model, "search_read", {
     domain: [[config.externalIdField, "!=", false]],
     fields: [
-      "id", "name", "priority", "tag_ids", config.externalIdField, "x_source_systems", "x_project_reference",
+      "id", "type", "name", "priority", "tag_ids", config.externalIdField, "x_source_systems", "x_project_reference",
       "x_studio_reference", "x_warm_connection_verified", "x_assigned_person",
       "user_id", "x_routing_reason",
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
@@ -751,6 +751,7 @@ async function normalizeHistoricalOdooRecords(
     limit: 5_000,
   }, fetcher) as ExistingLeadValues[];
   let normalized = 0;
+  let movedToLeads = 0;
   const normalizationNow = new Date();
   for (const record of records) {
     if (!Number.isInteger(record.id)) continue;
@@ -779,6 +780,14 @@ async function normalizeHistoricalOdooRecords(
     }
     const tagCommands = managedTagCommands(record.tag_ids ?? [], desiredTagIds, registry);
     const values: Record<string, unknown> = {};
+    if (config.migrateManagedRecordsToLeads && record.type === "opportunity") {
+      // The controlled Tender Desk migration must also cover managed records
+      // that are not present in today's discovery payload (for example an
+      // earlier BuildingInfo test). Manual Odoo records have no Helmonic
+      // external ID and are excluded by the search domain above.
+      values.type = "lead";
+      movedToLeads += 1;
+    }
     const name = sourcePrefixedName(record.name, codes);
     if (name && name !== record.name) values.name = name;
     if (codes.length > 0 && record.x_project_reference) {
@@ -816,7 +825,7 @@ async function normalizeHistoricalOdooRecords(
     await json2Call(config, config.model, "write", { ids: [record.id], vals: values }, fetcher);
     normalized += 1;
   }
-  return normalized;
+  return { normalized, movedToLeads };
 }
 
 function mergedValues(left: unknown, right: unknown, separator: string) {
@@ -1061,10 +1070,12 @@ export async function syncOdooLeads(
       .join("; ");
     throw new Error(`Odoo synchronization completed with ${result.failures.length} failed record(s): ${details}`);
   }
-  result.historicalRecordsNormalized = await normalizeHistoricalOdooRecords(
+  const historicalNormalization = await normalizeHistoricalOdooRecords(
     config,
     tagRegistry,
     odooFetch,
   );
+  result.historicalRecordsNormalized = historicalNormalization.normalized;
+  result.managedRecordsMovedToLeads += historicalNormalization.movedToLeads;
   return result;
 }
