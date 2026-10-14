@@ -21,6 +21,7 @@ export type OdooJson2Config = {
   populateSourceTags?: boolean;
   createMissingSourceTags?: boolean;
   normalizeHistoricalRecords?: boolean;
+  migrateManagedRecordsToLeads?: boolean;
   requestIntervalMs?: number;
   timeoutMs?: number;
 };
@@ -39,6 +40,7 @@ export type OdooSyncResult = {
   sourceTagsCreated: number;
   sourceTagsLinked: number;
   historicalRecordsNormalized: number;
+  managedRecordsMovedToLeads: number;
   failures: Array<{ externalId: string; error: string }>;
 };
 
@@ -81,6 +83,7 @@ function requiredConfig(config: OdooJson2Config) {
     populateSourceTags: config.populateSourceTags === true,
     createMissingSourceTags: config.createMissingSourceTags === true,
     normalizeHistoricalRecords: config.normalizeHistoricalRecords === true,
+    migrateManagedRecordsToLeads: config.migrateManagedRecordsToLeads === true,
     requestIntervalMs: Math.max(0, config.requestIntervalMs ?? 0),
     timeoutMs: Math.max(1_000, config.timeoutMs || 30_000),
   };
@@ -540,12 +543,16 @@ function valuesForOdoo(
   config: ReturnType<typeof requiredConfig>,
   fields: Record<string, OdooFieldInfo>,
   linkedValues: Record<string, unknown> = {},
+  existingType?: ExistingLeadValues["type"],
 ) {
   const values: Record<string, unknown> = {
     ...payload.values,
     x_studio_project_sector: selectionValue(fields.x_studio_project_sector, payload.values.x_studio_project_sector),
     [config.externalIdField]: payload.matchValue,
-    type: "opportunity",
+    // New Tender Desk records must wait in Odoo's separate Leads section for
+    // human qualification. Once a user converts a record into an Opportunity,
+    // later syncs preserve that decision instead of moving it backwards.
+    type: existingType === "opportunity" && !config.migrateManagedRecordsToLeads ? "opportunity" : "lead",
     team_id: config.salesTeamId,
     user_id: ownerUserId(payload, config),
     priority: odooPriority(payload),
@@ -558,6 +565,7 @@ function valuesForOdoo(
 
 type ExistingLeadValues = {
   id?: number;
+  type?: "lead" | "opportunity" | false;
   name?: string | false;
   priority?: string | false;
   tag_ids?: number[];
@@ -637,6 +645,18 @@ function historicalRecentRfi(record: ExistingLeadValues, now: Date) {
   return age !== false && age <= 0 && age >= -42;
 }
 
+function historicalLiveRfiPriority(daysRemaining: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
+  const dueDateRank = 2_000_000 - Math.min(daysRemaining, 10_000) * 100;
+  return dueDateRank + (buildingInfo ? 20 : 0) + (verifiedEmailMatch ? 10 : 0);
+}
+
+function historicalLiveRfiPriorityReason(daysRemaining: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
+  const due = daysRemaining === 0 ? "due today" : `due in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}`;
+  const source = buildingInfo ? "; human-reviewed BuildingInfo source" : "";
+  const relationship = verifiedEmailMatch ? "; verified acoustic consultant email relationship" : "";
+  return `Active acoustic RFI ${due}; response deadline takes precedence${source}${relationship}`;
+}
+
 function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const quality = typeof record.x_lead_quality === "string" ? record.x_lead_quality : "";
   const bucket = typeof record.x_pipeline_bucket === "string" ? record.x_pipeline_bucket : "";
@@ -652,14 +672,12 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const decisionDaysRemaining = historicalDaysRemaining(record.x_decision_due_at, now);
   const postDecisionStage = /granted|commencement|construction|on site|completed/i.test(String(record.x_project_stage ?? ""));
   const stalePendingPlanningDecision = !rfi && decisionDaysRemaining !== false && decisionDaysRemaining < 0 && !postDecisionStage;
-  if (buildingInfo && liveDatedRfi && verifiedEmailMatch) {
-    return { rank: 1550, reason: "Live human-reviewed BuildingInfo acoustic RFI with a due date and verified consultant email relationship" };
-  }
-  if (buildingInfo && liveDatedRfi) return { rank: 1500, reason: "Live human-reviewed BuildingInfo acoustic RFI with a published response due date" };
+  if (liveDatedRfi && rfiDaysRemaining !== false) return {
+    rank: historicalLiveRfiPriority(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
+    reason: historicalLiveRfiPriorityReason(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
+  };
   if (buildingInfo && recentUndatedRfi && verifiedEmailMatch) return { rank: 1450, reason: "Recent human-reviewed BuildingInfo acoustic RFI with verified consultant email history; response due date not supplied" };
   if (buildingInfo && recentUndatedRfi) return { rank: 1400, reason: "Recent human-reviewed BuildingInfo acoustic RFI; response due date not supplied" };
-  if (liveDatedRfi && verifiedEmailMatch) return { rank: 1350, reason: "Live acoustic RFI with a due date and verified consultant email relationship" };
-  if (liveDatedRfi) return { rank: 1300, reason: "Live acoustic RFI with a published response due date" };
   if (recentUndatedRfi && verifiedEmailMatch) return { rank: 1200, reason: "Recent acoustic RFI with verified consultant email history; response due date not supplied" };
   if (recentUndatedRfi) return { rank: 1100, reason: "Recent acoustic RFI; response due date not supplied" };
   if (expiredRfi) return verifiedEmailMatch
@@ -870,6 +888,7 @@ export async function syncOdooLeads(
       sourceTagsCreated: 0,
       sourceTagsLinked: 0,
       historicalRecordsNormalized: 0,
+      managedRecordsMovedToLeads: 0,
       failures: [],
     };
   }
@@ -894,6 +913,7 @@ export async function syncOdooLeads(
     sourceTagsCreated: 0,
     sourceTagsLinked: 0,
     historicalRecordsNormalized: 0,
+    managedRecordsMovedToLeads: 0,
     failures: [],
   };
   for (const payload of payloads) {
@@ -902,6 +922,7 @@ export async function syncOdooLeads(
         domain: [[config.externalIdField, "=", payload.matchValue]],
         fields: [
           "id",
+          "type",
           "tag_ids",
           "partner_name",
           "contact_name",
@@ -947,7 +968,7 @@ export async function syncOdooLeads(
         ...(tagCommands.length ? { tag_ids: tagCommands } : {}),
       };
       if (contact.id) linkedValues.partner_id = contact.id;
-      const values = valuesForOdoo(effectivePayload, config, fields, linkedValues);
+      const values = valuesForOdoo(effectivePayload, config, fields, linkedValues, matches[0]?.type);
       result.attributionRecordsCreated += attribution.created;
       result.emailMatchTagsCreated += emailMatchTag.created;
       result.emailMatchTagsLinked += emailMatchTag.linked;
@@ -958,6 +979,9 @@ export async function syncOdooLeads(
       if (matches.length === 1 && Number.isFinite(matches[0]?.id)) {
         await json2Call(config, config.model, "write", { ids: [matches[0].id], vals: values }, odooFetch);
         result.updated += 1;
+        if (matches[0]?.type === "opportunity" && values.type === "lead") {
+          result.managedRecordsMovedToLeads += 1;
+        }
       } else {
         await json2Call(config, config.model, "create", { vals_list: [values] }, odooFetch);
         result.created += 1;

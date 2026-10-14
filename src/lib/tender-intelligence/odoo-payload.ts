@@ -486,6 +486,20 @@ function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
   return age !== false && age <= 0 && age >= -42;
 }
 
+function liveRfiPriority(daysRemaining: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
+  // Every full day is worth more than all source/relationship tie-breakers combined,
+  // so an RFI expiring sooner always stays ahead of one expiring later.
+  const dueDateRank = 2_000_000 - Math.min(daysRemaining, 10_000) * 100;
+  return dueDateRank + (buildingInfo ? 20 : 0) + (verifiedEmailMatch ? 10 : 0);
+}
+
+function liveRfiPriorityReason(daysRemaining: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
+  const due = daysRemaining === 0 ? "due today" : `due in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}`;
+  const source = buildingInfo ? "; human-reviewed BuildingInfo source" : "";
+  const relationship = verifiedEmailMatch ? "; verified acoustic consultant email relationship" : "";
+  return `Active acoustic RFI ${due}; response deadline takes precedence${source}${relationship}`;
+}
+
 function pipelinePriority(record: TenderOpportunity, now: Date) {
   const routeable = !["poor", "closed-background", "existing-project"].includes(record.leadQuality ?? "")
     && !["background", "already-won"].includes(record.leadDisposition ?? "");
@@ -503,11 +517,11 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
     && decisionDaysRemaining < 0
     && !isPostDecisionStage(record);
 
-  if (buildingInfo && liveDatedRfi && verifiedEmailMatch) {
-    return { rank: 1550, reason: "Live human-reviewed BuildingInfo acoustic RFI with a due date and verified consultant email relationship" };
-  }
-  if (buildingInfo && liveDatedRfi) {
-    return { rank: 1500, reason: "Live human-reviewed BuildingInfo acoustic RFI with a published response due date" };
+  if (liveDatedRfi && rfiDaysRemaining !== false) {
+    return {
+      rank: liveRfiPriority(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
+      reason: liveRfiPriorityReason(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
+    };
   }
   if (buildingInfo && recentUndatedRfi && verifiedEmailMatch) {
     return { rank: 1450, reason: "Recent human-reviewed BuildingInfo acoustic RFI with verified consultant email history; response due date not supplied" };
@@ -515,10 +529,6 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
   if (buildingInfo && recentUndatedRfi) {
     return { rank: 1400, reason: "Recent human-reviewed BuildingInfo acoustic RFI; response due date not supplied" };
   }
-  if (liveDatedRfi && verifiedEmailMatch) {
-    return { rank: 1350, reason: "Live acoustic RFI with a due date and verified consultant email relationship" };
-  }
-  if (liveDatedRfi) return { rank: 1300, reason: "Live acoustic RFI with a published response due date" };
   if (recentUndatedRfi && verifiedEmailMatch) {
     return { rank: 1200, reason: "Recent acoustic RFI with verified consultant email history; response due date not supplied" };
   }
