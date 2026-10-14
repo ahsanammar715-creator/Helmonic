@@ -2,6 +2,12 @@ name: Build Tender Intelligence worker image
 
 on:
   workflow_dispatch:
+    inputs:
+      deploy_odoo_leads_migration:
+        description: Run the one-time migration of managed Tender Desk records into the Odoo Leads review queue
+        required: true
+        default: false
+        type: boolean
   push:
     branches:
       - codex/tender-intelligence-release
@@ -25,6 +31,8 @@ env:
   ACR_NAME: acrhelmonicdev001
   ACR_LOGIN_SERVER: acrhelmonicdev001-etd4eqevdcf6e7bs.azurecr.io
   IMAGE_REPOSITORY: helmonic-tender-intelligence
+  AZURE_RESOURCE_GROUP: RG-HELMONIC-DEV
+  AZURE_JOB_NAME: ca-helmonic-ti-dev-001
 
 jobs:
   build-and-push:
@@ -60,3 +68,74 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Migrate managed Tender Desk records to the Odoo Leads review queue
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy_odoo_leads_migration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          restore_safe_recurring_mode() {
+            az containerapp job update \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --set-env-vars \
+                ODOO_MIGRATE_MANAGED_RECORDS_TO_LEADS=false \
+                NODE_OPTIONS=--experimental-strip-types \
+              --command node \
+              --args scripts/tender_intelligence/run-daily-automation.mjs \
+              --only-show-errors >/dev/null
+          }
+
+          trap restore_safe_recurring_mode EXIT
+
+          az containerapp job update \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --image "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:${{ github.sha }}" \
+            --set-env-vars \
+              ODOO_MIGRATE_MANAGED_RECORDS_TO_LEADS=true \
+              NODE_OPTIONS=--experimental-strip-types \
+            --command node \
+            --args scripts/tender_intelligence/run-daily-automation.mjs \
+            --only-show-errors >/dev/null
+
+          execution_name="$(az containerapp job start \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query name \
+            --output tsv)"
+
+          if [[ -z "$execution_name" ]]; then
+            echo "Azure did not return a job execution name." >&2
+            exit 1
+          fi
+
+          echo "Started controlled Odoo Leads migration: $execution_name"
+
+          for attempt in {1..80}; do
+            status="$(az containerapp job execution show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --job-execution-name "$execution_name" \
+              --query properties.status \
+              --output tsv 2>/dev/null || true)"
+
+            case "$status" in
+              Succeeded)
+                echo "Controlled Odoo Leads migration succeeded."
+                exit 0
+                ;;
+              Failed)
+                echo "Controlled Odoo Leads migration failed: $execution_name" >&2
+                exit 1
+                ;;
+              *)
+                echo "Migration status: ${status:-starting} (check $attempt/80)"
+                sleep 30
+                ;;
+            esac
+          done
+
+          echo "Controlled Odoo Leads migration did not finish within 40 minutes." >&2
+          exit 1
