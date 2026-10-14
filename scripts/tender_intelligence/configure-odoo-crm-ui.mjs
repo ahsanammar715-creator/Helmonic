@@ -151,6 +151,9 @@ const viewArchitecture = `<data>
   </xpath>
   <xpath expr="//field[@name='date_deadline']" position="after">
     <field name="x_deadline" string="Action Deadline" invisible="not x_helmonic_external_id"/>
+    <field name="x_rfi_received_at" string="RFI Published / Received" invisible="not x_helmonic_external_id"/>
+    <field name="x_rfi_response_due_at" string="RFI Response Due" invisible="not x_helmonic_external_id"/>
+    <field name="x_decision_due_at" string="Planning Decision Due" invisible="not x_helmonic_external_id"/>
     <field name="x_lead_quality" string="Lead Quality" invisible="not x_helmonic_external_id"/>
     <field name="x_warm_connection_verified" string="Verified Email Match" invisible="not x_helmonic_external_id"/>
     <field name="x_deadline_urgency" string="Deadline Urgency" invisible="not x_helmonic_external_id"/>
@@ -256,7 +259,7 @@ const kanbanOrderValues = {
   inherit_id: kanbanViewRows[0].id,
   priority: 100,
   active: true,
-  arch_db: `<data><xpath expr="//kanban" position="attributes"><attribute name="default_order">x_pipeline_priority_rank desc, date_deadline asc, priority desc, id desc</attribute></xpath></data>`,
+  arch_db: `<data><xpath expr="//kanban" position="attributes"><attribute name="default_order">x_pipeline_priority_rank desc, x_rfi_response_due_at asc, x_decision_due_at asc, date_deadline asc, priority desc, id desc</attribute></xpath></data>`,
 };
 let kanbanOrderViewId;
 let kanbanOrderAction;

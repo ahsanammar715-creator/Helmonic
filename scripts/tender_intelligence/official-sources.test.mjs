@@ -732,8 +732,8 @@ test("Odoo pipeline priority leads with qualified verified email matches", async
     glenUserId: 7,
     eoghanUserId: 6,
   }, fetcher);
-  assert.equal(writtenPriorities.get("helmonic-lead:warm-priority"), "3");
-  assert.equal(writtenPriorities.get("helmonic-lead:excellent-unmatched-priority"), "2");
+  assert.equal(writtenPriorities.get("helmonic-lead:warm-priority"), "2");
+  assert.equal(writtenPriorities.get("helmonic-lead:excellent-unmatched-priority"), "1");
 });
 
 test("Odoo pipeline rank keeps RFIs first and email matches first within the urgent queue", () => {
@@ -1145,6 +1145,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(historical.vals.name, "[NPR] J-legacy");
   assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
   assert.equal(historical.vals.x_pipeline_priority_rank, 900);
+  assert.equal(historical.vals.priority, "2");
   assert.equal(
     historical.vals.x_pipeline_priority_reason,
     "Qualified opportunity with a verified consultant email relationship",
@@ -1152,6 +1153,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
   assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1550);
+  assert.equal(buildingInfoHistorical.vals.priority, "3");
   assert.equal(
     buildingInfoHistorical.vals.x_pipeline_priority_reason,
     "Live human-reviewed BuildingInfo acoustic RFI with a due date and verified consultant email relationship",
@@ -1462,6 +1464,22 @@ test("BuildingInfo's dedicated RFI export contract classifies reviewed acoustic 
   assert.equal(record.classification, "noise-related-rfi");
   assert.equal(record.firstSeenAt, "2026-10-07");
   assert.equal(record.responseDeadline, undefined);
+});
+
+test("BuildingInfo weekly CSV keeps RFI received, RFI response due and planning decision dates separate", () => {
+  const csv = [
+    "bi_project_id,project_title,county,bi_project_url,report_type,evidence_document,evidence_excerpt,project_stage,rfi_reference,rfi_received_date,rfi_response_due_date,planning_decision_due_date",
+    "424562,Industrial Unit Development in Arklow,Wicklow,https://app.buildinginfo.com/p-OTNsZQ==-,acoustic,noise-report.pdf,The applicant is requested to submit a noise impact assessment.,Plans Applied,RFI-424562,2026-10-05,2026-11-02,2026-12-14",
+  ].join("\n");
+  const [record] = parseBuildingInfoCsv(csv, "buildinginfo-acoustic-rfi-dates.csv");
+  assert.equal(record.classification, "noise-related-rfi");
+  assert.equal(record.sourceMajorUpdatedAt, "2026-10-05");
+  assert.equal(record.responseDeadline, "2026-11-02");
+  assert.equal(record.deadline, "2026-12-14");
+  const [payload] = buildOdooDryRun([{ ...record, crmExternalId: "helmonic-lead:buildinginfo-rfi-dates" }], new Date("2026-10-14T12:00:00.000Z"));
+  assert.equal(payload.values.x_rfi_received_at, "2026-10-05 00:00:00");
+  assert.equal(payload.values.x_rfi_response_due_at, "2026-11-02 00:00:00");
+  assert.equal(payload.values.x_decision_due_at, "2026-12-14 00:00:00");
 });
 
 test("repeated BuildingInfo weekly rows collapse to one stable project while preserving distinct evidence", () => {
