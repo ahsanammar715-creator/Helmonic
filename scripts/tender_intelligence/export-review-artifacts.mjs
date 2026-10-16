@@ -62,6 +62,30 @@ function qualityWeight(record) {
   return { excellent: 5, good: 4, medium: 3, poor: 2, "closed-background": 1 }[record.leadQuality] ?? 0;
 }
 
+function exportedLeadQuality(record) {
+  if (record.classification === "design-construction-potential"
+    && !["poor", "closed-background", "existing-project"].includes(record.leadQuality)
+    && !["background", "already-won"].includes(record.leadDisposition)) {
+    return "potential";
+  }
+  return record.leadQuality ?? "";
+}
+
+function exportedLeadPanel(record) {
+  if (record.classification === "noise-related-rfi" && record.evidenceStatus === "official-text") {
+    return "Urgent Acoustic RFI";
+  }
+  if (record.evidenceStatus === "official-text" && record.classification !== "design-construction-potential") {
+    return "Confirmed Acoustic Opportunity";
+  }
+  if (["attached-4-plus", "lrd-100-plus"].includes(record.residentialScale)
+    && !["poor", "closed-background", "existing-project"].includes(record.leadQuality)
+    && !["background", "already-won"].includes(record.leadDisposition)) {
+    return "Part E Commercial Review";
+  }
+  return "General Potential / Background";
+}
+
 function freshnessWeight(record) {
   return {
     "updated-today": 6,
@@ -121,8 +145,10 @@ const headers = [
   "source",
   "source_record_id",
   "title",
+  "county",
   "category",
   "lead_quality",
+  "lead_panel",
   "pipeline_bucket",
   "qualification_reason",
   "residential_unit_count",
@@ -131,6 +157,11 @@ const headers = [
   "source_published_at",
   "source_updated_at",
   "source_major_updated_at",
+  "rfi_published_at",
+  "rfi_received_at",
+  "rfi_response_due_at",
+  "rfi_date_source",
+  "rfi_date_confidence",
   "source_age_days",
   "freshness_band",
   "freshness_reason",
@@ -170,8 +201,10 @@ const rows = qualified
       record.sourceSystem,
       record.sourceRecordId,
       record.title,
+      record.county ?? "",
       category(record),
-      record.leadQuality ?? "",
+      exportedLeadQuality(record),
+      exportedLeadPanel(record),
       record.leadDisposition ?? "",
       record.qualificationReason ?? "",
       record.residentialUnitCount ?? "",
@@ -180,6 +213,11 @@ const rows = qualified
       record.publishedAt ?? "",
       record.sourceUpdatedAt ?? "",
       record.sourceMajorUpdatedAt ?? "",
+      record.rfiPublishedAt ?? "",
+      record.rfiReceivedAt ?? "",
+      record.classification === "noise-related-rfi" ? record.responseDeadline ?? "" : "",
+      record.rfiDateSource ?? "",
+      record.rfiDateConfidence ?? "",
       record.sourceAgeDays ?? "",
       record.leadFreshness ?? "",
       record.freshnessReason ?? "",
@@ -220,8 +258,10 @@ const allLeadRows = (state.opportunities ?? [])
       record.sourceSystem,
       record.sourceRecordId,
       record.title,
+      record.county ?? "",
       category(record),
-      record.leadQuality ?? "",
+      exportedLeadQuality(record),
+      exportedLeadPanel(record),
       record.leadDisposition ?? "",
       record.qualificationReason ?? "",
       record.residentialUnitCount ?? "",
@@ -230,6 +270,11 @@ const allLeadRows = (state.opportunities ?? [])
       record.publishedAt ?? "",
       record.sourceUpdatedAt ?? "",
       record.sourceMajorUpdatedAt ?? "",
+      record.rfiPublishedAt ?? "",
+      record.rfiReceivedAt ?? "",
+      record.classification === "noise-related-rfi" ? record.responseDeadline ?? "" : "",
+      record.rfiDateSource ?? "",
+      record.rfiDateConfidence ?? "",
       record.sourceAgeDays ?? "",
       record.leadFreshness ?? "",
       record.freshnessReason ?? "",

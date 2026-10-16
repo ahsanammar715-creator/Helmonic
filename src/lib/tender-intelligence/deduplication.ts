@@ -81,7 +81,69 @@ function sourceReference(record: TenderOpportunity): DuplicateSourceReference {
     sourceRecordId: record.sourceRecordId,
     sourceUrl: record.sourceUrl,
     evidenceStatus: record.evidenceStatus,
+    observationFiles: record.sourceObservationFiles,
+    firstSeenAt: record.firstSeenAt,
+    lastSeenAt: record.lastSeenAt,
+    observedAt: record.sourceUpdatedAt ?? record.sourceMajorUpdatedAt ?? record.publishedAt,
+    documentUrls: [...new Set((record.evidenceDocuments ?? []).map((document) => document.sourceUrl).filter(Boolean))],
+    documentNames: [...new Set((record.evidenceDocuments ?? []).map((document) => document.description ?? document.documentType).filter(Boolean))],
+    evidenceExcerpt: record.evidenceExcerpt,
+    parties: record.parties,
+    rfiPublishedAt: record.rfiPublishedAt,
+    rfiReceivedAt: record.rfiReceivedAt,
+    rfiResponseDueAt: record.responseDeadline,
+    planningDecisionDueAt: record.type === "planning-pipeline-lead" ? record.deadline : undefined,
+    matchedTerms: record.matchedTerms,
+    classification: record.classification,
   };
+}
+
+function uniqueStrings(values: Array<string | undefined>) {
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
+}
+
+function earliest(values: Array<string | undefined>) {
+  return uniqueStrings(values).sort((left, right) => Date.parse(left) - Date.parse(right))[0];
+}
+
+function latest(values: Array<string | undefined>) {
+  return uniqueStrings(values).sort((left, right) => Date.parse(right) - Date.parse(left))[0];
+}
+
+function mergedCanonicalRecord(canonical: TenderOpportunity, group: TenderOpportunity[]) {
+  const documents = new Map<string, NonNullable<TenderOpportunity["evidenceDocuments"]>[number]>();
+  const parties = new Map<string, NonNullable<TenderOpportunity["parties"]>[number]>();
+  for (const record of group) {
+    for (const document of record.evidenceDocuments ?? []) {
+      documents.set(`${document.id}|${document.sourceUrl}`, document);
+    }
+    for (const party of record.parties ?? []) {
+      const key = [party.role, party.name, party.organisation, party.email, party.phone]
+        .map((value) => compact(value)).join("|");
+      parties.set(key, party);
+    }
+  }
+  const dateConfidence = group.some((record) => record.rfiDateConfidence === "exact") ? "exact"
+    : group.some((record) => record.rfiDateConfidence === "derived") ? "derived" : "unavailable";
+  return {
+    ...canonical,
+    evidenceStatus: group.some((record) => record.evidenceStatus === "official-text")
+      ? "official-text" : canonical.evidenceStatus,
+    evidenceExcerpt: uniqueStrings(group.map((record) => record.evidenceExcerpt)).join("\n\n") || canonical.evidenceExcerpt,
+    evidenceDocuments: [...documents.values()],
+    parties: [...parties.values()],
+    matchedTerms: uniqueStrings(group.flatMap((record) => record.matchedTerms)),
+    cpvCodes: uniqueStrings(group.flatMap((record) => record.cpvCodes)),
+    firstSeenAt: earliest(group.map((record) => record.firstSeenAt)),
+    lastSeenAt: latest(group.map((record) => record.lastSeenAt)),
+    lastConfirmedAt: latest(group.map((record) => record.lastConfirmedAt)),
+    rfiPublishedAt: latest(group.map((record) => record.rfiPublishedAt)),
+    rfiReceivedAt: latest(group.map((record) => record.rfiReceivedAt)),
+    responseDeadline: earliest(group.map((record) => record.responseDeadline)),
+    rfiDateSource: uniqueStrings(group.map((record) => record.rfiDateSource)).join("; ") || undefined,
+    rfiDateConfidence: dateConfidence,
+    sourceObservationFiles: uniqueStrings(group.flatMap((record) => record.sourceObservationFiles ?? [])),
+  } satisfies TenderOpportunity;
 }
 
 export function annotateOpportunityDuplicates(records: TenderOpportunity[]) {
@@ -111,13 +173,14 @@ export function annotateOpportunityDuplicates(records: TenderOpportunity[]) {
   for (const [key, group] of strictGroups) {
     if (group.length < 2) continue;
     const canonical = selectCanonical(group);
+    const mergedCanonical = mergedCanonicalRecord(canonical, group);
     const id = groupId(key);
     const sources = group.map(sourceReference)
       .sort((left, right) => left.sourceSystem.localeCompare(right.sourceSystem)
         || left.sourceRecordId.localeCompare(right.sourceRecordId));
     for (const record of group) {
       annotated.set(record.id, {
-        ...annotated.get(record.id)!,
+        ...(record.id === canonical.id ? mergedCanonical : annotated.get(record.id)!),
         deduplicationStatus: record.id === canonical.id ? "canonical" : "duplicate",
         deduplicationGroupId: id,
         canonicalOpportunityId: canonical.id,

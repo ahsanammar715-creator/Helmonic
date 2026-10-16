@@ -579,6 +579,7 @@ type ExistingLeadValues = {
   x_applicant?: string | false;
   x_party_details?: string | false;
   x_source_systems?: string | false;
+  x_source_ledger?: string | false;
   x_project_reference?: string | false;
   x_studio_reference?: string | false;
   x_helmonic_external_id?: string | false;
@@ -599,6 +600,7 @@ type ExistingLeadValues = {
   x_matched_terms?: string | false;
   x_cpv_codes?: string | false;
   x_opportunity_type?: string | false;
+  x_rfi_published_at?: string | false;
   x_rfi_received_at?: string | false;
   x_rfi_response_due_at?: string | false;
   x_decision_due_at?: string | false;
@@ -630,11 +632,9 @@ function sourceCodesFromSystems(value: unknown) {
   return [...new Set(codes)].sort((left, right) => SOURCE_CODE_ORDER.indexOf(left) - SOURCE_CODE_ORDER.indexOf(right));
 }
 
-function sourcePrefixedName(name: unknown, codes: string[]) {
+function projectNameWithoutSourcePrefix(name: unknown) {
   const current = typeof name === "string" ? name.trim() : "";
-  if (!current || codes.length === 0) return current;
-  const withoutManagedPrefix = current.replace(/^\[(?:BI|PL|NPR|DCC|TD|EU)(?:\+(?:BI|PL|NPR|DCC|TD|EU))*\]\s*/i, "");
-  return `[${codes.join("+")}] ${withoutManagedPrefix}`;
+  return current.replace(/^\[(?:BI|PL|NPR|DCC|TD|EU)(?:\+(?:BI|PL|NPR|DCC|TD|EU))*\]\s*/i, "");
 }
 
 function historicalDaysRemaining(value: unknown, now: Date) {
@@ -654,7 +654,10 @@ function historicalRecentRfi(record: ExistingLeadValues, now: Date) {
 
 function historicalLiveRfiPriority(daysRemaining: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
   const dueDateRank = 2_000_000 - Math.min(daysRemaining, 10_000) * 100;
-  return dueDateRank + (buildingInfo ? 20 : 0) + (verifiedEmailMatch ? 10 : 0);
+  const commercialTieBreaker = buildingInfo && verifiedEmailMatch ? 30
+    : verifiedEmailMatch ? 20
+      : buildingInfo ? 10 : 0;
+  return dueDateRank + commercialTieBreaker;
 }
 
 function historicalLiveRfiPriorityReason(daysRemaining: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
@@ -699,9 +702,9 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
     reason: historicalLiveRfiPriorityReason(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
   };
   if (buildingInfo && recentUndatedRfi && verifiedEmailMatch) return { rank: 1450, reason: "Recent human-reviewed BuildingInfo acoustic RFI with verified consultant email history; response due date not supplied" };
-  if (buildingInfo && recentUndatedRfi) return { rank: 1400, reason: "Recent human-reviewed BuildingInfo acoustic RFI; response due date not supplied" };
-  if (recentUndatedRfi && verifiedEmailMatch) return { rank: 1200, reason: "Recent acoustic RFI with verified consultant email history; response due date not supplied" };
-  if (recentUndatedRfi) return { rank: 1100, reason: "Recent acoustic RFI; response due date not supplied" };
+  if (recentUndatedRfi && verifiedEmailMatch) return { rank: 1400, reason: "Recent acoustic RFI with verified consultant email history; response due date not supplied" };
+  if (buildingInfo && recentUndatedRfi) return { rank: 1350, reason: "Recent human-reviewed BuildingInfo acoustic RFI; response due date not supplied" };
+  if (recentUndatedRfi) return { rank: 1300, reason: "Recent acoustic RFI; response due date not supplied" };
   if (expiredRfi) return verifiedEmailMatch
     ? { rank: 450, reason: "RFI response date has passed; retained with verified relationship for consultant review" }
     : { rank: 250, reason: "RFI response date has passed; retained as background until refreshed" };
@@ -788,7 +791,7 @@ async function normalizeHistoricalOdooRecords(
       values.type = "lead";
       movedToLeads += 1;
     }
-    const name = sourcePrefixedName(record.name, codes);
+    const name = projectNameWithoutSourcePrefix(record.name);
     if (name && name !== record.name) values.name = name;
     if (codes.length > 0 && record.x_project_reference) {
       const reference = `${codes.join("+")}-${record.x_project_reference}`;
@@ -806,6 +809,11 @@ async function normalizeHistoricalOdooRecords(
     );
     if (record.x_pipeline_priority_rank !== priority.rank) values.x_pipeline_priority_rank = priority.rank;
     if (record.x_pipeline_priority_reason !== priority.reason) values.x_pipeline_priority_reason = priority.reason;
+    if (!confirmedAcoustic
+      && !["poor", "closed-background", "existing-project", "potential"].includes(String(record.x_lead_quality ?? ""))
+      && !["background", "already-won"].includes(String(record.x_pipeline_bucket ?? ""))) {
+      values.x_lead_quality = "potential";
+    }
     const visualPriority = odooPriorityFromRank(priority.rank);
     if (record.priority !== visualPriority) values.priority = visualPriority;
     if (staleAutomatedAssignment) {
@@ -885,6 +893,7 @@ function payloadWithExistingEvidence(
       street: preserveWhenMissing(payload.values.street, existing.street),
       x_applicant: preserveWhenMissing(payload.values.x_applicant, existing.x_applicant),
       x_source_systems: sourceSystems,
+      x_source_ledger: mergedValues(existing.x_source_ledger, payload.values.x_source_ledger, "\n"),
       x_source_record_ids: mergedValues(existing.x_source_record_ids, payload.values.x_source_record_ids, "; "),
       x_project_link: preserveWhenMissing(payload.values.x_project_link, existing.x_project_link),
       x_source_urls: mergedValues(existing.x_source_urls, payload.values.x_source_urls, "\n"),
@@ -1004,6 +1013,7 @@ export async function syncOdooLeads(
           "x_applicant",
           "x_party_details",
           "x_source_systems",
+          "x_source_ledger",
           "x_source_record_ids",
           "x_project_link",
           "x_source_urls",

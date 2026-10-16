@@ -196,7 +196,8 @@ function textFromDocx(bytes: Uint8Array) {
 }
 
 async function textFromPdf(bytes: Uint8Array) {
-  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const pdfModule = "pdfjs-dist/legacy/build/pdf.mjs";
+  const { getDocument } = await import(pdfModule);
   const loadingTask = getDocument({
     data: bytes,
     isEvalSupported: false,
@@ -208,7 +209,7 @@ async function textFromPdf(bytes: Uint8Array) {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber);
       const content = await page.getTextContent();
-      pages.push(content.items.map((item) => "str" in item ? item.str : "").join(" "));
+      pages.push(content.items.map((item: { str?: string }) => item.str ?? "").join(" "));
       page.cleanup();
     }
     return pages.join("\n");

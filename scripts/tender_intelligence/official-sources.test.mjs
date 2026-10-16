@@ -305,6 +305,7 @@ test("Odoo dry-run upserts once per deduplicated CRM identity and retains every 
       projectReference: "2661127",
       planningAuthority: "Meath County Council",
       evidenceStatus: "discovery-only",
+      parties: [{ role: "architect", name: "Design Contact", organisation: "Design Studio", email: "design@example.test" }],
     }), new Date("2026-09-30T12:00:00.000Z")),
     qualifyLead(planningLead({
       id: "national-odoo",
@@ -319,6 +320,10 @@ test("Odoo dry-run upserts once per deduplicated CRM identity and retains every 
   assert.equal(payloads.length, 1);
   assert.match(payloads[0].values.x_source_systems, /National Planning Register/);
   assert.match(payloads[0].values.x_source_systems, /PlanningLeads/);
+  assert.match(payloads[0].values.x_source_ledger, /Observation \d+: National Planning Register/);
+  assert.match(payloads[0].values.x_source_ledger, /Observation \d+: PlanningLeads/);
+  assert.match(payloads[0].values.x_source_ledger, /Deduplication status: canonical/);
+  assert.match(payloads[0].values.x_party_details, /design@example\.test/);
   assert.equal(payloads[0].operation, "upsert");
   assert.equal(payloads[0].matchField, "x_helmonic_external_id");
   assert.equal(summarizeOdooDryRun(payloads).uniqueExternalIds, 1);
@@ -339,6 +344,10 @@ test("Odoo payload populates native contact, planning attribution, sector and re
     triggerType: "Further Information Request",
     classification: "noise-related-rfi",
     sourceMajorUpdatedAt: "2026-10-06",
+    rfiPublishedAt: "2026-10-05",
+    rfiReceivedAt: "2026-10-06",
+    rfiDateSource: "BuildingInfo weekly reviewed export",
+    rfiDateConfidence: "exact",
     deadline: "2026-11-20",
     responseDeadline: "2026-10-28",
     parties: [{
@@ -359,13 +368,17 @@ test("Odoo payload populates native contact, planning attribution, sector and re
   assert.equal(payload.values.phone, "0402 33477");
   assert.equal(payload.values.function, "Applicant");
   assert.equal(payload.values.street, "Kish Business Park, Clogga Road, Arklow, Co. Wicklow");
+  assert.equal(payload.values.x_county, "");
   assert.equal(payload.values.date_deadline, "2026-10-28");
-  assert.equal(payload.values.name, "[BI] €3.2m Industrial Unit Development in Arklow");
+  assert.equal(payload.values.name, "€3.2m Industrial Unit Development in Arklow");
   assert.equal(payload.values.x_studio_reference, "BI-2660722");
   assert.equal(payload.values.x_studio_project_sector, "Industrial");
   assert.equal(payload.values.x_project_link, "https://example.test/project");
+  assert.equal(payload.values.x_rfi_published_at, "2026-10-05 00:00:00");
   assert.equal(payload.values.x_rfi_received_at, "2026-10-06 00:00:00");
   assert.equal(payload.values.x_rfi_response_due_at, "2026-10-28 00:00:00");
+  assert.equal(payload.values.x_rfi_date_source, "BuildingInfo weekly reviewed export");
+  assert.equal(payload.values.x_rfi_date_confidence, "exact");
   assert.equal(payload.values.x_decision_due_at, "2026-11-20 00:00:00");
   assert.equal(payload.values.x_action_days_remaining, 16);
   assert.equal(payload.values.x_deadline_urgency, "Due in 16 days — within the 28-day RFI response window");
@@ -373,7 +386,8 @@ test("Odoo payload populates native contact, planning attribution, sector and re
   assert.match(payload.values.description, /Project and Source Links/);
   assert.match(payload.values.description, /href="https:\/\/example\.test\/project"/);
   assert.match(payload.values.description, /All Project Parties and Contacts/);
-  assert.match(payload.values.description, /RFI published \/ received date/);
+  assert.match(payload.values.description, /RFI published date/);
+  assert.match(payload.values.description, /RFI received \/ detected date/);
   assert.match(payload.values.description, /RFI response due date/);
   assert.match(payload.values.description, /Planning decision due/);
   assert.match(payload.values.description, /Due in 16 days/);
@@ -783,6 +797,18 @@ test("Odoo pipeline rank makes RFI due date primary and source or email matches 
       crmExternalId: "helmonic-lead:unmatched-rfi-rank",
     }),
     planningLead({
+      id: "buildinginfo-unmatched-rfi-rank",
+      sourceSystem: "BuildingInfo",
+      sourceRecordId: "424563",
+      classification: "noise-related-rfi",
+      responseDeadline: "2026-10-20",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      emailRelationshipStatus: "no-confirmed-match",
+      routedTo: "Owen",
+      crmExternalId: "helmonic-lead:buildinginfo-unmatched-rfi-rank",
+    }),
+    planningLead({
       id: "earlier-unmatched-rfi-rank",
       classification: "noise-related-rfi",
       responseDeadline: "2026-10-19",
@@ -806,11 +832,54 @@ test("Odoo pipeline rank makes RFI due date primary and source or email matches 
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   const ranks = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values.x_pipeline_priority_rank]));
   assert.equal(ranks["helmonic-lead:buildinginfo-matched-rfi-rank"], 1_999_230);
-  assert.equal(ranks["helmonic-lead:matched-rfi-rank"], 1_999_210);
+  assert.equal(ranks["helmonic-lead:matched-rfi-rank"], 1_999_220);
+  assert.equal(ranks["helmonic-lead:buildinginfo-unmatched-rfi-rank"], 1_999_210);
   assert.equal(ranks["helmonic-lead:unmatched-rfi-rank"], 1_999_200);
   assert.equal(ranks["helmonic-lead:earlier-unmatched-rfi-rank"], 1_999_300);
   assert.ok(ranks["helmonic-lead:earlier-unmatched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-matched-rfi-rank"]);
   assert.equal(ranks["helmonic-lead:matched-standard-rank"], 900);
+});
+
+test("Odoo gives Part E commercial leads a separate secondary review panel ordered by project value", () => {
+  const records = [
+    planningLead({
+      id: "part-e-higher-value",
+      evidenceStatus: "discovery-metadata",
+      evidenceExcerpt: "",
+      classification: "design-construction-potential",
+      leadQuality: "good",
+      leadDisposition: "nurture",
+      residentialScale: "attached-4-plus",
+      residentialUnitCount: 40,
+      projectValue: 12_000_000,
+      crmExternalId: "helmonic-lead:part-e-higher-value",
+    }),
+    planningLead({
+      id: "part-e-lower-value",
+      evidenceStatus: "discovery-metadata",
+      evidenceExcerpt: "",
+      classification: "design-construction-potential",
+      leadQuality: "good",
+      leadDisposition: "nurture",
+      residentialScale: "attached-4-plus",
+      residentialUnitCount: 8,
+      projectValue: 2_000_000,
+      crmExternalId: "helmonic-lead:part-e-lower-value",
+    }),
+  ];
+  const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
+  for (const payload of payloads) {
+    assert.equal(payload.values.x_lead_panel, "Part E Commercial Review");
+    assert.equal(payload.values.x_lead_quality, "potential");
+    assert.equal(payload.values.x_pipeline_priority_rank, 500);
+    assert.match(payload.values.x_pipeline_priority_reason, /ordered by project value/i);
+    assert.ok(payload.statusTagNames.includes("Part E Commercial"));
+  }
+  const sorted = [...payloads].sort((left, right) =>
+    right.values.x_pipeline_priority_rank - left.values.x_pipeline_priority_rank
+      || Number(right.values.x_project_value) - Number(left.values.x_project_value));
+  assert.equal(sorted[0].matchValue, "helmonic-lead:part-e-higher-value");
+  assert.equal(sorted[1].matchValue, "helmonic-lead:part-e-lower-value");
 });
 
 test("Odoo pipeline demotes expired RFIs and planning decisions below live dated work", () => {
@@ -857,7 +926,7 @@ test("Odoo pipeline demotes expired RFIs and planning decisions below live dated
   ];
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
-  assert.equal(values["helmonic-lead:live-buildinginfo-rfi"].x_pipeline_priority_rank, 1_999_420);
+  assert.equal(values["helmonic-lead:live-buildinginfo-rfi"].x_pipeline_priority_rank, 1_999_410);
   assert.equal(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_rank, 450);
   assert.match(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_reason, /has passed/i);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_rank, 350);
@@ -1176,10 +1245,11 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   const buildingInfoHistorical = writes.find((write) => write.ids[0] === 71);
   assert.equal(result.historicalRecordsNormalized, 3);
   assert.equal(result.managedRecordsMovedToLeads, 2);
-  assert.equal(current.vals.name, "[DCC] J-current");
-  assert.equal(historical.vals.name, "[NPR] J-legacy");
+  assert.equal(current.vals.name, records[0].title);
+  assert.ok(!Object.hasOwn(historical.vals, "name"));
   assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
   assert.equal(historical.vals.x_pipeline_priority_rank, 320);
+  assert.equal(historical.vals.x_lead_quality, "potential");
   assert.equal(historical.vals.priority, "0");
   assert.equal(historical.vals.x_assigned_person, "");
   assert.equal(historical.vals.user_id, false);
@@ -1193,6 +1263,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
   assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1_000_030);
+  assert.equal(buildingInfoHistorical.vals.name, "J-buildinginfo-rfi");
   assert.equal(buildingInfoHistorical.vals.type, "lead");
   assert.equal(buildingInfoHistorical.vals.priority, "3");
   assert.match(
@@ -1220,6 +1291,7 @@ test("Odoo never assigns a consultant when only historical email evidence exists
   assert.equal(payload.values.x_warm_connection_verified, true);
   assert.equal(payload.emailMatchTagName, "Email Match: Glen");
   assert.equal(payload.values.x_assigned_person, "");
+  assert.equal(payload.values.x_lead_quality, "potential");
   assert.match(payload.values.x_routing_reason, /historical email relationship retained for context/i);
   assert.match(payload.values.x_routing_reason, /Match context: exact-party-match-supported-by-glen-email-evidence/);
   assert.match(payload.values.description, /Potential only.*current-project acoustic evidence unconfirmed/i);
@@ -1279,6 +1351,7 @@ test("Odoo updates preserve prior source and contact evidence from another intak
       x_applicant: "Armstrong Timber Engineering Ltd.",
       x_party_details: "applicant | Alan Armstrong | Armstrong Timber Engineering Ltd. | sales@ate.ie | 0402 33477",
       x_source_systems: "BuildingInfo",
+      x_source_ledger: "Source: BuildingInfo | Record ID: 424562 | URL: https://app.buildinginfo.com/p-OTNsZQ==-",
       x_source_record_ids: "BuildingInfo:424562",
       x_source_urls: "https://app.buildinginfo.com/p-OTNsZQ==-",
       x_evidence_document_urls: "https://buildinginfo.example/evidence.pdf",
@@ -1319,6 +1392,8 @@ test("Odoo updates preserve prior source and contact evidence from another intak
   }, fetcher);
   assert.equal(result.updated, 1);
   assert.equal(writtenValues.x_source_systems, "BuildingInfo; National Planning Register");
+  assert.match(writtenValues.x_source_ledger, /Source: BuildingInfo|Observation \d+: BuildingInfo/);
+  assert.match(writtenValues.x_source_ledger, /Observation \d+: National Planning Register/);
   assert.match(writtenValues.x_source_record_ids, /BuildingInfo:424562/);
   assert.match(writtenValues.x_source_record_ids, /National Planning Register:Wicklow:2660722/);
   assert.match(writtenValues.x_source_urls, /app\.buildinginfo\.com/);
@@ -1534,17 +1609,23 @@ test("BuildingInfo's dedicated RFI export contract classifies reviewed acoustic 
 
 test("BuildingInfo weekly CSV keeps RFI received, RFI response due and planning decision dates separate", () => {
   const csv = [
-    "bi_project_id,project_title,county,bi_project_url,report_type,evidence_document,evidence_excerpt,project_stage,rfi_reference,rfi_received_date,rfi_response_due_date,planning_decision_due_date",
-    "424562,Industrial Unit Development in Arklow,Wicklow,https://app.buildinginfo.com/p-OTNsZQ==-,acoustic,noise-report.pdf,The applicant is requested to submit a noise impact assessment.,Plans Applied,RFI-424562,2026-10-05,2026-11-02,2026-12-14",
+    "bi_project_id,project_title,county,bi_project_url,report_type,evidence_document,evidence_excerpt,project_stage,rfi_reference,rfi_published_date,rfi_received_date,rfi_response_due_date,planning_decision_due_date",
+    "424562,Industrial Unit Development in Arklow,Wicklow,https://app.buildinginfo.com/p-OTNsZQ==-,acoustic,noise-report.pdf,The applicant is requested to submit a noise impact assessment.,Plans Applied,RFI-424562,2026-10-04,2026-10-05,2026-11-02,2026-12-14",
   ].join("\n");
   const [record] = parseBuildingInfoCsv(csv, "buildinginfo-acoustic-rfi-dates.csv");
   assert.equal(record.classification, "noise-related-rfi");
   assert.equal(record.sourceMajorUpdatedAt, "2026-10-05");
+  assert.equal(record.rfiPublishedAt, "2026-10-04");
+  assert.equal(record.county, "Wicklow");
+  assert.equal(record.rfiReceivedAt, "2026-10-05");
+  assert.equal(record.rfiDateConfidence, "exact");
   assert.equal(record.responseDeadline, "2026-11-02");
   assert.equal(record.deadline, "2026-12-14");
   const [payload] = buildOdooDryRun([{ ...record, crmExternalId: "helmonic-lead:buildinginfo-rfi-dates" }], new Date("2026-10-14T12:00:00.000Z"));
+  assert.equal(payload.values.x_rfi_published_at, "2026-10-04 00:00:00");
   assert.equal(payload.values.x_rfi_received_at, "2026-10-05 00:00:00");
   assert.equal(payload.values.x_rfi_response_due_at, "2026-11-02 00:00:00");
+  assert.equal(payload.values.x_rfi_date_confidence, "exact");
   assert.equal(payload.values.x_decision_due_at, "2026-12-14 00:00:00");
 });
 
@@ -1563,6 +1644,7 @@ test("repeated BuildingInfo weekly rows collapse to one stable project while pre
   assert.equal(records.length, 1);
   assert.equal(records[0].sourceRecordId, "BI-100");
   assert.equal(records[0].evidenceDocuments.length, 2);
+  assert.deepEqual(records[0].sourceObservationFiles, ["week-1.csv row 2", "week-2.csv row 2", "week-2.csv row 3"]);
   assert.match(records[0].evidenceExcerpt, /acoustic assessment/);
   assert.match(records[0].evidenceExcerpt, /vibration report/);
 });

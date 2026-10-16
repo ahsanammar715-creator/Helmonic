@@ -30,11 +30,13 @@ export type OdooLeadDryRun = {
     x_pipeline_bucket: string;
     x_pipeline_priority_rank: number;
     x_pipeline_priority_reason: string;
+    x_lead_panel: string;
     x_lead_quality: string;
     x_evidence_status: string;
     x_classification: string;
     x_source_systems: string;
     x_source_record_ids: string;
+    x_source_ledger: string;
     x_project_link: string;
     x_source_urls: string;
     x_evidence_excerpt: string;
@@ -44,8 +46,11 @@ export type OdooLeadDryRun = {
     x_source_age_days: number | false;
     x_freshness_band: string;
     x_deadline: string | false;
+    x_rfi_published_at: string | false;
     x_rfi_received_at: string | false;
     x_rfi_response_due_at: string | false;
+    x_rfi_date_source: string;
+    x_rfi_date_confidence: string;
     x_decision_due_at: string | false;
     x_action_days_remaining: number | false;
     x_deadline_urgency: string;
@@ -60,6 +65,7 @@ export type OdooLeadDryRun = {
     x_project_stage: string;
     x_opportunity_type: string;
     x_location: string;
+    x_county: string;
     x_planning_authority: string;
     x_project_reference: string;
     x_applicant: string;
@@ -96,11 +102,36 @@ function actionableDeadline(record: TenderOpportunity) {
 
 function rfiReceivedOrDetectedAt(record: TenderOpportunity) {
   if (record.classification !== "noise-related-rfi") return "";
+  if (record.rfiReceivedAt) return record.rfiReceivedAt;
   const documentReceivedAt = (record.evidenceDocuments ?? [])
     .map((document) => document.receivedAt)
     .filter((value): value is string => Boolean(value))
     .sort((left, right) => right.localeCompare(left))[0];
   return documentReceivedAt ?? record.sourceMajorUpdatedAt ?? "";
+}
+
+function rfiPublishedAt(record: TenderOpportunity) {
+  if (record.classification !== "noise-related-rfi") return "";
+  return record.rfiPublishedAt ?? "";
+}
+
+function rfiDateSource(record: TenderOpportunity) {
+  if (record.classification !== "noise-related-rfi") return "";
+  if (record.rfiDateSource) return record.rfiDateSource;
+  const document = (record.evidenceDocuments ?? [])
+    .filter((candidate) => candidate.receivedAt && candidate.sourceUrl)
+    .sort((left, right) => String(right.receivedAt).localeCompare(String(left.receivedAt)))[0];
+  if (document?.sourceUrl) return `Evidence document: ${document.sourceUrl}`;
+  if (rfiReceivedOrDetectedAt(record)) return `Derived from ${record.sourceSystem} source update: ${record.sourceUrl}`;
+  return "Date unavailable from supplied source evidence";
+}
+
+function rfiDateConfidence(record: TenderOpportunity) {
+  if (record.classification !== "noise-related-rfi") return "not-applicable";
+  if (record.rfiDateConfidence) return record.rfiDateConfidence;
+  if (record.rfiPublishedAt || record.rfiReceivedAt) return "exact";
+  if (rfiReceivedOrDetectedAt(record)) return "derived";
+  return "unavailable";
 }
 
 function planningDecisionDueAt(record: TenderOpportunity) {
@@ -410,6 +441,28 @@ function verifiedWarmConnection(record: TenderOpportunity) {
     || /^exact-party-match-supported-by-(?:glen|owen)-email-evidence$/i.test(record.routingReason ?? "");
 }
 
+function displayedLeadQuality(record: TenderOpportunity) {
+  const quality = record.leadQuality ?? "medium";
+  const terminal = ["poor", "closed-background", "existing-project"].includes(quality)
+    || ["background", "already-won"].includes(record.leadDisposition ?? "");
+  return !terminal && !hasConfirmedCurrentAcousticEvidence(record) ? "potential" : quality;
+}
+
+function isPartECommercialLead(record: TenderOpportunity) {
+  return ["attached-4-plus", "lrd-100-plus"].includes(record.residentialScale ?? "")
+    && !["poor", "closed-background", "existing-project"].includes(record.leadQuality ?? "")
+    && !["background", "already-won"].includes(record.leadDisposition ?? "");
+}
+
+function leadReviewPanel(record: TenderOpportunity) {
+  if (record.classification === "noise-related-rfi" && hasConfirmedCurrentAcousticEvidence(record)) {
+    return "Urgent Acoustic RFI";
+  }
+  if (hasConfirmedCurrentAcousticEvidence(record)) return "Confirmed Acoustic Opportunity";
+  if (isPartECommercialLead(record)) return "Part E Commercial Review";
+  return "General Potential / Background";
+}
+
 function emailMatchTagName(record: TenderOpportunity) {
   if (record.emailRelationshipStatus === "verified-multiple-owners") {
     if (record.routedTo === "Glen") return "Email Match: Glen";
@@ -439,6 +492,77 @@ function sourceValues(record: TenderOpportunity) {
     recordIds: sources.map((source) => `${source.sourceSystem}:${source.sourceRecordId}`).join("; "),
     urls: [...new Set(sources.map((source) => source.sourceUrl).filter(Boolean))].join("\n"),
   };
+}
+
+function sourceLedger(record: TenderOpportunity) {
+  const sources = record.duplicateSources?.length ? record.duplicateSources : [{
+    id: record.id,
+    sourceSystem: record.sourceSystem,
+    sourceRecordId: record.sourceRecordId,
+    sourceUrl: record.sourceUrl,
+    evidenceStatus: record.evidenceStatus,
+  }];
+  const sourceRows = sources.map((source, index) => {
+    const contacts = (source.parties ?? []).map((party) => [
+      party.role,
+      party.name,
+      party.organisation,
+      party.email,
+      party.phone,
+    ].filter(Boolean).join(" / ")).join("; ");
+    return [
+      `Observation ${index + 1}: ${source.sourceSystem}`,
+      `Source-native ID: ${source.sourceRecordId}`,
+      `Internal record: ${source.id}`,
+      `Imported from: ${(source.observationFiles ?? []).join("; ") || "Current source collection"}`,
+      `First seen: ${source.firstSeenAt || "Unavailable"}`,
+      `Last seen: ${source.lastSeenAt || "Unavailable"}`,
+      `Observed/imported: ${source.observedAt || "Unavailable"}`,
+      `Project URL: ${source.sourceUrl || "Not supplied"}`,
+      `Document name(s): ${(source.documentNames ?? []).join("; ") || "Not supplied"}`,
+      `Document URL(s): ${(source.documentUrls ?? []).join("; ") || "Not supplied"}`,
+      `Evidence status: ${source.evidenceStatus}`,
+      `Evidence excerpt: ${compact(source.evidenceExcerpt ?? "", 600) || "Not supplied"}`,
+      `Extracted contacts: ${contacts || "Not supplied"}`,
+      `RFI published: ${source.rfiPublishedAt || "Unavailable"}`,
+      `RFI received/detected: ${source.rfiReceivedAt || "Unavailable"}`,
+      `RFI response due: ${source.rfiResponseDueAt || "Unavailable"}`,
+      `Planning decision due: ${source.planningDecisionDueAt || "Unavailable"}`,
+      `Acoustic trigger result: ${(source.matchedTerms ?? []).join("; ") || "No confirmed term"}`,
+      `Classification result: ${source.classification || "Unclassified"}`,
+    ].join("\n");
+  });
+  const conflicts = [
+    ["RFI published", sources.map((source) => source.rfiPublishedAt)],
+    ["RFI received/detected", sources.map((source) => source.rfiReceivedAt)],
+    ["RFI response due", sources.map((source) => source.rfiResponseDueAt)],
+    ["Planning decision due", sources.map((source) => source.planningDecisionDueAt)],
+  ].flatMap(([label, values]) => {
+    const distinct = [...new Set((values as Array<string | undefined>).filter(Boolean))];
+    return distinct.length > 1 ? [`Date conflict — ${label}: ${distinct.join(" versus ")}`] : [];
+  });
+  const relationshipRows = (record.routingEvidence ?? []).map((evidence) => [
+    `Matched party: ${evidence.party}`,
+    `Matched entity: ${evidence.matchedEntity}`,
+    evidence.matchedEmail ? `Email: ${evidence.matchedEmail}` : "",
+    evidence.emailSubject ? `Subject: ${evidence.emailSubject}` : "",
+    evidence.emailSentAt ? `Email date: ${evidence.emailSentAt}` : "",
+    evidence.emailContext ? `Conversation: ${compact(evidence.emailContext, 500)}` : "",
+    `Evidence reference(s): ${evidence.evidenceRefs.join("; ")}`,
+  ].filter(Boolean).join(" | "));
+  return [
+    `Canonical opportunity: ${record.canonicalOpportunityId ?? record.id}`,
+    `Deduplication status: ${record.deduplicationStatus ?? "unique"}`,
+    record.deduplicationGroupId ? `Deduplication group: ${record.deduplicationGroupId}` : "",
+    record.deduplicationReason ? `Deduplication reason: ${record.deduplicationReason}` : "",
+    `Relationship result: ${record.emailRelationshipStatus ?? "no-confirmed-match"}`,
+    `Assignment result: ${ownerDisplayName(record) || "No operational assignment"}`,
+    record.routingReason ? `Routing reason: ${record.routingReason}` : "",
+    ...sourceRows,
+    ...relationshipRows,
+    ...conflicts,
+    `Odoo synchronization: idempotent upsert using ${record.crmExternalId ?? "pending stable external identifier"}; field-level API outcome is retained in the run audit`,
+  ].filter(Boolean).join("\n\n");
 }
 
 function projectLink(record: TenderOpportunity) {
@@ -490,10 +614,12 @@ function allPartyRows(record: TenderOpportunity) {
 }
 
 function appointmentTagNames(record: TenderOpportunity) {
-  if (record.acousticAppointmentStatus === "iacoustics-appointed") return ["Already Won: iAcoustics"];
-  if (record.acousticAppointmentStatus === "competitor-appointed") return ["Competitor Appointed"];
-  if (record.acousticAppointmentStatus === "needs-verification") return ["Appointment: Verify"];
-  return [];
+  const tags: string[] = [];
+  if (isPartECommercialLead(record)) tags.push("Part E Commercial");
+  if (record.acousticAppointmentStatus === "iacoustics-appointed") tags.push("Already Won: iAcoustics");
+  if (record.acousticAppointmentStatus === "competitor-appointed") tags.push("Competitor Appointed");
+  if (record.acousticAppointmentStatus === "needs-verification") tags.push("Appointment: Verify");
+  return tags;
 }
 
 function appointmentDetails(record: TenderOpportunity) {
@@ -507,6 +633,26 @@ function appointmentDetails(record: TenderOpportunity) {
     record.appointmentEvidenceSourceUrl ? `Appointment evidence source: ${record.appointmentEvidenceSourceUrl}` : "",
     record.outreachKey ? `Outreach deduplication key: ${record.outreachKey}` : "",
   ].filter(Boolean).join("\n");
+}
+
+function recommendedReviewAction(record: TenderOpportunity, now: Date) {
+  if (record.acousticAppointmentStatus === "iacoustics-appointed") {
+    return "Link this intelligence to the existing iAcoustics project or relationship. Do not cold-contact the project as a new-business lead.";
+  }
+  if (record.acousticAppointmentStatus === "competitor-appointed") {
+    return "Acoustic consultant review required: decide whether a competitive offer is commercially appropriate. Do not send a quotation automatically.";
+  }
+  if (record.classification === "noise-related-rfi" && hasConfirmedCurrentAcousticEvidence(record)) {
+    const urgency = recordUrgency(record, now);
+    return `${urgency}. Review the exact RFI evidence, confirm the most relevant project contact and decide the response before the RFI due date.`;
+  }
+  if (hasConfirmedCurrentAcousticEvidence(record) && verifiedWarmConnection(record)) {
+    return "Review the verified historical relationship and current acoustic evidence together, then decide the appropriate consultant-led contact.";
+  }
+  if (hasConfirmedCurrentAcousticEvidence(record)) {
+    return "Review the current acoustic evidence and source-supplied contacts, then decide whether the Lead should be qualified into the active Pipeline.";
+  }
+  return "Retain as a potential acoustic lead, monitor for authoritative acoustic evidence and do not present it as an explicit acoustic requirement.";
 }
 
 function isPostDecisionStage(record: TenderOpportunity) {
@@ -526,7 +672,10 @@ function liveRfiPriority(daysRemaining: number, buildingInfo: boolean, verifiedE
   // Every full day is worth more than all source/relationship tie-breakers combined,
   // so an RFI expiring sooner always stays ahead of one expiring later.
   const dueDateRank = 2_000_000 - Math.min(daysRemaining, 10_000) * 100;
-  return dueDateRank + (buildingInfo ? 20 : 0) + (verifiedEmailMatch ? 10 : 0);
+  const commercialTieBreaker = buildingInfo && verifiedEmailMatch ? 30
+    : verifiedEmailMatch ? 20
+      : buildingInfo ? 10 : 0;
+  return dueDateRank + commercialTieBreaker;
 }
 
 function liveRfiPriorityReason(daysRemaining: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
@@ -564,13 +713,13 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
   if (buildingInfo && recentUndatedRfi && verifiedEmailMatch) {
     return { rank: 1450, reason: "Recent human-reviewed BuildingInfo acoustic RFI with verified consultant email history; response due date not supplied" };
   }
-  if (buildingInfo && recentUndatedRfi) {
-    return { rank: 1400, reason: "Recent human-reviewed BuildingInfo acoustic RFI; response due date not supplied" };
-  }
   if (recentUndatedRfi && verifiedEmailMatch) {
-    return { rank: 1200, reason: "Recent acoustic RFI with verified consultant email history; response due date not supplied" };
+    return { rank: 1400, reason: "Recent acoustic RFI with verified consultant email history; response due date not supplied" };
   }
-  if (recentUndatedRfi) return { rank: 1100, reason: "Recent acoustic RFI; response due date not supplied" };
+  if (buildingInfo && recentUndatedRfi) {
+    return { rank: 1350, reason: "Recent human-reviewed BuildingInfo acoustic RFI; response due date not supplied" };
+  }
+  if (recentUndatedRfi) return { rank: 1300, reason: "Recent acoustic RFI; response due date not supplied" };
   if (expiredRfi) {
     return verifiedEmailMatch
       ? { rank: 450, reason: "RFI response date has passed; retained with verified relationship for consultant review" }
@@ -580,6 +729,12 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
     return { rank: 1000, reason: "Acoustic RFI with verified consultant email history; RFI dates unavailable" };
   }
   if (rfi) return { rank: 950, reason: "Acoustic RFI retained for review; RFI dates unavailable" };
+  if (!confirmedAcoustic && isPartECommercialLead(record)) {
+    return {
+      rank: 500,
+      reason: "Part E commercial review: attached residential scheme of at least four units; potential acoustic work expected, ordered by project value within this secondary panel",
+    };
+  }
   if (!confirmedAcoustic && stalePendingPlanningDecision) {
     return retainedRelationship
       ? { rank: 180, reason: "Potential acoustic fit only; planning decision date has passed and current-project acoustic evidence is unconfirmed. Historical relationship retained for context" }
@@ -622,20 +777,25 @@ function description(record: TenderOpportunity, now: Date) {
       ["Source record(s)", sources.recordIds],
       ["Project reference", record.projectReference],
       ["Location", record.location],
+      ["County", record.county],
       ["Planning authority", record.planningAuthority],
       ["Sector", record.projectSector],
       ["Stage", record.projectStage ?? record.sourceStatus],
       ["Classification", classificationLabel(record)],
       ["Acoustic evidence gate", acousticEvidenceGateLabel(record)],
       ["RFI / acoustic trigger", record.triggerType ?? record.classification],
-      ["Lead quality", record.leadQuality ?? "medium"],
+      ["Lead quality", displayedLeadQuality(record)],
+      ["Lead review panel", leadReviewPanel(record)],
       ["Pipeline disposition", record.leadDisposition ?? "monitor"],
       ["Project value", Number.isFinite(record.projectValue) ? record.projectValue : "Not supplied"],
       ["Project units", Number.isFinite(record.projectUnits) ? record.projectUnits : record.residentialUnitCount],
       ["Published", record.publishedAt],
       ["Source updated", record.sourceUpdatedAt],
-      ["RFI published / received date", rfiReceivedOrDetectedAt(record)],
+      ["RFI published date", rfiPublishedAt(record)],
+      ["RFI received / detected date", rfiReceivedOrDetectedAt(record)],
       ["RFI response due date", record.classification === "noise-related-rfi" ? record.responseDeadline : ""],
+      ["RFI date source", rfiDateSource(record)],
+      ["RFI date confidence", rfiDateConfidence(record)],
       ["Planning decision due", planningDecisionDueAt(record)],
       ["Action deadline", actionDeadline],
       ["Days remaining", daysRemaining === false ? "Not supplied" : daysRemaining],
@@ -672,6 +832,8 @@ function description(record: TenderOpportunity, now: Date) {
     ]),
     htmlLinks("Project and Source Links", sourceUrls.length ? sourceUrls : [record.sourceUrl]),
     htmlLinks("Evidence Document Links", documentUrls),
+    "<h2>Recommended Next Review Action</h2>",
+    `<p>${htmlText(recommendedReviewAction(record, now))}</p>`,
   ].join("");
 }
 
@@ -704,7 +866,7 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
       sourceTagNames: sources.codes.split("+").filter(Boolean),
       statusTagNames: appointmentTagNames(record),
       values: {
-        name: `[${sources.codes}] ${record.title}`,
+        name: record.title,
         description: description(record, now),
         partner_name: organisation,
         contact_name: contact,
@@ -717,11 +879,13 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         x_pipeline_bucket: record.leadDisposition ?? "monitor",
         x_pipeline_priority_rank: priority.rank,
         x_pipeline_priority_reason: priority.reason,
-        x_lead_quality: record.leadQuality ?? "medium",
+        x_lead_panel: leadReviewPanel(record),
+        x_lead_quality: displayedLeadQuality(record),
         x_evidence_status: record.evidenceStatus,
         x_classification: record.classification ?? record.type,
         x_source_systems: sources.systems,
         x_source_record_ids: sources.recordIds,
+        x_source_ledger: sourceLedger(record),
         x_project_link: projectLink(record),
         x_source_urls: sources.urls,
         x_evidence_excerpt: record.evidenceExcerpt ?? "",
@@ -731,8 +895,11 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         x_source_age_days: Number.isFinite(record.sourceAgeDays) ? record.sourceAgeDays! : false,
         x_freshness_band: record.leadFreshness ?? "date-unknown",
         x_deadline: odooDatetime(deadline),
+        x_rfi_published_at: odooDatetime(rfiPublishedAt(record)),
         x_rfi_received_at: odooDatetime(rfiReceivedOrDetectedAt(record)),
         x_rfi_response_due_at: odooDatetime(record.classification === "noise-related-rfi" ? record.responseDeadline : ""),
+        x_rfi_date_source: rfiDateSource(record),
+        x_rfi_date_confidence: rfiDateConfidence(record),
         x_decision_due_at: odooDatetime(planningDecisionDueAt(record)),
         x_action_days_remaining: calendarDaysRemaining(deadline, now),
         x_deadline_urgency: recordUrgency(record, now),
@@ -749,6 +916,7 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         x_project_stage: record.projectStage ?? record.sourceStatus ?? "",
         x_opportunity_type: record.type,
         x_location: record.location ?? "",
+        x_county: record.county ?? "",
         x_planning_authority: record.planningAuthority ?? "",
         x_project_reference: record.projectReference ?? "",
         x_applicant: record.applicant ?? "",

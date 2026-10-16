@@ -70,6 +70,20 @@ export type DuplicateSourceReference = {
   sourceRecordId: string;
   sourceUrl: string;
   evidenceStatus: EvidenceStatus;
+  observationFiles?: string[];
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  observedAt?: string;
+  documentUrls?: string[];
+  documentNames?: string[];
+  evidenceExcerpt?: string;
+  parties?: LeadParty[];
+  rfiPublishedAt?: string;
+  rfiReceivedAt?: string;
+  rfiResponseDueAt?: string;
+  planningDecisionDueAt?: string;
+  matchedTerms?: string[];
+  classification?: PlanningClassification;
 };
 
 export type LeadParty = {
@@ -127,9 +141,14 @@ export type TenderOpportunity = {
   applicant?: string;
   parties?: LeadParty[];
   location?: string;
+  county?: string;
   publishedAt?: string;
   sourceUpdatedAt?: string;
   sourceMajorUpdatedAt?: string;
+  rfiPublishedAt?: string;
+  rfiReceivedAt?: string;
+  rfiDateSource?: string;
+  rfiDateConfidence?: "exact" | "derived" | "unavailable";
   deadline?: string;
   responseDeadline?: string;
   cpvCodes: string[];
@@ -182,6 +201,7 @@ export type TenderOpportunity = {
   outreachSuppressionReason?: string;
   outreachKey?: string;
   buildingInfoSearchProfile?: string;
+  sourceObservationFiles?: string[];
 };
 
 export type OfficialSourceSnapshot = {

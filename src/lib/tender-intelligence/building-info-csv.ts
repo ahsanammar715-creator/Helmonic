@@ -233,6 +233,13 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       evidenceUrl: documentUrl,
     });
     const updatedAt = optionalValue(row, ["last_updated", "last updated", "last_updated_date", "last updated date", "source_updated_at", "source updated at", "api_date"]);
+    const rfiPublishedAt = optionalValue(row, [
+      "rfi_published_date", "rfi published date", "rfi_publication_date", "rfi publication date",
+    ]);
+    const rfiReceivedAt = optionalValue(row, [
+      "rfi_received_date", "rfi received date", "rfi_detected_date", "rfi detected date",
+      "first_detected_date", "first detected date",
+    ]);
     const appointedAcoustician = optionalValue(row, ["appointed_acoustician", "appointed acoustician", "appointed_acoustic_consultant", "appointed acoustic consultant", "acoustic_consultant", "acoustic consultant"]);
     const appointmentEvidenceExcerpt = optionalValue(row, ["appointment_evidence", "appointment evidence", "appointment_evidence_excerpt", "appointment evidence excerpt"]);
     const appointmentEvidenceUrlInput = optionalValue(row, ["appointment_evidence_url", "appointment evidence url", "appointment_source_url", "appointment source url"]);
@@ -252,12 +259,19 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       title,
       description,
       location: optionalValue(row, ["site_address", "site address", "project_address", "project address", "address"]) || county,
+      county,
       publishedAt: optionalValue(row, ["application_date", "application date", "published_at", "published at", "first_seen", "first seen"]) || undefined,
       sourceUpdatedAt: updatedAt || undefined,
       sourceMajorUpdatedAt: optionalValue(row, [
         "rfi_received_date", "rfi received date", "rfi_published_date", "rfi published date",
         "rfi_date", "rfi date", "trigger_date", "trigger date", "major_update_date", "major update date",
       ]) || undefined,
+      rfiPublishedAt: rfiPublishedAt || undefined,
+      rfiReceivedAt: rfiReceivedAt || undefined,
+      rfiDateSource: rfiPublishedAt || rfiReceivedAt
+        ? `${sourceName} supplied RFI date columns`
+        : undefined,
+      rfiDateConfidence: rfiPublishedAt || rfiReceivedAt ? "exact" : "unavailable",
       deadline: optionalValue(row, [
         "planning_decision_due_date", "planning decision due date", "planning_deadline", "planning deadline",
         "decision_due_date", "decision due date",
@@ -293,6 +307,7 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       appointmentEvidenceSourceUrl,
       appointmentEvidenceDate: optionalValue(row, ["appointment_evidence_date", "appointment evidence date", "appointment_date", "appointment date"]) || undefined,
       buildingInfoSearchProfile: optionalValue(row, ["source_search_name", "source search name", "saved_search", "saved search", "search_profile", "search profile"]) || undefined,
+      sourceObservationFiles: [`${sourceName} row ${rowNumber}`],
     };
     opportunity.fitScore = scoreOpportunity(opportunity);
     return opportunity;
@@ -348,12 +363,17 @@ export function mergeBuildingInfoCsvRecords(records: TenderOpportunity[]) {
       matchedTerms: [...new Set(ordered.flatMap((record) => record.matchedTerms))],
       responseDeadline: [...ordered].reverse().map((record) => record.responseDeadline).find(Boolean),
       sourceMajorUpdatedAt: [...ordered].reverse().map((record) => record.sourceMajorUpdatedAt).find(Boolean),
+      rfiPublishedAt: [...ordered].reverse().map((record) => record.rfiPublishedAt).find(Boolean),
+      rfiReceivedAt: [...ordered].reverse().map((record) => record.rfiReceivedAt).find(Boolean),
+      rfiDateSource: [...ordered].reverse().map((record) => record.rfiDateSource).find(Boolean),
+      rfiDateConfidence: [...ordered].reverse().map((record) => record.rfiDateConfidence).find(Boolean),
       deadline: [...ordered].reverse().map((record) => record.deadline).find(Boolean),
       appointedAcoustician: [...ordered].reverse().map((record) => record.appointedAcoustician).find(Boolean),
       appointmentEvidenceExcerpt: [...ordered].reverse().map((record) => record.appointmentEvidenceExcerpt).find(Boolean),
       appointmentEvidenceSourceUrl: [...ordered].reverse().map((record) => record.appointmentEvidenceSourceUrl).find(Boolean),
       appointmentEvidenceDate: [...ordered].reverse().map((record) => record.appointmentEvidenceDate).find(Boolean),
       buildingInfoSearchProfile: [...ordered].reverse().map((record) => record.buildingInfoSearchProfile).find(Boolean),
+      sourceObservationFiles: [...new Set(ordered.flatMap((record) => record.sourceObservationFiles ?? []))],
     };
     merged.fitScore = scoreOpportunity(merged);
     return merged;
