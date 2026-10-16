@@ -70,7 +70,9 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
       - name: Migrate managed Tender Desk records to the Odoo Leads review queue
-        if: contains(github.event.head_commit.message, '[odoo-leads-migration]')
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.deploy_odoo_leads_migration) ||
+          contains(github.event.head_commit.message, '[odoo-leads-migration]')
         shell: bash
         run: |
           set -euo pipefail
@@ -81,6 +83,10 @@ jobs:
               --name "$AZURE_JOB_NAME" \
               --set-env-vars \
                 ODOO_MIGRATE_MANAGED_RECORDS_TO_LEADS=false \
+                ODOO_NORMALIZE_HISTORICAL_RECORDS=false \
+                ODOO_CRM_UI_CONFIG_ENABLED=false \
+                ODOO_CRM_UI_CONFIG_REQUIRED=false \
+                HELMONIC_SCHEDULE_GUARD_ENABLED=true \
                 NODE_OPTIONS=--experimental-strip-types \
               --command node \
               --args scripts/tender_intelligence/run-daily-automation.mjs \
@@ -95,6 +101,10 @@ jobs:
             --image "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:${{ github.sha }}" \
             --set-env-vars \
               ODOO_MIGRATE_MANAGED_RECORDS_TO_LEADS=true \
+              ODOO_NORMALIZE_HISTORICAL_RECORDS=true \
+              ODOO_CRM_UI_CONFIG_ENABLED=true \
+              ODOO_CRM_UI_CONFIG_REQUIRED=true \
+              HELMONIC_SCHEDULE_GUARD_ENABLED=false \
               NODE_OPTIONS=--experimental-strip-types \
             --command node \
             --args scripts/tender_intelligence/run-daily-automation.mjs \
@@ -124,6 +134,11 @@ jobs:
             case "$status" in
               Succeeded)
                 echo "Controlled Odoo Leads migration succeeded."
+                az containerapp job show \
+                  --resource-group "$AZURE_RESOURCE_GROUP" \
+                  --name "$AZURE_JOB_NAME" \
+                  --query '{image:properties.template.containers[0].image,triggerType:properties.configuration.triggerType,schedule:properties.configuration.scheduleTriggerConfig.cronExpression}' \
+                  --output json
                 exit 0
                 ;;
               Failed)

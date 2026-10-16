@@ -128,6 +128,7 @@ try {
       const message = error instanceof Error ? error.message : "Unknown optional-step error";
       summary.optionalSteps.push({ script: step.script, status: "failed", error: message });
       console.warn(JSON.stringify({ status: "optional-step-failed", script: step.script, error: message }));
+      if (process.env.ODOO_CRM_UI_CONFIG_REQUIRED === "true") throw error;
     }
     await writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
   }
