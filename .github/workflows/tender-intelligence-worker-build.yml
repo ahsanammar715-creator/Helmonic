@@ -8,6 +8,11 @@ on:
         required: true
         default: false
         type: boolean
+      diagnose_azure_jobs_only:
+        description: Read-only inventory of Azure Container Apps Jobs; skip build and deployment
+        required: true
+        default: false
+        type: boolean
   push:
     branches:
       - codex/tender-intelligence-release
@@ -35,8 +40,32 @@ env:
   AZURE_JOB_NAME: ca-helmonic-ti-dev-001
 
 jobs:
+  diagnose-azure-jobs:
+    name: Read-only Azure Container Apps Job inventory
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnose_azure_jobs_only
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sign in to Azure with GitHub OIDC
+        uses: azure/login@v2
+        with:
+          client-id: d265e55d-f8b6-421a-9a82-064183cab7e6
+          tenant-id: 360eacb5-68c3-400c-a366-0382ec3a7b4a
+          subscription-id: 14f94f77-4e71-4b80-b6c9-e09b192fcf42
+
+      - name: List visible Container Apps Jobs without changing them
+        shell: bash
+        run: |
+          set -euo pipefail
+          az account show \
+            --query '{subscriptionId:id,subscriptionName:name,tenantId:tenantId}' \
+            --output json
+          az containerapp job list \
+            --query '[].{resourceGroup:resourceGroup,name:name,triggerType:properties.configuration.triggerType,image:properties.template.containers[0].image}' \
+            --output json
+
   build-and-push:
     name: Build and publish immutable worker image
+    if: github.event_name != 'workflow_dispatch' || !inputs.diagnose_azure_jobs_only
     runs-on: ubuntu-latest
     steps:
       - name: Check out the selected commit
