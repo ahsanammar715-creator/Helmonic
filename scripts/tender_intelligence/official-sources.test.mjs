@@ -945,7 +945,7 @@ test("Odoo keeps all potential acoustic fits together while Part E leads retain 
   assert.equal(sorted[2].matchValue, "helmonic-lead:general-potential-fit");
 });
 
-test("Odoo pipeline demotes expired RFIs and planning decisions below live dated work", () => {
+test("Odoo excludes expired RFIs from active CRM payloads while retaining other dated work", () => {
   const records = [
     planningLead({
       id: "live-buildinginfo-rfi",
@@ -1000,9 +1000,8 @@ test("Odoo pipeline demotes expired RFIs and planning decisions below live dated
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
   assert.ok(values["helmonic-lead:live-buildinginfo-rfi"].x_pipeline_priority_rank > 500_000_000);
-  assert.ok(values["helmonic-lead:recently-expired-unmatched-rfi"].x_pipeline_priority_rank
-    > values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_rank);
-  assert.match(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_reason, /passed/i);
+  assert.equal(values["helmonic-lead:recently-expired-unmatched-rfi"], undefined);
+  assert.equal(values["helmonic-lead:expired-matched-rfi"], undefined);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_rank, 350);
   assert.match(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_reason, /refresh required/i);
   assert.equal(values["helmonic-lead:granted-post-decision"].x_pipeline_priority_rank, 800);
@@ -1312,6 +1311,25 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_project_value: 12_000_000,
           x_residential_scale: "attached-4-plus",
         },
+        {
+          id: 73,
+          type: "lead",
+          name: "Expired managed acoustic RFI",
+          tag_ids: [6],
+          x_helmonic_external_id: "helmonic-lead:expired-managed-rfi",
+          x_source_systems: "DCC",
+          x_project_reference: "EXPIRED-RFI-26",
+          x_studio_reference: "DCC-EXPIRED-RFI-26",
+          x_warm_connection_verified: false,
+          x_lead_quality: "excellent",
+          x_pipeline_bucket: "active",
+          x_classification: "noise-related-rfi",
+          x_evidence_status: "official-text",
+          x_evidence_excerpt: "Submit a noise impact assessment.",
+          x_matched_terms: "noise impact assessment",
+          x_opportunity_type: "planning-pipeline-lead",
+          x_rfi_response_due_at: "2026-01-15 00:00:00",
+        },
       ]);
       return Response.json([{ id: 69, tag_ids: [3] }]);
     }
@@ -1341,8 +1359,10 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   const historical = writes.find((write) => write.ids[0] === 70);
   const buildingInfoHistorical = writes.find((write) => write.ids[0] === 71);
   const partEHistorical = writes.find((write) => write.ids[0] === 72);
-  assert.equal(result.historicalRecordsNormalized, 4);
+  const expiredHistorical = writes.find((write) => write.ids[0] === 73);
+  assert.equal(result.historicalRecordsNormalized, 5);
   assert.equal(result.managedRecordsMovedToLeads, 3);
+  assert.equal(result.managedExpiredRfisArchived, 1);
   assert.equal(current.vals.name, records[0].title);
   assert.ok(!Object.hasOwn(historical.vals, "name"));
   assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
@@ -1374,6 +1394,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(partEHistorical.vals.x_pipeline_priority_rank, 500);
   assert.match(partEHistorical.vals.x_pipeline_priority_reason, /ordered by project value/i);
   assert.equal(partEHistorical.vals.type, "lead");
+  assert.deepEqual(expiredHistorical.vals, { active: false });
 });
 
 test("Odoo never assigns a consultant when only historical email evidence exists", () => {

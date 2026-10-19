@@ -673,6 +673,12 @@ function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
     .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
+function expiredRfiForCrm(record: TenderOpportunity, now: Date) {
+  if (record.classification !== "noise-related-rfi") return false;
+  const daysRemaining = calendarDaysRemaining(record.responseDeadline ?? "", now);
+  return daysRemaining !== false && daysRemaining < 0;
+}
+
 function commercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {
   return buildingInfo && verifiedEmailMatch ? 30
     : verifiedEmailMatch ? 20
@@ -888,6 +894,10 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
   const payloads: OdooLeadDryRun[] = [];
   for (const record of records) {
     if (record.deduplicationStatus === "duplicate") continue;
+    // Expired RFIs remain in the Tender Intelligence audit/source ledger for
+    // deduplication and history, but must never enter the active Odoo review
+    // queue. Existing managed copies are archived by the Odoo normalizer.
+    if (expiredRfiForCrm(record, now)) continue;
     const externalId = record.crmExternalId;
     if (!externalId) throw new Error(`Record ${record.id} has no stable CRM external ID.`);
     const sources = sourceValues(record);

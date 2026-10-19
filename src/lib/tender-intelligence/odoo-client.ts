@@ -42,6 +42,7 @@ export type OdooSyncResult = {
   sourceTagsLinked: number;
   historicalRecordsNormalized: number;
   managedRecordsMovedToLeads: number;
+  managedExpiredRfisArchived: number;
   failures: Array<{ externalId: string; error: string }>;
 };
 
@@ -811,7 +812,7 @@ async function normalizeHistoricalOdooRecords(
   registry: TagRegistry,
   fetcher: typeof fetch,
 ) {
-  if (!config.normalizeHistoricalRecords) return { normalized: 0, movedToLeads: 0 };
+  if (!config.normalizeHistoricalRecords) return { normalized: 0, movedToLeads: 0, expiredRfisArchived: 0 };
   const records = await json2Call(config, config.model, "search_read", {
     domain: [[config.externalIdField, "!=", false]],
     fields: [
@@ -828,9 +829,20 @@ async function normalizeHistoricalOdooRecords(
   }, fetcher) as ExistingLeadValues[];
   let normalized = 0;
   let movedToLeads = 0;
+  let expiredRfisArchived = 0;
   const normalizationNow = new Date();
   for (const record of records) {
     if (!Number.isInteger(record.id)) continue;
+    const rfiDaysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, normalizationNow);
+    if (record.x_classification === "noise-related-rfi" && rfiDaysRemaining !== false && rfiDaysRemaining < 0) {
+      // Archive only Helmonic-managed records (the search domain requires our
+      // external ID). This removes expired RFIs from Leads/Pipeline without
+      // deleting their recoverable Odoo history or the external audit ledger.
+      await json2Call(config, config.model, "write", { ids: [record.id], vals: { active: false } }, fetcher);
+      normalized += 1;
+      expiredRfisArchived += 1;
+      continue;
+    }
     const codes = sourceCodesFromSystems(record.x_source_systems);
     const desiredTagIds: number[] = [];
     if (config.populateSourceTags) {
@@ -908,7 +920,7 @@ async function normalizeHistoricalOdooRecords(
     await json2Call(config, config.model, "write", { ids: [record.id], vals: values }, fetcher);
     normalized += 1;
   }
-  return { normalized, movedToLeads };
+  return { normalized, movedToLeads, expiredRfisArchived };
 }
 
 function mergedValues(left: unknown, right: unknown, separator: string) {
@@ -1044,6 +1056,7 @@ export async function syncOdooLeads(
       sourceTagsLinked: 0,
       historicalRecordsNormalized: 0,
       managedRecordsMovedToLeads: 0,
+      managedExpiredRfisArchived: 0,
       failures: [],
     };
   }
@@ -1069,6 +1082,7 @@ export async function syncOdooLeads(
     sourceTagsLinked: 0,
     historicalRecordsNormalized: 0,
     managedRecordsMovedToLeads: 0,
+    managedExpiredRfisArchived: 0,
     failures: [],
   };
   for (const payload of payloads) {
@@ -1162,5 +1176,6 @@ export async function syncOdooLeads(
   );
   result.historicalRecordsNormalized = historicalNormalization.normalized;
   result.managedRecordsMovedToLeads += historicalNormalization.movedToLeads;
+  result.managedExpiredRfisArchived = historicalNormalization.expiredRfisArchived;
   return result;
 }
