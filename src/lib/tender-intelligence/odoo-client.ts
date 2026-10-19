@@ -42,7 +42,6 @@ export type OdooSyncResult = {
   sourceTagsLinked: number;
   historicalRecordsNormalized: number;
   managedRecordsMovedToLeads: number;
-  managedExpiredRfisArchived: number;
   failures: Array<{ externalId: string; error: string }>;
 };
 
@@ -695,8 +694,7 @@ function historicalRecentUndatedRfiPriority(
 }
 
 function historicalExpiredRfiPriority(daysPastDue: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
-  return 100_000_000
-    - Math.min(daysPastDue, 9_000) * 10_000
+  return -Math.min(daysPastDue, 9_000) * 100
     + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
 
@@ -728,15 +726,23 @@ function historicalConfirmedAcousticEvidence(record: ExistingLeadValues) {
   return Boolean(record.x_classification);
 }
 
-function historicalLeadReviewPanel(record: ExistingLeadValues) {
+function historicalLeadReviewPanel(record: ExistingLeadValues, now: Date) {
   const quality = String(record.x_lead_quality ?? "");
   const bucket = String(record.x_pipeline_bucket ?? "");
+  if (record.x_acoustic_appointment_status === "iacoustics-appointed"
+    || quality === "existing-project"
+    || bucket === "already-won") {
+    return "Existing Relationship / Do Not Cold Contact";
+  }
   const routeable = !["poor", "closed-background", "existing-project"].includes(quality)
     && !["background", "already-won"].includes(bucket);
   const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
   if (record.x_classification === "noise-related-rfi" && routeable && confirmedAcoustic) {
+    const daysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
+    if (daysRemaining !== false && daysRemaining < 0) return "Competitive / Re-engagement";
     return "Urgent Acoustic RFI";
   }
+  if (record.x_acoustic_appointment_status === "competitor-appointed") return "Competitive / Re-engagement";
   if (confirmedAcoustic) return "Confirmed Acoustic Opportunity";
   if (routeable) return "Potential Acoustic Fit";
   return "General Potential / Background";
@@ -772,7 +778,7 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
     const daysPastDue = Math.abs(rfiDaysRemaining);
     return {
       rank: historicalExpiredRfiPriority(daysPastDue, buildingInfo, verifiedEmailMatch),
-      reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; expiry date controls the demoted RFI queue${verifiedEmailMatch ? "; verified relationship retained for consultant review" : ""}`,
+      reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; retained for consultant-reviewed competitive follow-up and ordered by expiry date${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
     };
   }
   if (rfi && verifiedEmailMatch) return { rank: 1000, reason: "Acoustic RFI with verified consultant email history; RFI dates unavailable" };
@@ -812,7 +818,7 @@ async function normalizeHistoricalOdooRecords(
   registry: TagRegistry,
   fetcher: typeof fetch,
 ) {
-  if (!config.normalizeHistoricalRecords) return { normalized: 0, movedToLeads: 0, expiredRfisArchived: 0 };
+  if (!config.normalizeHistoricalRecords) return { normalized: 0, movedToLeads: 0 };
   const records = await json2Call(config, config.model, "search_read", {
     domain: [[config.externalIdField, "!=", false]],
     fields: [
@@ -829,20 +835,9 @@ async function normalizeHistoricalOdooRecords(
   }, fetcher) as ExistingLeadValues[];
   let normalized = 0;
   let movedToLeads = 0;
-  let expiredRfisArchived = 0;
   const normalizationNow = new Date();
   for (const record of records) {
     if (!Number.isInteger(record.id)) continue;
-    const rfiDaysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, normalizationNow);
-    if (record.x_classification === "noise-related-rfi" && rfiDaysRemaining !== false && rfiDaysRemaining < 0) {
-      // Archive only Helmonic-managed records (the search domain requires our
-      // external ID). This removes expired RFIs from Leads/Pipeline without
-      // deleting their recoverable Odoo history or the external audit ledger.
-      await json2Call(config, config.model, "write", { ids: [record.id], vals: { active: false } }, fetcher);
-      normalized += 1;
-      expiredRfisArchived += 1;
-      continue;
-    }
     const codes = sourceCodesFromSystems(record.x_source_systems);
     const desiredTagIds: number[] = [];
     if (config.populateSourceTags) {
@@ -894,7 +889,7 @@ async function normalizeHistoricalOdooRecords(
     );
     if (record.x_pipeline_priority_rank !== priority.rank) values.x_pipeline_priority_rank = priority.rank;
     if (record.x_pipeline_priority_reason !== priority.reason) values.x_pipeline_priority_reason = priority.reason;
-    const reviewPanel = historicalLeadReviewPanel(record);
+    const reviewPanel = historicalLeadReviewPanel(record, normalizationNow);
     if (record.x_lead_panel !== reviewPanel) values.x_lead_panel = reviewPanel;
     if (!confirmedAcoustic
       && !["poor", "closed-background", "existing-project", "potential"].includes(String(record.x_lead_quality ?? ""))
@@ -920,7 +915,7 @@ async function normalizeHistoricalOdooRecords(
     await json2Call(config, config.model, "write", { ids: [record.id], vals: values }, fetcher);
     normalized += 1;
   }
-  return { normalized, movedToLeads, expiredRfisArchived };
+  return { normalized, movedToLeads };
 }
 
 function mergedValues(left: unknown, right: unknown, separator: string) {
@@ -1056,7 +1051,6 @@ export async function syncOdooLeads(
       sourceTagsLinked: 0,
       historicalRecordsNormalized: 0,
       managedRecordsMovedToLeads: 0,
-      managedExpiredRfisArchived: 0,
       failures: [],
     };
   }
@@ -1082,7 +1076,6 @@ export async function syncOdooLeads(
     sourceTagsLinked: 0,
     historicalRecordsNormalized: 0,
     managedRecordsMovedToLeads: 0,
-    managedExpiredRfisArchived: 0,
     failures: [],
   };
   for (const payload of payloads) {
@@ -1176,6 +1169,5 @@ export async function syncOdooLeads(
   );
   result.historicalRecordsNormalized = historicalNormalization.normalized;
   result.managedRecordsMovedToLeads += historicalNormalization.movedToLeads;
-  result.managedExpiredRfisArchived = historicalNormalization.expiredRfisArchived;
   return result;
 }

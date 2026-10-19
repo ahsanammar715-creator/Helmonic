@@ -460,10 +460,18 @@ function isPotentialAcousticFit(record: TenderOpportunity) {
     && !["background", "already-won"].includes(record.leadDisposition ?? "");
 }
 
-function leadReviewPanel(record: TenderOpportunity) {
+function leadReviewPanel(record: TenderOpportunity, now: Date) {
+  if (record.acousticAppointmentStatus === "iacoustics-appointed"
+    || record.leadQuality === "existing-project"
+    || record.leadDisposition === "already-won") {
+    return "Existing Relationship / Do Not Cold Contact";
+  }
   if (record.classification === "noise-related-rfi" && hasConfirmedCurrentAcousticEvidence(record)) {
+    const daysRemaining = calendarDaysRemaining(record.responseDeadline ?? "", now);
+    if (daysRemaining !== false && daysRemaining < 0) return "Competitive / Re-engagement";
     return "Urgent Acoustic RFI";
   }
+  if (record.acousticAppointmentStatus === "competitor-appointed") return "Competitive / Re-engagement";
   if (hasConfirmedCurrentAcousticEvidence(record)) return "Confirmed Acoustic Opportunity";
   if (isPotentialAcousticFit(record)) return "Potential Acoustic Fit";
   return "General Potential / Background";
@@ -673,12 +681,6 @@ function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
     .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
-function expiredRfiForCrm(record: TenderOpportunity, now: Date) {
-  if (record.classification !== "noise-related-rfi") return false;
-  const daysRemaining = calendarDaysRemaining(record.responseDeadline ?? "", now);
-  return daysRemaining !== false && daysRemaining < 0;
-}
-
 function commercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {
   return buildingInfo && verifiedEmailMatch ? 30
     : verifiedEmailMatch ? 20
@@ -719,10 +721,10 @@ function recentUndatedRfiPriority(
 }
 
 function expiredRfiPriority(daysPastDue: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
-  // Expired RFIs remain below every live/undated recent RFI. Within the
-  // expired queue, the most recently expired date wins before source/match.
-  return 100_000_000
-    - Math.min(daysPastDue, 9_000) * 10_000
+  // Expired RFIs remain available for reviewed competitive follow-up without
+  // appearing as current work. Negative ranks keep them below every active or
+  // nurture opportunity; one day still outweighs every commercial tie-break.
+  return -Math.min(daysPastDue, 9_000) * 100
     + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
 
@@ -775,7 +777,7 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
     const daysPastDue = Math.abs(rfiDaysRemaining);
     return {
       rank: expiredRfiPriority(daysPastDue, buildingInfo, verifiedEmailMatch),
-      reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; expiry date controls the demoted RFI queue${verifiedEmailMatch ? "; verified relationship retained for consultant review" : ""}`,
+      reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; retained for consultant-reviewed competitive follow-up and ordered by expiry date${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
     };
   }
   if (rfi && verifiedEmailMatch) {
@@ -838,7 +840,7 @@ function description(record: TenderOpportunity, now: Date) {
       ["Acoustic evidence gate", acousticEvidenceGateLabel(record)],
       ["RFI / acoustic trigger", record.triggerType ?? record.classification],
       ["Lead quality", displayedLeadQuality(record)],
-      ["Lead review panel", leadReviewPanel(record)],
+      ["Lead review panel", leadReviewPanel(record, now)],
       ["Pipeline disposition", record.leadDisposition ?? "monitor"],
       ["Project value", Number.isFinite(record.projectValue) ? record.projectValue : "Not supplied"],
       ["Project units", Number.isFinite(record.projectUnits) ? record.projectUnits : record.residentialUnitCount],
@@ -894,10 +896,6 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
   const payloads: OdooLeadDryRun[] = [];
   for (const record of records) {
     if (record.deduplicationStatus === "duplicate") continue;
-    // Expired RFIs remain in the Tender Intelligence audit/source ledger for
-    // deduplication and history, but must never enter the active Odoo review
-    // queue. Existing managed copies are archived by the Odoo normalizer.
-    if (expiredRfiForCrm(record, now)) continue;
     const externalId = record.crmExternalId;
     if (!externalId) throw new Error(`Record ${record.id} has no stable CRM external ID.`);
     const sources = sourceValues(record);
@@ -936,7 +934,7 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         x_pipeline_bucket: record.leadDisposition ?? "monitor",
         x_pipeline_priority_rank: priority.rank,
         x_pipeline_priority_reason: priority.reason,
-        x_lead_panel: leadReviewPanel(record),
+        x_lead_panel: leadReviewPanel(record, now),
         x_lead_quality: displayedLeadQuality(record),
         x_evidence_status: record.evidenceStatus,
         x_classification: record.classification ?? record.type,

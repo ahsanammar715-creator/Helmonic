@@ -412,11 +412,28 @@ test("Odoo exposes appointment evidence, competitive status and the outreach saf
   assert.equal(payload.values.x_appointed_acoustician, "Example Acoustics Ltd");
   assert.equal(payload.values.x_competitive_quote_opportunity, true);
   assert.equal(payload.values.x_outreach_eligibility, "consultant-review");
+  assert.equal(payload.values.x_lead_panel, "Competitive / Re-engagement");
   assert.match(payload.values.x_outreach_key, /^planning-outreach:/);
   assert.equal(payload.values.x_buildinginfo_search_profile, "iAcoustics acoustic opportunity watch");
   assert.deepEqual(payload.statusTagNames, ["Competitor Appointed"]);
   assert.match(payload.values.description, /Appointment and Outreach Safeguard/);
   assert.match(payload.values.description, /Appointment evidence source: https:\/\/example\.test\/appointment-evidence/);
+});
+
+test("Odoo retains iAcoustics wins as protected relationship records", () => {
+  const [guarded] = applyAppointmentSafeguards(annotateOpportunityDuplicates([planningLead({
+    sourceSystem: "BuildingInfo",
+    sourceRecordId: "BI-IACOUSTICS-1",
+    appointedAcoustician: "iAcoustics",
+    appointmentEvidenceExcerpt: "iAcoustics has been appointed as acoustic consultant.",
+    appointmentEvidenceSourceUrl: "https://example.test/iacoustics-appointment",
+  })]));
+  const [payload] = buildOdooDryRun([qualifyLead(guarded)]);
+  assert.equal(payload.values.x_acoustic_appointment_status, "iacoustics-appointed");
+  assert.equal(payload.values.x_pipeline_bucket, "already-won");
+  assert.equal(payload.values.x_lead_panel, "Existing Relationship / Do Not Cold Contact");
+  assert.equal(payload.values.x_outreach_eligibility, "suppressed-already-won");
+  assert.equal(payload.values.x_competitive_quote_opportunity, false);
 });
 
 test("Odoo payload exposes an explicit visible tag for a verified email relationship", () => {
@@ -945,7 +962,7 @@ test("Odoo keeps all potential acoustic fits together while Part E leads retain 
   assert.equal(sorted[2].matchValue, "helmonic-lead:general-potential-fit");
 });
 
-test("Odoo excludes expired RFIs from active CRM payloads while retaining other dated work", () => {
+test("Odoo retains expired RFIs in a date-led competitive re-engagement panel", () => {
   const records = [
     planningLead({
       id: "live-buildinginfo-rfi",
@@ -1000,8 +1017,18 @@ test("Odoo excludes expired RFIs from active CRM payloads while retaining other 
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
   assert.ok(values["helmonic-lead:live-buildinginfo-rfi"].x_pipeline_priority_rank > 500_000_000);
-  assert.equal(values["helmonic-lead:recently-expired-unmatched-rfi"], undefined);
-  assert.equal(values["helmonic-lead:expired-matched-rfi"], undefined);
+  assert.equal(values["helmonic-lead:live-buildinginfo-rfi"].x_lead_panel, "Urgent Acoustic RFI");
+  assert.ok(values["helmonic-lead:recently-expired-unmatched-rfi"].x_pipeline_priority_rank < 0);
+  assert.ok(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_rank < 0);
+  assert.ok(
+    values["helmonic-lead:recently-expired-unmatched-rfi"].x_pipeline_priority_rank
+      > values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_rank,
+  );
+  assert.equal(values["helmonic-lead:recently-expired-unmatched-rfi"].x_lead_panel, "Competitive / Re-engagement");
+  assert.equal(values["helmonic-lead:expired-matched-rfi"].x_lead_panel, "Competitive / Re-engagement");
+  assert.equal(values["helmonic-lead:recently-expired-unmatched-rfi"].x_rfi_response_due_at, "2026-10-10 00:00:00");
+  assert.equal(values["helmonic-lead:expired-matched-rfi"].x_rfi_response_due_at, "2026-09-15 00:00:00");
+  assert.match(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_reason, /competitive follow-up/i);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_rank, 350);
   assert.match(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_reason, /refresh required/i);
   assert.equal(values["helmonic-lead:granted-post-decision"].x_pipeline_priority_rank, 800);
@@ -1362,7 +1389,6 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   const expiredHistorical = writes.find((write) => write.ids[0] === 73);
   assert.equal(result.historicalRecordsNormalized, 5);
   assert.equal(result.managedRecordsMovedToLeads, 3);
-  assert.equal(result.managedExpiredRfisArchived, 1);
   assert.equal(current.vals.name, records[0].title);
   assert.ok(!Object.hasOwn(historical.vals, "name"));
   assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
@@ -1394,7 +1420,11 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(partEHistorical.vals.x_pipeline_priority_rank, 500);
   assert.match(partEHistorical.vals.x_pipeline_priority_reason, /ordered by project value/i);
   assert.equal(partEHistorical.vals.type, "lead");
-  assert.deepEqual(expiredHistorical.vals, { active: false });
+  assert.equal(expiredHistorical.vals.x_lead_panel, "Competitive / Re-engagement");
+  assert.ok(expiredHistorical.vals.x_pipeline_priority_rank < 0);
+  assert.match(expiredHistorical.vals.x_pipeline_priority_reason, /competitive follow-up/i);
+  assert.equal(expiredHistorical.vals.priority, "0");
+  assert.ok(!Object.hasOwn(expiredHistorical.vals, "active"));
 });
 
 test("Odoo never assigns a consultant when only historical email evidence exists", () => {
