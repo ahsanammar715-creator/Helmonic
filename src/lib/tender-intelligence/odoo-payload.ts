@@ -266,6 +266,8 @@ function enrichedParties(record: TenderOpportunity) {
       && match.evidenceRefs.some((reference) => /^\[E:(?:glen|owen):/i.test(reference));
     if (!evidenceBacked) continue;
     const matchedParty = parties.find((party) => normalizedName(party.name) === normalizedName(match.party));
+    const historicalPhone = match.historicalPhones?.find(Boolean);
+    if (matchedParty && !matchedParty.phone && historicalPhone) matchedParty.phone = historicalPhone;
     const emails = [
       match.matchedEmail,
       match.matchType === "exact-email" && match.matchedEntity.includes("@") ? match.matchedEntity : undefined,
@@ -282,7 +284,7 @@ function enrichedParties(record: TenderOpportunity) {
           name: match.matchedEntity && !match.matchedEntity.includes("@") ? match.matchedEntity : match.party,
           role: matchedParty?.role ?? "other",
           email,
-          ...(matchedParty?.phone ? { phone: matchedParty.phone } : {}),
+          ...(matchedParty?.phone || historicalPhone ? { phone: matchedParty?.phone || historicalPhone } : {}),
           ...(matchedParty?.organisation
             ? { organisation: matchedParty.organisation }
             : match.party && normalizedName(match.party) !== normalizedName(match.matchedEntity)
@@ -335,6 +337,8 @@ function relationshipDetails(record: TenderOpportunity) {
       return [
         `Matched project party: ${match.party}`,
         `Matched email contact: ${matchedContact}`,
+        match.historicalEmails?.length ? `Other verified email address(es): ${match.historicalEmails.join(", ")}` : "",
+        match.historicalPhones?.length ? `Phone number(s) found in the matched email: ${match.historicalPhones.join(", ")}` : "",
         `Verified consultant history: ${owners}`,
         `Match method: ${match.matchType}`,
         match.previousProjects?.length
@@ -348,6 +352,39 @@ function relationshipDetails(record: TenderOpportunity) {
         match.evidenceRefs.length ? `Evidence reference(s): ${match.evidenceRefs.join(", ")}` : "",
       ].filter(Boolean).join(" | ");
     }).join("\n");
+}
+
+function consultantNames(match: NonNullable<TenderOpportunity["routingEvidence"]>[number]) {
+  const names = (match.evidenceOwners ?? []).map((owner) => owner === "Owen" ? "Eoghan Tyrrell" : "Glen Plunkett");
+  return [...new Set(names)];
+}
+
+function relationshipSummary(record: TenderOpportunity) {
+  const matches = [...(record.routingEvidence ?? [])]
+    .filter((match) => match.matchType !== "exact-domain" && (match.evidenceOwners?.length ?? 0) > 0)
+    .sort((left, right) => String(right.emailSentAt ?? "").localeCompare(String(left.emailSentAt ?? "")));
+  if (record.emailRelationshipStatus === "index-unavailable") {
+    return "The restricted email relationship index was unavailable, so no historical relationship is claimed.";
+  }
+  if (matches.length === 0) {
+    return "No exact project-party relationship was verified in the restricted iAcoustics email history.";
+  }
+  const consultants = [...new Set(matches.flatMap(consultantNames))];
+  const contacts = [...new Set(matches.map((match) => match.matchedEntity || match.party).filter(Boolean))];
+  const emails = [...new Set(matches.flatMap((match) => [match.matchedEmail, ...(match.historicalEmails ?? [])])
+    .map(normalizedEmail).filter((email) => email.includes("@")))];
+  const phones = [...new Set(matches.flatMap((match) => match.historicalPhones ?? []).filter(Boolean))];
+  const projects = [...new Set(matches.flatMap((match) => match.previousProjects ?? []).filter(Boolean))];
+  const dates = matches.map((match) => match.emailSentAt).filter((value): value is string => Boolean(value));
+  const latestDate = dates[0];
+  const conversationCount = new Set(matches.flatMap((match) => match.evidenceRefs)).size;
+  return [
+    `${consultants.join(" and ")} previously corresponded with ${contacts.join(", ")} (${conversationCount} verified email conversation${conversationCount === 1 ? "" : "s"}${latestDate ? `; latest ${latestDate}` : ""}).`,
+    emails.length ? `Known email contact${emails.length === 1 ? "" : "s"}: ${emails.join(", ")}.` : "",
+    phones.length ? `Phone number${phones.length === 1 ? "" : "s"} found in the matched email history: ${phones.join(", ")}.` : "",
+    projects.length ? `iAcoustics email history references ${projects.length} earlier or similar project${projects.length === 1 ? "" : "s"}: ${projects.join(", ")}.` : "",
+    "This is historical relationship context; the current project's acoustic requirement is assessed separately.",
+  ].filter(Boolean).join(" ");
 }
 
 function assignmentDetails(record: TenderOpportunity) {
@@ -381,6 +418,27 @@ const SOURCE_CODES: Record<TenderOpportunity["sourceSystem"], string> = {
 };
 
 const SOURCE_CODE_ORDER = ["BI", "PL", "NPR", "DCC", "TD", "EU"];
+
+function withoutSourcePrefix(value: string | undefined) {
+  return String(value ?? "").trim()
+    .replace(/^\[(?:BI|PL|NPR|DCC|TD|EU)(?:\+(?:BI|PL|NPR|DCC|TD|EU))*\]\s*/i, "");
+}
+
+function isLegacyJobNumberOnly(value: string | undefined) {
+  return /^J[-\s]?\d+$/i.test(withoutSourcePrefix(value));
+}
+
+function projectTitle(record: TenderOpportunity) {
+  const current = withoutSourcePrefix(record.title);
+  if (current && !isLegacyJobNumberOnly(current)) return current;
+  const location = String(record.location ?? "").trim();
+  if (location) return location;
+  const applicant = String(record.applicant ?? record.buyer ?? "").trim();
+  const reference = String(record.projectReference ?? record.sourceRecordId ?? "").trim();
+  if (applicant && reference) return `${applicant} — ${reference}`;
+  if (applicant) return applicant;
+  return reference ? `Planning project ${reference}` : "Planning project — title recovery required";
+}
 
 function classificationLabel(record: TenderOpportunity) {
   return (record.classification ?? record.type).replaceAll("-", " ");
@@ -942,6 +1000,8 @@ function description(record: TenderOpportunity, now: Date) {
     allPartyRows(record),
     "<h2>Email Relationship and Consultant Assignment</h2>",
     "<p><strong>Relationship evidence only:</strong> a historical email match does not prove that this current project requires acoustic work.</p>",
+    `<p><strong>Relationship summary:</strong> ${htmlText(relationshipSummary(record))}</p>`,
+    "<h3>Full Matched Email Evidence</h3>",
     `<p>${htmlText(relationshipDetails(record))}</p>`,
     htmlRows([["Assigned acoustic consultant", assignmentDetails(record)], ["Routing reason", record.routingReason]]),
     "<h2>Appointment and Outreach Safeguard</h2>",
@@ -993,7 +1053,7 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
       sourceTagNames: sources.codes.split("+").filter(Boolean),
       statusTagNames: appointmentTagNames(record),
       values: {
-        name: record.title,
+        name: projectTitle(record),
         description: description(record, now),
         partner_name: organisation,
         contact_name: contact,

@@ -22,6 +22,7 @@ type RelationshipEntity = {
   domains?: string[];
   evidence_refs?: string[];
   historical_emails?: string[];
+  historical_phones?: string[];
   email_subject?: string;
   email_sent_at?: string;
   email_context?: string;
@@ -41,6 +42,17 @@ function historicalEmails(document: SearchDocument) {
     .map((value) => value.toLowerCase())
     .filter((value) => !/@(?:iacoustics\.net|smartstudioinc\.com)$/i.test(value));
   return [...new Set(matches)].slice(0, 20);
+}
+
+function historicalPhones(document: SearchDocument) {
+  const candidates = normalizeText(document.body_text)
+    .match(/(?:\+?\d[\d\s().-]{6,}\d)/g) ?? [];
+  return [...new Set(candidates
+    .map((value) => value.replace(/\s+/g, " ").trim())
+    .filter((value) => {
+      const digits = value.replace(/\D/g, "");
+      return digits.length >= 7 && digits.length <= 15;
+    }))].slice(0, 20);
 }
 
 function config() {
@@ -161,6 +173,7 @@ export async function loadSearchRelationshipLookup(
           domains: email.includes("@") ? [email.split("@")[1]] : [],
           evidence_refs: [evidenceRef],
           historical_emails: historicalEmails(document),
+          historical_phones: historicalPhones(document),
           email_subject: normalizeText(document.subject),
           email_sent_at: normalizeText(document.sent_at),
           email_context: boundedEmailContext(party, document),
