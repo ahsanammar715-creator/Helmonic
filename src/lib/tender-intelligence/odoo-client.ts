@@ -606,6 +606,9 @@ type ExistingLeadValues = {
   x_rfi_published_at?: string | false;
   x_rfi_received_at?: string | false;
   x_rfi_response_due_at?: string | false;
+  x_rfi_response_received_at?: string | false;
+  x_planning_received_at?: string | false;
+  x_planning_validated_at?: string | false;
   x_decision_due_at?: string | false;
   x_source_major_updated_at?: string | false;
   x_first_seen_at?: string | false;
@@ -677,7 +680,7 @@ function historicalLiveRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  const sourceBand = buildingInfo ? 3_000_000_000 : 2_000_000_000;
+  const sourceBand = buildingInfo ? 2_000_000_000 : 1_000_000_000;
   const dueDateRank = sourceBand - Math.min(daysRemaining, 5_000) * 100_000;
   return dueDateRank
     + activityFreshness * 100
@@ -689,13 +692,13 @@ function historicalRecentUndatedRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  return (buildingInfo ? 1_500_000_000 : 500_000_000)
+  return (buildingInfo ? 1_400_000_000 : 400_000_000)
     + activityFreshness * 100
     + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
 
 function historicalExpiredRfiPriority(daysPastDue: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
-  return -Math.min(daysPastDue, 9_000) * 100
+  return (buildingInfo ? 1_200_000_000 : 0) - Math.min(daysPastDue, 9_000) * 100
     + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
 
@@ -739,6 +742,7 @@ function historicalLeadReviewPanel(record: ExistingLeadValues, now: Date) {
     && !["background", "already-won"].includes(bucket);
   const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
   if (record.x_classification === "noise-related-rfi" && routeable && confirmedAcoustic) {
+    if (record.x_rfi_response_received_at) return "Competitive / Re-engagement";
     const daysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
     if (daysRemaining !== false && daysRemaining < 0) return "Competitive / Re-engagement";
     return "Urgent Acoustic RFI";
@@ -764,16 +768,21 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
   const recentUndatedRfi = rfi && rfiDaysRemaining === false && historicalRecentRfi(record, now);
   const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
+  const fulfilledRfi = rfi && Boolean(record.x_rfi_response_received_at);
   const decisionDaysRemaining = historicalDaysRemaining(record.x_decision_due_at, now);
   const postDecisionStage = /granted|commencement|construction|on site|completed/i.test(String(record.x_project_stage ?? ""));
   const stalePendingPlanningDecision = !rfi && decisionDaysRemaining !== false && decisionDaysRemaining < 0 && !postDecisionStage;
-  if (liveDatedRfi) return {
+  if (liveDatedRfi && !fulfilledRfi) return {
     rank: historicalLiveRfiPriority(rfiDaysRemaining, activityFreshness, buildingInfo, verifiedEmailMatch),
     reason: historicalLiveRfiPriorityReason(rfiDaysRemaining, activityFreshness > 0, buildingInfo, verifiedEmailMatch),
   };
-  if (recentUndatedRfi) return {
+  if (recentUndatedRfi && !fulfilledRfi) return {
     rank: historicalRecentUndatedRfiPriority(activityFreshness, buildingInfo, verifiedEmailMatch),
     reason: `Recent confirmed acoustic RFI ordered by received/published date; response due date not supplied${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${verifiedEmailMatch ? "; verified acoustic consultant email relationship" : ""}`,
+  };
+  if (fulfilledRfi) return {
+    rank: buildingInfo ? 1_200_000_000 : -100_000_000,
+    reason: `Further-information response was received ${record.x_rfi_response_received_at}; retained for relationship and competitive follow-up, not treated as an open RFI${buildingInfo ? "; human-reviewed BuildingInfo source retained in the leading source band" : ""}`,
   };
   if (expiredRfi) {
     const daysPastDue = Math.abs(rfiDaysRemaining);
@@ -793,7 +802,7 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
             : quality === "good" ? 600
               : quality === "medium" ? 400 : 200;
     return {
-      rank: 1_000_000 + commercialRank,
+      rank: 1_300_000_000 + commercialRank,
       reason: `Human-reviewed BuildingInfo lead; ${confirmedAcoustic ? "current acoustic evidence confirmed" : "retained as a potential acoustic fit pending authoritative confirmation"}`,
     };
   }
@@ -844,7 +853,8 @@ async function normalizeHistoricalOdooRecords(
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
       "x_lead_panel", "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
       "x_evidence_status", "x_evidence_excerpt", "x_matched_terms", "x_cpv_codes", "x_opportunity_type",
-      "x_rfi_published_at", "x_rfi_received_at", "x_rfi_response_due_at", "x_decision_due_at",
+      "x_rfi_published_at", "x_rfi_received_at", "x_rfi_response_due_at", "x_rfi_response_received_at",
+      "x_planning_received_at", "x_planning_validated_at", "x_decision_due_at",
       "x_source_major_updated_at", "x_first_seen_at", "x_project_stage", "x_project_value", "x_residential_scale",
     ],
     limit: 5_000,

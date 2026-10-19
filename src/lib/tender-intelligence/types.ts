@@ -81,6 +81,9 @@ export type DuplicateSourceReference = {
   rfiPublishedAt?: string;
   rfiReceivedAt?: string;
   rfiResponseDueAt?: string;
+  rfiResponseReceivedAt?: string;
+  planningReceivedAt?: string;
+  planningValidatedAt?: string;
   planningDecisionDueAt?: string;
   matchedTerms?: string[];
   classification?: PlanningClassification;
@@ -149,8 +152,11 @@ export type TenderOpportunity = {
   publishedAt?: string;
   sourceUpdatedAt?: string;
   sourceMajorUpdatedAt?: string;
+  planningReceivedAt?: string;
+  planningValidatedAt?: string;
   rfiPublishedAt?: string;
   rfiReceivedAt?: string;
+  rfiResponseReceivedAt?: string;
   rfiDateSource?: string;
   rfiDateConfidence?: "exact" | "derived" | "unavailable";
   deadline?: string;

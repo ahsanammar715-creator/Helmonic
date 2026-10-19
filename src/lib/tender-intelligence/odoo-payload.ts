@@ -49,8 +49,11 @@ export type OdooLeadDryRun = {
     x_rfi_published_at: string | false;
     x_rfi_received_at: string | false;
     x_rfi_response_due_at: string | false;
+    x_rfi_response_received_at: string | false;
     x_rfi_date_source: string;
     x_rfi_date_confidence: string;
+    x_planning_received_at: string | false;
+    x_planning_validated_at: string | false;
     x_decision_due_at: string | false;
     x_action_days_remaining: number | false;
     x_deadline_urgency: string;
@@ -95,7 +98,9 @@ export type OdooLeadDryRun = {
 
 function actionableDeadline(record: TenderOpportunity) {
   if (!hasConfirmedCurrentAcousticEvidence(record)) return "";
-  if (record.classification === "noise-related-rfi") return record.responseDeadline ?? "";
+  if (record.classification === "noise-related-rfi") {
+    return record.rfiResponseReceivedAt ? "" : record.responseDeadline ?? "";
+  }
   if (record.type === "formal-public-tender") return record.deadline ?? "";
   return "";
 }
@@ -138,6 +143,15 @@ function planningDecisionDueAt(record: TenderOpportunity) {
   return record.type === "planning-pipeline-lead" ? record.deadline ?? "" : "";
 }
 
+function planningReceivedAt(record: TenderOpportunity) {
+  if (record.type !== "planning-pipeline-lead") return "";
+  return record.planningReceivedAt ?? record.publishedAt ?? "";
+}
+
+function planningValidatedAt(record: TenderOpportunity) {
+  return record.type === "planning-pipeline-lead" ? record.planningValidatedAt ?? "" : "";
+}
+
 function calendarDaysRemaining(value: string, now: Date) {
   if (!value) return false;
   const parsed = new Date(value);
@@ -175,6 +189,9 @@ function planningDecisionUrgency(record: TenderOpportunity, now: Date) {
 }
 
 function recordUrgency(record: TenderOpportunity, now: Date) {
+  if (record.classification === "noise-related-rfi" && record.rfiResponseReceivedAt) {
+    return `Further-information response received ${record.rfiResponseReceivedAt}; no longer an open RFI response deadline`;
+  }
   const actionDeadline = actionableDeadline(record);
   if (actionDeadline) return actionDeadlineUrgency(record, calendarDaysRemaining(actionDeadline, now));
   if (record.type === "planning-pipeline-lead") return planningDecisionUrgency(record, now);
@@ -467,6 +484,7 @@ function leadReviewPanel(record: TenderOpportunity, now: Date) {
     return "Existing Relationship / Do Not Cold Contact";
   }
   if (record.classification === "noise-related-rfi" && hasConfirmedCurrentAcousticEvidence(record)) {
+    if (record.rfiResponseReceivedAt) return "Competitive / Re-engagement";
     const daysRemaining = calendarDaysRemaining(record.responseDeadline ?? "", now);
     if (daysRemaining !== false && daysRemaining < 0) return "Competitive / Re-engagement";
     return "Urgent Acoustic RFI";
@@ -541,6 +559,9 @@ function sourceLedger(record: TenderOpportunity) {
       `RFI published: ${source.rfiPublishedAt || "Unavailable"}`,
       `RFI received/detected: ${source.rfiReceivedAt || "Unavailable"}`,
       `RFI response due: ${source.rfiResponseDueAt || "Unavailable"}`,
+      `Further-information response received: ${source.rfiResponseReceivedAt || "Unavailable"}`,
+      `Planning received: ${source.planningReceivedAt || "Unavailable"}`,
+      `Planning validated: ${source.planningValidatedAt || "Unavailable"}`,
       `Planning decision due: ${source.planningDecisionDueAt || "Unavailable"}`,
       `Acoustic trigger result: ${(source.matchedTerms ?? []).join("; ") || "No confirmed term"}`,
       `Classification result: ${source.classification || "Unclassified"}`,
@@ -550,6 +571,9 @@ function sourceLedger(record: TenderOpportunity) {
     ["RFI published", sources.map((source) => source.rfiPublishedAt)],
     ["RFI received/detected", sources.map((source) => source.rfiReceivedAt)],
     ["RFI response due", sources.map((source) => source.rfiResponseDueAt)],
+    ["Further-information response received", sources.map((source) => source.rfiResponseReceivedAt)],
+    ["Planning received", sources.map((source) => source.planningReceivedAt)],
+    ["Planning validated", sources.map((source) => source.planningValidatedAt)],
     ["Planning decision due", sources.map((source) => source.planningDecisionDueAt)],
   ].flatMap(([label, values]) => {
     const distinct = [...new Set((values as Array<string | undefined>).filter(Boolean))];
@@ -727,7 +751,7 @@ function liveRfiPriority(
   // BuildingInfo receives the reviewed-source band. Inside either source
   // band, one due-date day outweighs every activity or relationship tie-break,
   // so the earliest response deadline is always first in that band.
-  const sourceBand = buildingInfo ? 3_000_000_000 : 2_000_000_000;
+  const sourceBand = buildingInfo ? 2_000_000_000 : 1_000_000_000;
   const dueDateRank = sourceBand - Math.min(daysRemaining, 5_000) * 100_000;
   return dueDateRank
     + activityFreshness * 100
@@ -739,16 +763,16 @@ function recentUndatedRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  return (buildingInfo ? 1_500_000_000 : 500_000_000)
+  return (buildingInfo ? 1_400_000_000 : 400_000_000)
     + activityFreshness * 100
     + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
 
 function expiredRfiPriority(daysPastDue: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
-  // Expired RFIs remain available for reviewed competitive follow-up without
-  // appearing as current work. Negative ranks keep them below every active or
-  // nurture opportunity; one day still outweighs every commercial tie-break.
-  return -Math.min(daysPastDue, 9_000) * 100
+  // Expired RFIs remain available for reviewed competitive follow-up. The
+  // BuildingInfo band remains ahead because the user explicitly treats all
+  // human-reviewed BuildingInfo records as the first source tier.
+  return (buildingInfo ? 1_200_000_000 : 0) - Math.min(daysPastDue, 9_000) * 100
     + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
 
@@ -783,6 +807,7 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
   const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
   const recentUndatedRfi = rfi && rfiDaysRemaining === false && recentRfiWithoutDueDate(record, now);
   const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
+  const fulfilledRfi = rfi && Boolean(record.rfiResponseReceivedAt);
   const decisionDaysRemaining = calendarDaysRemaining(planningDecisionDueAt(record), now);
   const stalePendingPlanningDecision = record.type === "planning-pipeline-lead"
     && !rfi
@@ -790,16 +815,22 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
     && decisionDaysRemaining < 0
     && !isPostDecisionStage(record);
 
-  if (liveDatedRfi) {
+  if (liveDatedRfi && !fulfilledRfi) {
     return {
       rank: liveRfiPriority(rfiDaysRemaining, activityFreshness, buildingInfo, verifiedEmailMatch),
       reason: liveRfiPriorityReason(rfiDaysRemaining, activityFreshness > 0, buildingInfo, verifiedEmailMatch),
     };
   }
-  if (recentUndatedRfi) return {
+  if (recentUndatedRfi && !fulfilledRfi) return {
     rank: recentUndatedRfiPriority(activityFreshness, buildingInfo, verifiedEmailMatch),
     reason: `Recent confirmed acoustic RFI ordered by received/published date; response due date not supplied${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${verifiedEmailMatch ? "; verified acoustic consultant email relationship" : ""}`,
   };
+  if (fulfilledRfi) {
+    return {
+      rank: buildingInfo ? 1_200_000_000 : -100_000_000,
+      reason: `Further-information response was received ${record.rfiResponseReceivedAt}; retained for relationship and competitive follow-up, not treated as an open RFI${buildingInfo ? "; human-reviewed BuildingInfo source retained in the leading source band" : ""}`,
+    };
+  }
   if (expiredRfi) {
     const daysPastDue = Math.abs(rfiDaysRemaining);
     return {
@@ -816,7 +847,7 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
             : record.leadQuality === "good" ? 600
               : record.leadQuality === "medium" ? 400 : 200;
     return {
-      rank: 1_000_000 + commercialRank,
+      rank: 1_300_000_000 + commercialRank,
       reason: `Human-reviewed BuildingInfo lead; ${confirmedAcoustic ? "current acoustic evidence confirmed" : "retained as a potential acoustic fit pending authoritative confirmation"}`,
     };
   }
@@ -887,8 +918,11 @@ function description(record: TenderOpportunity, now: Date) {
       ["RFI published date", rfiPublishedAt(record)],
       ["RFI received / detected date", rfiReceivedOrDetectedAt(record)],
       ["RFI response due date", record.classification === "noise-related-rfi" ? record.responseDeadline : ""],
+      ["Further-information response received", record.classification === "noise-related-rfi" ? record.rfiResponseReceivedAt : ""],
       ["RFI date source", rfiDateSource(record)],
       ["RFI date confidence", rfiDateConfidence(record)],
+      ["Planning application received", planningReceivedAt(record)],
+      ["Planning application validated", planningValidatedAt(record)],
       ["Planning decision due", planningDecisionDueAt(record)],
       ["Action deadline", actionDeadline],
       ["Days remaining", daysRemaining === false ? "Not supplied" : daysRemaining],
@@ -991,8 +1025,11 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         x_rfi_published_at: odooDatetime(rfiPublishedAt(record)),
         x_rfi_received_at: odooDatetime(rfiReceivedOrDetectedAt(record)),
         x_rfi_response_due_at: odooDatetime(record.classification === "noise-related-rfi" ? record.responseDeadline : ""),
+        x_rfi_response_received_at: odooDatetime(record.classification === "noise-related-rfi" ? record.rfiResponseReceivedAt : ""),
         x_rfi_date_source: rfiDateSource(record),
         x_rfi_date_confidence: rfiDateConfidence(record),
+        x_planning_received_at: odooDatetime(planningReceivedAt(record)),
+        x_planning_validated_at: odooDatetime(planningValidatedAt(record)),
         x_decision_due_at: odooDatetime(planningDecisionDueAt(record)),
         x_action_days_remaining: calendarDaysRemaining(deadline, now),
         x_deadline_urgency: recordUrgency(record, now),

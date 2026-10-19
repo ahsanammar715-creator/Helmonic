@@ -244,6 +244,10 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       "rfi_response_due_date", "rfi response due date", "rfi_response_deadline", "rfi response deadline",
       "rfi_deadline", "rfi deadline", "response_deadline", "response deadline", "deadline",
     ]);
+    const rfiResponseReceivedAt = optionalValue(row, [
+      "rfi_response_received_date", "rfi response received date", "further_information_received_date",
+      "further information received date", "fi_received_date", "fi received date",
+    ]);
     const appointedAcoustician = optionalValue(row, ["appointed_acoustician", "appointed acoustician", "appointed_acoustic_consultant", "appointed acoustic consultant", "acoustic_consultant", "acoustic consultant"]);
     const appointmentEvidenceExcerpt = optionalValue(row, ["appointment_evidence", "appointment evidence", "appointment_evidence_excerpt", "appointment evidence excerpt"]);
     const appointmentEvidenceUrlInput = optionalValue(row, ["appointment_evidence_url", "appointment evidence url", "appointment_source_url", "appointment source url"]);
@@ -265,6 +269,14 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       location: optionalValue(row, ["site_address", "site address", "project_address", "project address", "address"]) || county,
       county,
       publishedAt: optionalValue(row, ["application_date", "application date", "published_at", "published at", "first_seen", "first seen"]) || undefined,
+      planningReceivedAt: optionalValue(row, [
+        "planning_received_date", "planning received date", "application_received_date", "application received date",
+        "received_date", "received date",
+      ]) || undefined,
+      planningValidatedAt: optionalValue(row, [
+        "planning_validated_date", "planning validated date", "application_validated_date", "application validated date",
+        "validated_date", "validated date",
+      ]) || undefined,
       sourceUpdatedAt: updatedAt || undefined,
       sourceMajorUpdatedAt: optionalValue(row, [
         "rfi_received_date", "rfi received date", "rfi_published_date", "rfi published date",
@@ -272,6 +284,7 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       ]) || undefined,
       rfiPublishedAt: rfiPublishedAt || undefined,
       rfiReceivedAt: rfiReceivedAt || undefined,
+      rfiResponseReceivedAt: rfiResponseReceivedAt || undefined,
       rfiDateSource: rfiPublishedAt || rfiReceivedAt || responseDeadline
         ? `${sourceName} supplied RFI date columns`
         : undefined,
@@ -366,8 +379,11 @@ export function mergeBuildingInfoCsvRecords(records: TenderOpportunity[]) {
       sourceMajorUpdatedAt: [...ordered].reverse().map((record) => record.sourceMajorUpdatedAt).find(Boolean),
       rfiPublishedAt: [...ordered].reverse().map((record) => record.rfiPublishedAt).find(Boolean),
       rfiReceivedAt: [...ordered].reverse().map((record) => record.rfiReceivedAt).find(Boolean),
+      rfiResponseReceivedAt: [...ordered].reverse().map((record) => record.rfiResponseReceivedAt).find(Boolean),
       rfiDateSource: [...ordered].reverse().map((record) => record.rfiDateSource).find(Boolean),
       rfiDateConfidence: [...ordered].reverse().map((record) => record.rfiDateConfidence).find(Boolean),
+      planningReceivedAt: [...ordered].reverse().map((record) => record.planningReceivedAt).find(Boolean),
+      planningValidatedAt: [...ordered].reverse().map((record) => record.planningValidatedAt).find(Boolean),
       deadline: [...ordered].reverse().map((record) => record.deadline).find(Boolean),
       appointedAcoustician: [...ordered].reverse().map((record) => record.appointedAcoustician).find(Boolean),
       appointmentEvidenceExcerpt: [...ordered].reverse().map((record) => record.appointmentEvidenceExcerpt).find(Boolean),

@@ -53,8 +53,11 @@ const customFields = [
   { name: "x_rfi_published_at", field_description: "RFI Published Date", ttype: "datetime" },
   { name: "x_rfi_received_at", field_description: "RFI Received / Detected Date", ttype: "datetime" },
   { name: "x_rfi_response_due_at", field_description: "RFI Response Due Date", ttype: "datetime" },
+  { name: "x_rfi_response_received_at", field_description: "Further Information Response Received", ttype: "datetime" },
   { name: "x_rfi_date_source", field_description: "RFI Date Source", ttype: "text" },
   { name: "x_rfi_date_confidence", field_description: "RFI Date Confidence", ttype: "char" },
+  { name: "x_planning_received_at", field_description: "Planning Application Received", ttype: "datetime" },
+  { name: "x_planning_validated_at", field_description: "Planning Application Validated", ttype: "datetime" },
   { name: "x_decision_due_at", field_description: "Planning Decision Due At", ttype: "datetime" },
   { name: "x_action_days_remaining", field_description: "Action Days Remaining", ttype: "integer" },
   { name: "x_deadline_urgency", field_description: "Deadline Urgency", ttype: "char" },
@@ -169,6 +172,9 @@ const viewArchitecture = `<data>
     <field name="x_rfi_published_at" string="RFI Published" invisible="not x_helmonic_external_id"/>
     <field name="x_rfi_received_at" string="RFI Received / Detected" invisible="not x_helmonic_external_id"/>
     <field name="x_rfi_response_due_at" string="RFI Response Due" invisible="not x_helmonic_external_id"/>
+    <field name="x_rfi_response_received_at" string="FI Response Received" invisible="not x_helmonic_external_id"/>
+    <field name="x_planning_received_at" string="Planning Received" invisible="not x_helmonic_external_id"/>
+    <field name="x_planning_validated_at" string="Planning Validated" invisible="not x_helmonic_external_id"/>
     <field name="x_decision_due_at" string="Planning Decision Due" invisible="not x_helmonic_external_id"/>
     <field name="x_lead_quality" string="Lead Quality" invisible="not x_helmonic_external_id"/>
     <field name="x_warm_connection_verified" string="Verified Email Match" invisible="not x_helmonic_external_id"/>
@@ -194,8 +200,11 @@ const viewArchitecture = `<data>
           <field name="x_rfi_published_at"/>
           <field name="x_rfi_received_at"/>
           <field name="x_rfi_response_due_at"/>
+          <field name="x_rfi_response_received_at"/>
           <field name="x_rfi_date_source"/>
           <field name="x_rfi_date_confidence"/>
+          <field name="x_planning_received_at"/>
+          <field name="x_planning_validated_at"/>
           <field name="x_decision_due_at"/>
           <field name="x_action_days_remaining"/>
           <field name="x_deadline_urgency"/>
@@ -327,6 +336,10 @@ const leadListOrderValues = {
       <field name="x_rfi_published_at" string="RFI Published" optional="show"/>
       <field name="x_rfi_received_at" string="RFI Received / Detected" optional="show"/>
       <field name="x_rfi_response_due_at" string="RFI Response Due" optional="show"/>
+      <field name="x_rfi_response_received_at" string="FI Response Received" optional="show"/>
+      <field name="x_planning_received_at" string="Planning Received" optional="show"/>
+      <field name="x_planning_validated_at" string="Planning Validated" optional="show"/>
+      <field name="x_decision_due_at" string="Planning Decision Due" optional="show"/>
       <field name="x_warm_connection_verified" string="Verified Email Match" optional="show"/>
       <field name="x_pipeline_priority_reason" string="Priority Reason" optional="hide"/>
     </xpath>

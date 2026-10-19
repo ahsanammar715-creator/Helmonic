@@ -906,6 +906,36 @@ test("Odoo keeps reviewed BuildingInfo undated RFIs ahead, then orders activity 
   assert.ok(ranks["helmonic-lead:older-undated-buildinginfo-match"] > ranks["helmonic-lead:newer-undated-unmatched"]);
 });
 
+test("Odoo keeps every human-reviewed BuildingInfo lead ahead of non-BuildingInfo discovery", () => {
+  const payloads = buildOdooDryRun([
+    planningLead({
+      id: "buildinginfo-potential-first",
+      sourceSystem: "BuildingInfo",
+      sourceRecordId: "BI-1",
+      evidenceStatus: "discovery-only",
+      classification: "design-construction-potential",
+      leadQuality: "medium",
+      leadDisposition: "nurture",
+      crmExternalId: "helmonic-lead:buildinginfo-potential-first",
+    }),
+    planningLead({
+      id: "other-live-rfi-after-bi",
+      sourceSystem: "National Planning Register",
+      evidenceStatus: "official-text",
+      evidenceExcerpt: "Submit an acoustic report and noise impact assessment.",
+      matchedTerms: ["acoustic report", "noise impact assessment"],
+      classification: "noise-related-rfi",
+      responseDeadline: "2026-10-20",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      crmExternalId: "helmonic-lead:other-live-rfi-after-bi",
+    }),
+  ], new Date("2026-10-12T12:00:00.000Z"));
+  const ranks = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values.x_pipeline_priority_rank]));
+  assert.ok(ranks["helmonic-lead:buildinginfo-potential-first"] > ranks["helmonic-lead:other-live-rfi-after-bi"]);
+  assert.ok(Math.max(...Object.values(ranks)) <= 2_147_483_647);
+});
+
 test("Odoo keeps all potential acoustic fits together while Part E leads retain commercial priority", () => {
   const records = [
     planningLead({
@@ -1410,7 +1440,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   );
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
-  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 2_500_000_030);
+  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1_500_000_030);
   assert.equal(buildingInfoHistorical.vals.x_lead_panel, "Urgent Acoustic RFI");
   assert.equal(buildingInfoHistorical.vals.name, "J-buildinginfo-rfi");
   assert.equal(buildingInfoHistorical.vals.type, "lead");
@@ -1959,11 +1989,19 @@ test("national register records are discovery-only until council wording is insp
     DevelopmentAddress: "Main Street",
     Decision: "GRANT PERMISSION",
     ReceivedDate: Date.now(),
+    DecisionDueDate: Date.parse("2026-11-30T00:00:00Z"),
+    FIRequestDate: Date.parse("2026-10-10T00:00:00Z"),
+    FIRecDate: Date.parse("2026-10-18T00:00:00Z"),
     LinkAppDetails: "https://example.test/26-100",
   } }] });
   assert.equal(records.length, 1);
   assert.equal(records[0].evidenceStatus, "discovery-only");
   assert.notEqual(records[0].classification, "granted-with-noise-conditions");
+  assert.match(records[0].planningReceivedAt, /^20/);
+  assert.equal(records[0].deadline, "2026-11-30T00:00:00.000Z");
+  assert.equal(records[0].rfiPublishedAt, "2026-10-10T00:00:00.000Z");
+  assert.equal(records[0].rfiReceivedAt, "2026-10-10T00:00:00.000Z");
+  assert.equal(records[0].rfiResponseReceivedAt, "2026-10-18T00:00:00.000Z");
 });
 
 test("national register live query is bounded to current weekly discovery activity", () => {
@@ -2038,6 +2076,10 @@ test("DCC further-information wording can prove a noise-related RFI", () => {
   assert.equal(records[0].classification, "noise-related-rfi");
   assert.equal(records[0].evidenceStatus, "official-text");
   assert.match(records[0].evidenceExcerpt, /acoustic report/);
+  assert.equal(records[0].rfiPublishedAt, "2026-09-01");
+  assert.equal(records[0].rfiReceivedAt, "2026-09-01");
+  assert.equal(records[0].rfiResponseReceivedAt, "2027-03-01");
+  assert.equal(records[0].responseDeadline, undefined);
 });
 
 test("DCC weekly collector selects the newest official document for every area", () => {
