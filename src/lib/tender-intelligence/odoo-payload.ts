@@ -91,7 +91,7 @@ export type OdooLeadDryRun = {
     x_outreach_suppression_reason: string;
     x_outreach_key: string;
     x_buildinginfo_search_profile: string;
-    x_studio_reference: string;
+    x_source_reference: string;
     x_studio_project_sector: string;
   };
 };
@@ -1129,7 +1129,9 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         x_outreach_suppression_reason: record.outreachSuppressionReason ?? "",
         x_outreach_key: record.outreachKey ?? "",
         x_buildinginfo_search_profile: record.buildingInfoSearchProfile ?? "",
-        x_studio_reference: `${sources.codes}-${record.projectReference ?? record.sourceRecordId}`,
+        // Source/vendor references belong here. Odoo owns x_studio_reference
+        // as the sequential A-number and the integration must never write it.
+        x_source_reference: `${sources.codes}-${record.projectReference ?? record.sourceRecordId}`,
         x_studio_project_sector: canonicalProjectSector(record),
       },
     });

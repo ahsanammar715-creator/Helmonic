@@ -71,6 +71,7 @@ const customFields = [
   { name: "x_outreach_suppression_reason", field_description: "Outreach Safeguard Reason", ttype: "text" },
   { name: "x_outreach_key", field_description: "Outreach Deduplication Key", ttype: "char" },
   { name: "x_buildinginfo_search_profile", field_description: "BuildingInfo Search Profile", ttype: "char" },
+  { name: "x_source_reference", field_description: "Source Reference", ttype: "char" },
 ];
 const fieldNames = [...customFields.map((field) => field.name), "x_assigned_person"];
 const existingFields = await call("ir.model.fields", "search_read", {
@@ -155,6 +156,12 @@ if (leadListModelRows.length !== 1 || !Number.isInteger(leadListModelRows[0].res
 
 const viewName = "Helmonic Tender Intelligence CRM lead form";
 const viewArchitecture = `<data>
+  <xpath expr="//field[@name='x_studio_reference']" position="attributes">
+    <attribute name="string">Lead Reference</attribute>
+  </xpath>
+  <xpath expr="//field[@name='x_studio_reference']" position="after">
+    <field name="x_source_reference" string="Source Reference" readonly="1"/>
+  </xpath>
   <xpath expr="//field[@name='user_id']" position="attributes">
     <attribute name="string">Acoustic Consultant</attribute>
   </xpath>
@@ -191,6 +198,7 @@ const viewArchitecture = `<data>
           <field name="x_first_seen_at"/>
           <field name="x_last_seen_at"/>
           <field name="x_source_systems"/>
+          <field name="x_source_reference"/>
           <field name="x_project_link" widget="url"/>
           <field name="x_project_reference"/>
           <field name="x_county"/>
@@ -341,6 +349,7 @@ const leadListOrderValues = {
     </xpath>
     <xpath expr="//field[@name='email_from']" position="after">
       <field name="x_source_systems" string="Source" optional="show"/>
+      <field name="x_source_reference" string="Source Reference" optional="show"/>
       <field name="x_lead_panel" string="Lead Review Panel" optional="show"/>
       <field name="x_lead_quality" string="Lead Quality" optional="show"/>
       <field name="x_project_stage" string="Project Stage" optional="show"/>

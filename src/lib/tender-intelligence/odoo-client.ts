@@ -546,23 +546,43 @@ function valuesForOdoo(
   config: ReturnType<typeof requiredConfig>,
   fields: Record<string, OdooFieldInfo>,
   linkedValues: Record<string, unknown> = {},
-  existingType?: ExistingLeadValues["type"],
+  existing?: ExistingLeadValues,
 ) {
   const values: Record<string, unknown> = {
     ...payload.values,
     x_studio_project_sector: selectionValue(fields.x_studio_project_sector, payload.values.x_studio_project_sector),
     [config.externalIdField]: payload.matchValue,
-    // New Tender Desk records must wait in Odoo's separate Leads section for
-    // human qualification. Once a user converts a record into an Opportunity,
-    // later syncs preserve that decision instead of moving it backwards.
-    type: existingType === "opportunity" && !config.migrateManagedRecordsToLeads ? "opportunity" : "lead",
-    team_id: config.salesTeamId,
-    user_id: ownerUserId(payload, config),
-    priority: odooPriority(payload),
     ...linkedValues,
   };
   if (config.externalIdField !== "x_helmonic_external_id") delete values.x_helmonic_external_id;
-  if (config.initialStageId) values.stage_id = config.initialStageId;
+  if (!existing?.id) {
+    // Creation is the only point where automation may initialise Odoo-owned
+    // workflow fields. Later refreshes enrich intelligence without undoing a
+    // consultant's ownership, priority, team or stage decisions.
+    values.type = "lead";
+    values.team_id = config.salesTeamId;
+    values.user_id = ownerUserId(payload, config);
+    values.priority = odooPriority(payload);
+    if (config.initialStageId) values.stage_id = config.initialStageId;
+    return values;
+  }
+
+  // The project name and standard closing date are human-controlled after
+  // creation. Source deadlines continue to refresh in the dedicated RFI and
+  // planning date fields used by the automated ordering.
+  delete values.name;
+  delete values.date_deadline;
+
+  // Never replace an established linked contact. Native text contact fields
+  // are protected separately by payloadWithExistingEvidence and are only
+  // populated when blank.
+  if (existing.partner_id) delete values.partner_id;
+
+  // A controlled, explicitly enabled migration may move a managed record back
+  // to the separate Leads queue. Ordinary recurring syncs never change type.
+  if (config.migrateManagedRecordsToLeads && existing.type === "opportunity") {
+    values.type = "lead";
+  }
   return values;
 }
 
@@ -584,6 +604,7 @@ type ExistingLeadValues = {
   x_source_ledger?: string | false;
   x_project_reference?: string | false;
   x_studio_reference?: string | false;
+  x_source_reference?: string | false;
   x_helmonic_external_id?: string | false;
   x_source_record_ids?: string | false;
   x_source_urls?: string | false;
@@ -591,6 +612,7 @@ type ExistingLeadValues = {
   x_evidence_document_urls?: string | false;
   x_assigned_person?: string | false;
   user_id?: [number, string] | number | false;
+  partner_id?: [number, string] | number | false;
   x_warm_connection_verified?: boolean;
   x_lead_quality?: string | false;
   x_lead_panel?: string | false;
@@ -871,7 +893,9 @@ async function normalizeHistoricalOdooRecords(
     domain: [[config.externalIdField, "!=", false]],
     fields: [
       "id", "type", "name", "priority", "tag_ids", "street", "x_applicant", config.externalIdField, "x_source_systems", "x_project_reference",
-      "x_studio_reference", "x_warm_connection_verified", "x_assigned_person",
+      // x_studio_reference is read only to recognise legacy source values.
+      // It is Odoo's sequential A-number and is never written by Helmonic.
+      "x_studio_reference", "x_source_reference", "x_warm_connection_verified", "x_assigned_person",
       "user_id", "x_routing_reason",
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
       "x_lead_panel", "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
@@ -924,7 +948,7 @@ async function normalizeHistoricalOdooRecords(
     if (name && name !== record.name) values.name = name;
     if (codes.length > 0 && record.x_project_reference) {
       const reference = `${codes.join("+")}-${record.x_project_reference}`;
-      if (reference !== record.x_studio_reference) values.x_studio_reference = reference;
+      if (reference !== record.x_source_reference) values.x_source_reference = reference;
     }
     const priority = historicalPipelinePriority(record, normalizationNow);
     const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
@@ -994,6 +1018,8 @@ function payloadWithExistingEvidence(
   if (!existing) return payload;
   const sourceSystems = mergedValues(existing.x_source_systems, payload.values.x_source_systems, "; ");
   const preserveWhenMissing = (incoming: string, prior: unknown) => incoming || (typeof prior === "string" ? prior : "");
+  const preserveHumanValue = (prior: unknown, incoming: string) =>
+    typeof prior === "string" && prior.trim() ? prior : incoming;
   const preserveVerifiedRelationship = existing.x_warm_connection_verified === true
     && payload.values.x_warm_connection_verified !== true;
   const incomingAssignmentIsAllowed = Boolean(payload.values.x_assigned_person);
@@ -1016,12 +1042,14 @@ function payloadWithExistingEvidence(
     },
     values: {
       ...payload.values,
-      partner_name: preserveWhenMissing(payload.values.partner_name, existing.partner_name),
-      contact_name: preserveWhenMissing(payload.values.contact_name, existing.contact_name),
-      email_from: preserveWhenMissing(payload.values.email_from, existing.email_from),
-      phone: preserveWhenMissing(payload.values.phone, existing.phone),
-      function: preserveWhenMissing(payload.values.function, existing.function),
-      street: preserveWhenMissing(payload.values.street, existing.street),
+      // Existing native contact values may have been corrected by a person.
+      // Keep them; only fill fields that are still blank.
+      partner_name: preserveHumanValue(existing.partner_name, payload.values.partner_name),
+      contact_name: preserveHumanValue(existing.contact_name, payload.values.contact_name),
+      email_from: preserveHumanValue(existing.email_from, payload.values.email_from),
+      phone: preserveHumanValue(existing.phone, payload.values.phone),
+      function: preserveHumanValue(existing.function, payload.values.function),
+      street: preserveHumanValue(existing.street, payload.values.street),
       x_applicant: preserveWhenMissing(payload.values.x_applicant, existing.x_applicant),
       x_source_systems: sourceSystems,
       x_source_ledger: mergedValues(existing.x_source_ledger, payload.values.x_source_ledger, "\n"),
@@ -1141,6 +1169,7 @@ export async function syncOdooLeads(
           "phone",
           "function",
           "street",
+          "partner_id",
           "x_applicant",
           "x_party_details",
           "x_source_systems",
@@ -1169,7 +1198,9 @@ export async function syncOdooLeads(
       const attribution = await attributionValues(effectivePayload, config, odooFetch);
       const sourceTags = await sourceTagValues(effectivePayload, config, tagRegistry, odooFetch);
       const emailMatchTag = await emailMatchTagValues(effectivePayload, config, tagRegistry, odooFetch);
-      const contact = await primaryContactId(effectivePayload, config, odooFetch);
+      const contact = matches[0]?.partner_id
+        ? { id: false as const, created: false, matched: false }
+        : await primaryContactId(effectivePayload, config, odooFetch);
       const tagCommands = managedTagCommands(
         matches[0]?.tag_ids ?? [],
         [...sourceTags.ids, ...emailMatchTag.ids],
@@ -1180,7 +1211,7 @@ export async function syncOdooLeads(
         ...(tagCommands.length ? { tag_ids: tagCommands } : {}),
       };
       if (contact.id) linkedValues.partner_id = contact.id;
-      const values = valuesForOdoo(effectivePayload, config, fields, linkedValues, matches[0]?.type);
+      const values = valuesForOdoo(effectivePayload, config, fields, linkedValues, matches[0]);
       result.attributionRecordsCreated += attribution.created;
       result.emailMatchTagsCreated += emailMatchTag.created;
       result.emailMatchTagsLinked += emailMatchTag.linked;

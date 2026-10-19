@@ -372,7 +372,8 @@ test("Odoo payload populates native contact, planning attribution, sector and re
   assert.equal(payload.values.x_county, "");
   assert.equal(payload.values.date_deadline, "2026-10-28");
   assert.equal(payload.values.name, "€3.2m Industrial Unit Development in Arklow");
-  assert.equal(payload.values.x_studio_reference, "BI-2660722");
+  assert.equal(payload.values.x_source_reference, "BI-2660722");
+  assert.equal(Object.hasOwn(payload.values, "x_studio_reference"), false);
   assert.equal(payload.values.x_studio_project_sector, "Industrial");
   assert.equal(payload.values.x_project_link, "https://example.test/project");
   assert.equal(payload.values.x_rfi_published_at, "2026-10-05 00:00:00");
@@ -650,6 +651,7 @@ test("Odoo creates new Tender Desk records as leads, preserves conversion and su
   let creates = 0;
   let writes = 0;
   const writtenTypes = [];
+  const writtenValues = [];
   const fetcher = async (request, options = {}) => {
     const url = String(request);
     const body = options.body ? JSON.parse(String(options.body)) : {};
@@ -693,6 +695,7 @@ test("Odoo creates new Tender Desk records as leads, preserves conversion and su
     if (url.endsWith("/write")) {
       assert.deepEqual(body.ids, [existingId]);
       writtenTypes.push(body.vals.type);
+      writtenValues.push(body.vals);
       writes += 1;
       return Response.json(true);
     }
@@ -715,7 +718,16 @@ test("Odoo creates new Tender Desk records as leads, preserves conversion and su
   assert.equal(migration.managedRecordsMovedToLeads, 1);
   assert.equal(creates, 1);
   assert.equal(writes, 2);
-  assert.deepEqual(writtenTypes, ["opportunity", "lead"]);
+  assert.deepEqual(writtenTypes, [undefined, "lead"]);
+  for (const values of writtenValues) {
+    assert.equal(Object.hasOwn(values, "team_id"), false);
+    assert.equal(Object.hasOwn(values, "user_id"), false);
+    assert.equal(Object.hasOwn(values, "priority"), false);
+    assert.equal(Object.hasOwn(values, "stage_id"), false);
+    assert.equal(Object.hasOwn(values, "name"), false);
+    assert.equal(Object.hasOwn(values, "date_deadline"), false);
+    assert.equal(Object.hasOwn(values, "x_studio_reference"), false);
+  }
 });
 
 test("Odoo pipeline priority leads with qualified verified email matches", async () => {
@@ -1249,7 +1261,8 @@ test("Odoo synchronization can create missing attribution records, link the prim
   assert.equal(writtenValues.source_id, 103);
   assert.deepEqual(writtenValues.tag_ids, [[4, 105], [4, 106]]);
   assert.equal(writtenValues.x_studio_project_sector, "industrial");
-  assert.equal(writtenValues.x_studio_reference, "BI-2660722");
+  assert.equal(writtenValues.x_source_reference, "BI-2660722");
+  assert.equal(Object.hasOwn(writtenValues, "x_studio_reference"), false);
   assert.equal(result.updated, 1);
   assert.equal(result.contactsCreated, 1);
   assert.equal(result.attributionRecordsCreated, 3);
@@ -1425,16 +1438,16 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
     migrateManagedRecordsToLeads: true,
     requestIntervalMs: 0,
   }, fetcher);
-  const current = writes.filter((write) => write.ids[0] === 69 && write.vals.name).at(-1);
   const historical = writes.find((write) => write.ids[0] === 70);
   const buildingInfoHistorical = writes.find((write) => write.ids[0] === 71);
   const partEHistorical = writes.find((write) => write.ids[0] === 72);
   const expiredHistorical = writes.find((write) => write.ids[0] === 73);
   assert.equal(result.historicalRecordsNormalized, 5);
   assert.equal(result.managedRecordsMovedToLeads, 3);
-  assert.equal(current.vals.name, records[0].title);
+  assert.equal(writes.some((write) => write.ids[0] === 69 && Object.hasOwn(write.vals, "name")), false);
   assert.equal(historical.vals.name, "Unit 4 Greenacres Shopping Centre, Dundalk, Co. Louth");
-  assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
+  assert.equal(historical.vals.x_source_reference, "NPR-WEB1999/26");
+  assert.equal(Object.hasOwn(historical.vals, "x_studio_reference"), false);
   assert.equal(historical.vals.x_pipeline_priority_rank, 320);
   assert.equal(historical.vals.x_lead_panel, "Potential Acoustic Fit");
   assert.equal(historical.vals.x_lead_quality, "potential");
@@ -1496,7 +1509,7 @@ test("Odoo never assigns a consultant when only historical email evidence exists
   assert.ok(payload.values.x_pipeline_priority_rank < 600);
 });
 
-test("Odoo updates preserve prior source and contact evidence from another intake", async () => {
+test("Odoo refreshes enrich source evidence without overwriting human CRM decisions", async () => {
   const records = annotateOpportunityDuplicates([qualifyLead(planningLead({
     id: "national-cross-run-source",
     sourceSystem: "National Planning Register",
@@ -1504,7 +1517,13 @@ test("Odoo updates preserve prior source and contact evidence from another intak
     projectReference: "2660722",
     planningAuthority: "Wicklow County Council",
     title: "Industrial Unit Development in Arklow",
-    parties: [],
+    parties: [{
+      role: "applicant",
+      name: "New Source Contact",
+      organisation: "New Source Organisation",
+      email: "new-source@example.ie",
+      phone: "01 555 9999",
+    }],
     routedTo: "Owen",
   }), new Date("2026-10-09T12:00:00.000Z"))]);
   const payloads = buildOdooDryRun(records);
@@ -1540,10 +1559,12 @@ test("Odoo updates preserve prior source and contact evidence from another intak
     }
     if (url.endsWith("/crm.lead/search_read")) return Response.json([{
       id: 69,
+      type: "opportunity",
+      partner_id: [501, "Manually selected contact"],
       partner_name: "Armstrong Timber Engineering Ltd.",
-      contact_name: "Alan Armstrong",
-      email_from: "sales@ate.ie",
-      phone: "0402 33477",
+      contact_name: "Manually Corrected Contact",
+      email_from: "manual-correction@example.ie",
+      phone: "01 555 0101",
       function: "Applicant",
       street: "Kish Business Park, Arklow",
       x_applicant: "Armstrong Timber Engineering Ltd.",
@@ -1595,11 +1616,21 @@ test("Odoo updates preserve prior source and contact evidence from another intak
   assert.match(writtenValues.x_source_record_ids, /BuildingInfo:424562/);
   assert.match(writtenValues.x_source_record_ids, /National Planning Register:Wicklow:2660722/);
   assert.match(writtenValues.x_source_urls, /app\.buildinginfo\.com/);
-  assert.equal(writtenValues.email_from, "sales@ate.ie");
-  assert.equal(writtenValues.phone, "0402 33477");
+  assert.equal(writtenValues.partner_name, "Armstrong Timber Engineering Ltd.");
+  assert.equal(writtenValues.contact_name, "Manually Corrected Contact");
+  assert.equal(writtenValues.email_from, "manual-correction@example.ie");
+  assert.equal(writtenValues.phone, "01 555 0101");
   assert.equal(writtenValues.source_id, 203);
   assert.equal(writtenValues.x_warm_connection_verified, true);
-  assert.equal(writtenValues.user_id, 7);
+  assert.equal(Object.hasOwn(writtenValues, "partner_id"), false);
+  assert.equal(Object.hasOwn(writtenValues, "type"), false);
+  assert.equal(Object.hasOwn(writtenValues, "team_id"), false);
+  assert.equal(Object.hasOwn(writtenValues, "user_id"), false);
+  assert.equal(Object.hasOwn(writtenValues, "priority"), false);
+  assert.equal(Object.hasOwn(writtenValues, "stage_id"), false);
+  assert.equal(Object.hasOwn(writtenValues, "name"), false);
+  assert.equal(Object.hasOwn(writtenValues, "date_deadline"), false);
+  assert.equal(Object.hasOwn(writtenValues, "x_studio_reference"), false);
   assert.equal(writtenValues.x_acoustic_appointment_status, "iacoustics-appointed");
   assert.equal(writtenValues.x_appointed_acoustician, "iAcoustics");
   assert.equal(writtenValues.x_outreach_eligibility, "suppressed-already-won");

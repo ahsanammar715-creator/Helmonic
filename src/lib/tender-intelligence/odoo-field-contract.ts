@@ -80,7 +80,7 @@ export const ODOO_TENDER_FIELD_CONTRACT: OdooTenderFieldContract[] = [
   { name: "x_outreach_suppression_reason", label: "Outreach Safeguard Reason", type: "text" },
   { name: "x_outreach_key", label: "Outreach Deduplication Key", type: "char", indexed: true },
   { name: "x_buildinginfo_search_profile", label: "BuildingInfo Search Profile", type: "char" },
-  { name: "x_studio_reference", label: "Reference", type: "char" },
+  { name: "x_source_reference", label: "Source Reference", type: "char" },
   { name: "x_studio_project_sector", label: "Project Sector", type: "selection" },
 ];
 
