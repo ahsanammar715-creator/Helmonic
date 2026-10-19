@@ -139,14 +139,8 @@ const kanbanModelRows = await call("ir.model.data", "search_read", {
   fields: ["id", "name", "res_id"],
   limit: 2,
 });
-const kanbanCandidateIds = kanbanModelRows.map((row) => row.res_id).filter(Number.isInteger);
-const kanbanViewRows = kanbanCandidateIds.length ? await call("ir.ui.view", "search_read", {
-  domain: [["id", "in", kanbanCandidateIds], ["model", "=", "crm.lead"], ["type", "=", "kanban"]],
-  fields: ["id", "name", "type", "active"],
-  limit: 10,
-}) : [];
-if (kanbanViewRows.length !== 1) {
-  throw new Error("Could not resolve the standard CRM opportunity kanban view exactly once.");
+if (kanbanModelRows.length !== 1 || !Number.isInteger(kanbanModelRows[0].res_id)) {
+  throw new Error("Could not resolve the standard CRM pipeline kanban view.");
 }
 
 const leadListModelRows = await call("ir.model.data", "search_read", {
@@ -298,7 +292,7 @@ const kanbanOrderValues = {
   type: "kanban",
   model: "crm.lead",
   mode: "extension",
-  inherit_id: kanbanViewRows[0].id,
+  inherit_id: kanbanModelRows[0].res_id,
   priority: 100,
   active: true,
   arch_db: `<data><xpath expr="//kanban" position="attributes"><attribute name="default_order">x_pipeline_priority_rank desc, x_rfi_response_due_at asc, x_rfi_received_at desc, x_rfi_published_at desc, x_project_value desc, x_source_updated_at desc, x_decision_due_at asc, date_deadline asc, priority desc, id desc</attribute></xpath></data>`,
