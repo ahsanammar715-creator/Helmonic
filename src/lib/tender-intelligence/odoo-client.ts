@@ -121,6 +121,9 @@ const ODOO_STANDARD_LEAD_FIELD_TYPES: Record<string, string> = {
   medium_id: "many2one",
   source_id: "many2one",
   tag_ids: "many2many",
+  // Odoo owns this field and generates the A/L/Q/J workflow reference.
+  // Helmonic only reads it to remove source IDs written by older releases.
+  x_studio_reference: "char",
 };
 
 function positiveInteger(value?: number) {
@@ -573,6 +576,18 @@ function valuesForOdoo(
   delete values.name;
   delete values.date_deadline;
 
+  // Older Helmonic releases put vendor/council references in Odoo's Lead
+  // Reference field. Move that legacy value out of the way during an ordinary
+  // refresh, but only when it is exactly the source/project reference. Proper
+  // A/L/Q/J values and every other human-entered reference remain untouched.
+  if (legacySourceReferenceInLeadReference(
+    existing,
+    payload.values.x_source_reference,
+    payload.values.x_project_reference,
+  )) {
+    values.x_studio_reference = false;
+  }
+
   // Never replace an established linked contact. Native text contact fields
   // are protected separately by payloadWithExistingEvidence and are only
   // populated when blank.
@@ -651,6 +666,24 @@ type ExistingLeadValues = {
   x_outreach_suppression_reason?: string | false;
   x_outreach_key?: string | false;
 };
+
+export function legacySourceReferenceInLeadReference(
+  existing: ExistingLeadValues | undefined,
+  sourceReference: unknown,
+  projectReference: unknown,
+) {
+  const leadReference = String(existing?.x_studio_reference ?? "").trim();
+  if (!leadReference) return false;
+
+  // Never touch Odoo's proper workflow references. Charlotte/Odoo owns these
+  // values and they must survive every Helmonic refresh.
+  if (/^(?:A|L|Q|J)-\d+$/i.test(leadReference)) return false;
+
+  const sourceValues = [sourceReference, projectReference, existing?.x_source_reference]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+  return sourceValues.includes(leadReference);
+}
 
 function appointmentTagName(status: unknown) {
   if (status === "iacoustics-appointed") return "Already Won: iAcoustics";
@@ -953,6 +986,9 @@ async function normalizeHistoricalOdooRecords(
     if (codes.length > 0 && record.x_project_reference) {
       const reference = `${codes.join("+")}-${record.x_project_reference}`;
       if (reference !== record.x_source_reference) values.x_source_reference = reference;
+      if (legacySourceReferenceInLeadReference(record, reference, record.x_project_reference)) {
+        values.x_studio_reference = false;
+      }
     }
     const priority = historicalPipelinePriority(record, normalizationNow);
     const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
@@ -1190,6 +1226,9 @@ export async function syncOdooLeads(
           "x_applicant",
           "x_party_details",
           "x_source_systems",
+          "x_project_reference",
+          "x_source_reference",
+          "x_studio_reference",
           "x_source_ledger",
           "x_source_record_ids",
           "x_project_link",
