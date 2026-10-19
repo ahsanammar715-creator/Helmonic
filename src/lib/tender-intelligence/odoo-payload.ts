@@ -61,6 +61,10 @@ export type OdooLeadDryRun = {
     x_assigned_person: string;
     x_warm_connection_verified: boolean;
     x_routing_reason: string;
+    x_relationship_summary: string;
+    x_relationship_evidence: string;
+    x_project_history_summary: string;
+    x_project_history_evidence: string;
     x_deduplication_status: string;
     x_possible_duplicate_ids: string;
     x_project_value: number | false;
@@ -375,16 +379,60 @@ function relationshipSummary(record: TenderOpportunity) {
     .map(normalizedEmail).filter((email) => email.includes("@")))];
   const phones = [...new Set(matches.flatMap((match) => match.historicalPhones ?? []).filter(Boolean))];
   const projects = [...new Set(matches.flatMap((match) => match.previousProjects ?? []).filter(Boolean))];
+  const organisations = [...new Set(matches.map((match) => match.party).filter(Boolean))];
   const dates = matches.map((match) => match.emailSentAt).filter((value): value is string => Boolean(value));
   const latestDate = dates[0];
   const conversationCount = new Set(matches.flatMap((match) => match.evidenceRefs)).size;
+  const latest = matches[0];
   return [
     `${consultants.join(" and ")} previously corresponded with ${contacts.join(", ")} (${conversationCount} verified email conversation${conversationCount === 1 ? "" : "s"}${latestDate ? `; latest ${latestDate}` : ""}).`,
+    organisations.length ? `Relationship organisation${organisations.length === 1 ? "" : "s"}/project part${organisations.length === 1 ? "y" : "ies"}: ${organisations.join(", ")}.` : "",
     emails.length ? `Known email contact${emails.length === 1 ? "" : "s"}: ${emails.join(", ")}.` : "",
     phones.length ? `Phone number${phones.length === 1 ? "" : "s"} found in the matched email history: ${phones.join(", ")}.` : "",
+    latest?.emailSubject ? `Most recent matched conversation: ${latestDate ? `${latestDate} — ` : ""}${compact(latest.emailSubject, 140)}.` : "",
+    latest?.emailContext ? `Useful conversation context: ${compact(latest.emailContext, 280)}.` : "",
     projects.length ? `iAcoustics email history references ${projects.length} earlier or similar project${projects.length === 1 ? "" : "s"}: ${projects.join(", ")}.` : "",
     "This is historical relationship context; the current project's acoustic requirement is assessed separately.",
   ].filter(Boolean).join(" ");
+}
+
+function projectHistorySummary(record: TenderOpportunity) {
+  const matches = record.historicalProjectMatches ?? [];
+  if (record.projectHistoryStatus === "index-unavailable") {
+    return "The controlled Azure project-history index was unavailable; no previous-project claim was made.";
+  }
+  if (record.projectHistoryStatus === "disabled") {
+    return "Historical-project matching was not enabled for this run.";
+  }
+  if (matches.length === 0) {
+    return "No sufficiently strong match was found in the controlled iAcoustics project-history index.";
+  }
+  const sameProject = matches.filter((match) => match.relationship === "same-project");
+  const sameContact = matches.filter((match) => match.relationship === "same-contact");
+  const sameOrganisation = matches.filter((match) => match.relationship === "same-organisation");
+  const similar = matches.filter((match) => match.relationship === "similar-project");
+  const describe = (label: string, values: typeof matches) => values.length
+    ? `${label}: ${values.map((match) => match.title).join(", ")}.`
+    : "";
+  return [
+    describe("Possible same historical project", sameProject),
+    describe("Previous project involving the same contact", sameContact),
+    describe("Previous project involving the same organisation", sameOrganisation),
+    describe("Similar previous acoustic project", similar),
+    "These are review prompts from controlled RAG evidence; they do not by themselves prove that iAcoustics holds the current appointment.",
+  ].filter(Boolean).join(" ");
+}
+
+function projectHistoryEvidence(record: TenderOpportunity) {
+  return (record.historicalProjectMatches ?? []).map((match) => [
+    `Relationship: ${match.relationship}`,
+    `Historical project: ${match.title}`,
+    `Matched on: ${match.matchedOn.join("; ")}`,
+    `Source ID: ${match.sourceId}`,
+    match.sourceUri ? `Source URI: ${match.sourceUri}` : "",
+    typeof match.score === "number" ? `Search score: ${match.score}` : "",
+    `Evidence excerpt: ${match.excerpt}`,
+  ].filter(Boolean).join(" | ")).join("\n");
 }
 
 function assignmentDetails(record: TenderOpportunity) {
@@ -1001,9 +1049,9 @@ function description(record: TenderOpportunity, now: Date) {
     "<h2>Email Relationship and Consultant Assignment</h2>",
     "<p><strong>Relationship evidence only:</strong> a historical email match does not prove that this current project requires acoustic work.</p>",
     `<p><strong>Relationship summary:</strong> ${htmlText(relationshipSummary(record))}</p>`,
-    "<h3>Full Matched Email Evidence</h3>",
-    `<p>${htmlText(relationshipDetails(record))}</p>`,
     htmlRows([["Assigned acoustic consultant", assignmentDetails(record)], ["Routing reason", record.routingReason]]),
+    "<h2>Previous iAcoustics Project History</h2>",
+    `<p>${htmlText(projectHistorySummary(record))}</p>`,
     "<h2>Appointment and Outreach Safeguard</h2>",
     `<p>${htmlText(appointmentDetails(record))}</p>`,
     "<h2>Acoustic Evidence and Qualification</h2>",
@@ -1097,6 +1145,10 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         x_assigned_person: ownerDisplayName(record),
         x_warm_connection_verified: verifiedWarmConnection(record),
         x_routing_reason: odooRoutingReason(record),
+        x_relationship_summary: relationshipSummary(record),
+        x_relationship_evidence: relationshipDetails(record),
+        x_project_history_summary: projectHistorySummary(record),
+        x_project_history_evidence: projectHistoryEvidence(record),
         x_deduplication_status: record.deduplicationStatus ?? "unique",
         x_possible_duplicate_ids: (record.possibleDuplicateIds ?? []).join(";"),
         x_project_value: Number.isFinite(record.projectValue) ? record.projectValue! : false,

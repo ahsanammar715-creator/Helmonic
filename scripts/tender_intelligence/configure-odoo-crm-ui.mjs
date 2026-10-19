@@ -72,6 +72,10 @@ const customFields = [
   { name: "x_outreach_key", field_description: "Outreach Deduplication Key", ttype: "char" },
   { name: "x_buildinginfo_search_profile", field_description: "BuildingInfo Search Profile", ttype: "char" },
   { name: "x_source_reference", field_description: "Source Reference", ttype: "char" },
+  { name: "x_relationship_summary", field_description: "Relationship Summary", ttype: "text" },
+  { name: "x_relationship_evidence", field_description: "Relationship Evidence (Restricted)", ttype: "text" },
+  { name: "x_project_history_summary", field_description: "Previous iAcoustics Project Summary", ttype: "text" },
+  { name: "x_project_history_evidence", field_description: "Previous Project Evidence (Restricted)", ttype: "text" },
 ];
 const fieldNames = [...customFields.map((field) => field.name), "x_assigned_person"];
 const existingFields = await call("ir.model.fields", "search_read", {
@@ -225,6 +229,8 @@ const viewArchitecture = `<data>
           <field name="x_assigned_person"/>
           <field name="x_warm_connection_verified"/>
           <field name="x_routing_reason"/>
+          <field name="x_relationship_summary" string="Relationship Summary" readonly="1"/>
+          <field name="x_project_history_summary" string="Previous iAcoustics Projects" readonly="1"/>
         </group>
       </group>
       <group string="Appointment and outreach safeguard">

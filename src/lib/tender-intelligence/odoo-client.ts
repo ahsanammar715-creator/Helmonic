@@ -638,6 +638,10 @@ type ExistingLeadValues = {
   x_project_value?: number | false;
   x_residential_scale?: string | false;
   x_routing_reason?: string | false;
+  x_relationship_summary?: string | false;
+  x_relationship_evidence?: string | false;
+  x_project_history_summary?: string | false;
+  x_project_history_evidence?: string | false;
   x_acoustic_appointment_status?: string | false;
   x_appointed_acoustician?: string | false;
   x_appointment_evidence?: string | false;
@@ -1077,6 +1081,19 @@ function payloadWithExistingEvidence(
             existing.x_routing_reason ? `Prior route: ${existing.x_routing_reason}` : "",
           ].filter(Boolean).join(". "))
         : payload.values.x_routing_reason,
+      x_relationship_summary: preserveVerifiedRelationship
+        ? preserveWhenMissing("", existing.x_relationship_summary) || payload.values.x_relationship_summary
+        : payload.values.x_relationship_summary,
+      x_relationship_evidence: preserveVerifiedRelationship
+        ? preserveWhenMissing("", existing.x_relationship_evidence) || payload.values.x_relationship_evidence
+        : payload.values.x_relationship_evidence,
+      x_project_history_summary: !payload.values.x_project_history_evidence && existing.x_project_history_evidence
+        ? preserveWhenMissing("", existing.x_project_history_summary)
+        : payload.values.x_project_history_summary,
+      x_project_history_evidence: preserveWhenMissing(
+        payload.values.x_project_history_evidence,
+        existing.x_project_history_evidence,
+      ),
       x_acoustic_appointment_status: preservedAppointmentStatus,
       x_appointed_acoustician: preserveAppointment
         ? preserveWhenMissing("", existing.x_appointed_acoustician)
@@ -1181,6 +1198,10 @@ export async function syncOdooLeads(
           "x_assigned_person",
           "x_warm_connection_verified",
           "x_routing_reason",
+          "x_relationship_summary",
+          "x_relationship_evidence",
+          "x_project_history_summary",
+          "x_project_history_evidence",
           "x_acoustic_appointment_status",
           "x_appointed_acoustician",
           "x_appointment_evidence",
