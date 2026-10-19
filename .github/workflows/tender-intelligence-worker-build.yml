@@ -163,6 +163,8 @@ jobs:
 
           trap restore_safe_recurring_mode EXIT
 
+          # This migration path is deliberately invoked only by an approved
+          # workflow dispatch or an audited release commit marker.
           # Provision the explicitly approved custom fields and inherited views
           # before the strict preflight checks the complete field contract. This
           # is confined to the controlled dev/test migration path; the normal
