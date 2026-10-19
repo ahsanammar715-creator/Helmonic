@@ -115,6 +115,7 @@ jobs:
                 ODOO_NORMALIZE_HISTORICAL_RECORDS=false \
                 ODOO_CRM_UI_CONFIG_ENABLED=false \
                 ODOO_CRM_UI_CONFIG_REQUIRED=false \
+                HELMONIC_ODOO_PREFLIGHT_ONLY=false \
                 HELMONIC_SCHEDULE_GUARD_ENABLED=true \
                 NODE_OPTIONS=--experimental-strip-types \
               --command node \
@@ -122,7 +123,70 @@ jobs:
               --only-show-errors >/dev/null
           }
 
+          wait_for_execution() {
+            local execution_name="$1"
+            local label="$2"
+
+            if [[ -z "$execution_name" ]]; then
+              echo "Azure did not return a job execution name for $label." >&2
+              return 1
+            fi
+
+            echo "Started $label: $execution_name"
+            for attempt in {1..80}; do
+              status="$(az containerapp job execution show \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --name "$AZURE_JOB_NAME" \
+                --job-execution-name "$execution_name" \
+                --query properties.status \
+                --output tsv 2>/dev/null || true)"
+
+              case "$status" in
+                Succeeded)
+                  echo "$label succeeded."
+                  return 0
+                  ;;
+                Failed)
+                  echo "$label failed: $execution_name" >&2
+                  return 1
+                  ;;
+                *)
+                  echo "$label status: ${status:-starting} (check $attempt/80)"
+                  sleep 30
+                  ;;
+              esac
+            done
+
+            echo "$label did not finish within 40 minutes." >&2
+            return 1
+          }
+
           trap restore_safe_recurring_mode EXIT
+
+          # Validate the exact Odoo test endpoint, field contract, Tender Desk
+          # team/stage and consultant users before permitting any write.
+          az containerapp job update \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --image "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:${{ github.sha }}" \
+            --set-env-vars \
+              HELMONIC_ODOO_PREFLIGHT_ONLY=true \
+              ODOO_MIGRATE_MANAGED_RECORDS_TO_LEADS=false \
+              ODOO_NORMALIZE_HISTORICAL_RECORDS=false \
+              ODOO_CRM_UI_CONFIG_ENABLED=false \
+              ODOO_CRM_UI_CONFIG_REQUIRED=false \
+              HELMONIC_SCHEDULE_GUARD_ENABLED=false \
+              NODE_OPTIONS=--experimental-strip-types \
+            --command node \
+            --args scripts/tender_intelligence/run-daily-automation.mjs \
+            --only-show-errors >/dev/null
+
+          preflight_execution="$(az containerapp job start \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query name \
+            --output tsv)"
+          wait_for_execution "$preflight_execution" "zero-write Odoo preflight"
 
           az containerapp job update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -133,6 +197,7 @@ jobs:
               ODOO_NORMALIZE_HISTORICAL_RECORDS=true \
               ODOO_CRM_UI_CONFIG_ENABLED=true \
               ODOO_CRM_UI_CONFIG_REQUIRED=true \
+              HELMONIC_ODOO_PREFLIGHT_ONLY=false \
               HELMONIC_SCHEDULE_GUARD_ENABLED=false \
               NODE_OPTIONS=--experimental-strip-types \
             --command node \
@@ -144,42 +209,10 @@ jobs:
             --name "$AZURE_JOB_NAME" \
             --query name \
             --output tsv)"
+          wait_for_execution "$execution_name" "controlled Odoo test sync"
 
-          if [[ -z "$execution_name" ]]; then
-            echo "Azure did not return a job execution name." >&2
-            exit 1
-          fi
-
-          echo "Started controlled Odoo Leads migration: $execution_name"
-
-          for attempt in {1..80}; do
-            status="$(az containerapp job execution show \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --name "$AZURE_JOB_NAME" \
-              --job-execution-name "$execution_name" \
-              --query properties.status \
-              --output tsv 2>/dev/null || true)"
-
-            case "$status" in
-              Succeeded)
-                echo "Controlled Odoo Leads migration succeeded."
-                az containerapp job show \
-                  --resource-group "$AZURE_RESOURCE_GROUP" \
-                  --name "$AZURE_JOB_NAME" \
-                  --query '{image:properties.template.containers[0].image,triggerType:properties.configuration.triggerType,schedule:properties.configuration.scheduleTriggerConfig.cronExpression}' \
-                  --output json
-                exit 0
-                ;;
-              Failed)
-                echo "Controlled Odoo Leads migration failed: $execution_name" >&2
-                exit 1
-                ;;
-              *)
-                echo "Migration status: ${status:-starting} (check $attempt/80)"
-                sleep 30
-                ;;
-            esac
-          done
-
-          echo "Controlled Odoo Leads migration did not finish within 40 minutes." >&2
-          exit 1
+          az containerapp job show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query '{image:properties.template.containers[0].image,triggerType:properties.configuration.triggerType,schedule:properties.configuration.scheduleTriggerConfig.cronExpression}' \
+            --output json
