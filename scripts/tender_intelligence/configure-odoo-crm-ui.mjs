@@ -156,13 +156,10 @@ if (leadListModelRows.length !== 1 || !Number.isInteger(leadListModelRows[0].res
 
 const viewName = "Helmonic Tender Intelligence CRM lead form";
 const viewArchitecture = `<data>
-  <xpath expr="//field[@name='x_studio_reference']" position="attributes">
-    <attribute name="string">Lead Reference</attribute>
-  </xpath>
-  <xpath expr="//field[@name='x_studio_reference']" position="after">
+    <xpath expr="//field[@name='phone']" position="after">
     <field name="x_source_reference" string="Source Reference" readonly="1"/>
   </xpath>
-  <xpath expr="//field[@name='user_id']" position="attributes">
+<xpath expr="//field[@name='user_id']" position="attributes">
     <attribute name="string">Acoustic Consultant</attribute>
   </xpath>
   <xpath expr="//field[@name='expected_revenue']/ancestor::h2" position="attributes">
