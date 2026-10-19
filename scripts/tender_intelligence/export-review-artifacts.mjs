@@ -71,18 +71,25 @@ function exportedLeadQuality(record) {
   return record.leadQuality ?? "";
 }
 
+function isExportedPotentialAcousticFit(record) {
+  const terminal = ["poor", "closed-background", "existing-project"].includes(record.leadQuality)
+    || ["background", "already-won"].includes(record.leadDisposition);
+  const confirmedCurrentAcousticEvidence = record.evidenceStatus === "official-text"
+    && !["design-construction-potential", "needs-council-evidence", "no-relevant-opportunity"]
+      .includes(record.classification);
+  return !terminal && !confirmedCurrentAcousticEvidence;
+}
+
 function exportedLeadPanel(record) {
   if (record.classification === "noise-related-rfi" && record.evidenceStatus === "official-text") {
     return "Urgent Acoustic RFI";
   }
-  if (record.evidenceStatus === "official-text" && record.classification !== "design-construction-potential") {
+  if (record.evidenceStatus === "official-text"
+    && !["design-construction-potential", "needs-council-evidence", "no-relevant-opportunity"]
+      .includes(record.classification)) {
     return "Confirmed Acoustic Opportunity";
   }
-  if (["attached-4-plus", "lrd-100-plus"].includes(record.residentialScale)
-    && !["poor", "closed-background", "existing-project"].includes(record.leadQuality)
-    && !["background", "already-won"].includes(record.leadDisposition)) {
-    return "Part E Commercial Review";
-  }
+  if (isExportedPotentialAcousticFit(record)) return "Potential Acoustic Fit";
   return "General Potential / Background";
 }
 

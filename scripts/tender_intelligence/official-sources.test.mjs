@@ -840,7 +840,7 @@ test("Odoo pipeline rank makes RFI due date primary and source or email matches 
   assert.equal(ranks["helmonic-lead:matched-standard-rank"], 900);
 });
 
-test("Odoo gives Part E commercial leads a separate secondary review panel ordered by project value", () => {
+test("Odoo keeps all potential acoustic fits together while Part E leads retain commercial priority", () => {
   const records = [
     planningLead({
       id: "part-e-higher-value",
@@ -866,20 +866,37 @@ test("Odoo gives Part E commercial leads a separate secondary review panel order
       projectValue: 2_000_000,
       crmExternalId: "helmonic-lead:part-e-lower-value",
     }),
+    planningLead({
+      id: "general-potential-fit",
+      evidenceStatus: "discovery-metadata",
+      evidenceExcerpt: "",
+      classification: "design-construction-potential",
+      leadQuality: "medium",
+      leadDisposition: "monitor",
+      residentialScale: "not-residential",
+      projectValue: 20_000_000,
+      crmExternalId: "helmonic-lead:general-potential-fit",
+    }),
   ];
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   for (const payload of payloads) {
-    assert.equal(payload.values.x_lead_panel, "Part E Commercial Review");
+    assert.equal(payload.values.x_lead_panel, "Potential Acoustic Fit");
     assert.equal(payload.values.x_lead_quality, "potential");
+  }
+  for (const payload of payloads.filter((payload) => payload.matchValue.includes("part-e"))) {
     assert.equal(payload.values.x_pipeline_priority_rank, 500);
     assert.match(payload.values.x_pipeline_priority_reason, /ordered by project value/i);
     assert.ok(payload.statusTagNames.includes("Part E Commercial"));
   }
+  const generalPotential = payloads.find((payload) => payload.matchValue === "helmonic-lead:general-potential-fit");
+  assert.equal(generalPotential.values.x_pipeline_priority_rank, 220);
+  assert.ok(!generalPotential.statusTagNames.includes("Part E Commercial"));
   const sorted = [...payloads].sort((left, right) =>
     right.values.x_pipeline_priority_rank - left.values.x_pipeline_priority_rank
       || Number(right.values.x_project_value) - Number(left.values.x_project_value));
   assert.equal(sorted[0].matchValue, "helmonic-lead:part-e-higher-value");
   assert.equal(sorted[1].matchValue, "helmonic-lead:part-e-lower-value");
+  assert.equal(sorted[2].matchValue, "helmonic-lead:general-potential-fit");
 });
 
 test("Odoo pipeline demotes expired RFIs and planning decisions below live dated work", () => {
@@ -1215,6 +1232,29 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_opportunity_type: "planning-pipeline-lead",
           x_rfi_response_due_at: "2099-10-20 00:00:00",
         },
+        {
+          id: 72,
+          type: "opportunity",
+          name: "Part E residential scheme",
+          tag_ids: [3],
+          x_helmonic_external_id: "helmonic-lead:part-e-history",
+          x_source_systems: "National Planning Register",
+          x_project_reference: "PART-E-26",
+          x_studio_reference: "NPR-PART-E-26",
+          x_warm_connection_verified: false,
+          x_lead_quality: "potential",
+          x_lead_panel: "Part E Commercial Review",
+          x_pipeline_bucket: "nurture",
+          x_pipeline_priority_rank: 220,
+          x_pipeline_priority_reason: false,
+          x_classification: "design-construction-potential",
+          x_evidence_status: "official-text",
+          x_evidence_excerpt: "Residential scheme with attached units; no current acoustic requirement confirmed.",
+          x_matched_terms: false,
+          x_opportunity_type: "planning-pipeline-lead",
+          x_project_value: 12_000_000,
+          x_residential_scale: "attached-4-plus",
+        },
       ]);
       return Response.json([{ id: 69, tag_ids: [3] }]);
     }
@@ -1243,12 +1283,14 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   const current = writes.filter((write) => write.ids[0] === 69 && write.vals.name).at(-1);
   const historical = writes.find((write) => write.ids[0] === 70);
   const buildingInfoHistorical = writes.find((write) => write.ids[0] === 71);
-  assert.equal(result.historicalRecordsNormalized, 3);
-  assert.equal(result.managedRecordsMovedToLeads, 2);
+  const partEHistorical = writes.find((write) => write.ids[0] === 72);
+  assert.equal(result.historicalRecordsNormalized, 4);
+  assert.equal(result.managedRecordsMovedToLeads, 3);
   assert.equal(current.vals.name, records[0].title);
   assert.ok(!Object.hasOwn(historical.vals, "name"));
   assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
   assert.equal(historical.vals.x_pipeline_priority_rank, 320);
+  assert.equal(historical.vals.x_lead_panel, "Potential Acoustic Fit");
   assert.equal(historical.vals.x_lead_quality, "potential");
   assert.equal(historical.vals.priority, "0");
   assert.equal(historical.vals.x_assigned_person, "");
@@ -1263,6 +1305,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
   assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1_000_030);
+  assert.equal(buildingInfoHistorical.vals.x_lead_panel, "Urgent Acoustic RFI");
   assert.equal(buildingInfoHistorical.vals.name, "J-buildinginfo-rfi");
   assert.equal(buildingInfoHistorical.vals.type, "lead");
   assert.equal(buildingInfoHistorical.vals.priority, "3");
@@ -1270,6 +1313,10 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
     buildingInfoHistorical.vals.x_pipeline_priority_reason,
     /^Active acoustic RFI due in \d+ days; response deadline takes precedence; human-reviewed BuildingInfo source; verified acoustic consultant email relationship$/,
   );
+  assert.equal(partEHistorical.vals.x_lead_panel, "Potential Acoustic Fit");
+  assert.equal(partEHistorical.vals.x_pipeline_priority_rank, 500);
+  assert.match(partEHistorical.vals.x_pipeline_priority_reason, /ordered by project value/i);
+  assert.equal(partEHistorical.vals.type, "lead");
 });
 
 test("Odoo never assigns a consultant when only historical email evidence exists", () => {

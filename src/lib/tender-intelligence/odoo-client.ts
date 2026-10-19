@@ -591,6 +591,7 @@ type ExistingLeadValues = {
   user_id?: [number, string] | number | false;
   x_warm_connection_verified?: boolean;
   x_lead_quality?: string | false;
+  x_lead_panel?: string | false;
   x_pipeline_bucket?: string | false;
   x_pipeline_priority_rank?: number;
   x_pipeline_priority_reason?: string | false;
@@ -607,6 +608,8 @@ type ExistingLeadValues = {
   x_source_major_updated_at?: string | false;
   x_first_seen_at?: string | false;
   x_project_stage?: string | false;
+  x_project_value?: number | false;
+  x_residential_scale?: string | false;
   x_routing_reason?: string | false;
   x_acoustic_appointment_status?: string | false;
   x_appointed_acoustician?: string | false;
@@ -670,14 +673,28 @@ function historicalLiveRfiPriorityReason(daysRemaining: number, buildingInfo: bo
 function historicalConfirmedAcousticEvidence(record: ExistingLeadValues) {
   if (record.x_evidence_status !== "official-text") return false;
   if (["needs-council-evidence", "no-relevant-opportunity"].includes(String(record.x_classification ?? ""))) return false;
-  const excerpt = String(record.x_evidence_excerpt ?? "").trim();
-  const terms = String(record.x_matched_terms ?? "").trim();
+  const excerpt = typeof record.x_evidence_excerpt === "string" ? record.x_evidence_excerpt.trim() : "";
+  const terms = typeof record.x_matched_terms === "string" ? record.x_matched_terms.trim() : "";
   if (!excerpt || !terms || !relevantTenderText(excerpt)) return false;
   if (record.x_opportunity_type === "formal-public-tender") {
     const cpvCodes = String(record.x_cpv_codes ?? "").split(/[;,\s]+/).filter(Boolean);
     return cpvCodes.some((code) => acousticCpvCodes.includes(code as never));
   }
   return Boolean(record.x_classification);
+}
+
+function historicalLeadReviewPanel(record: ExistingLeadValues) {
+  const quality = String(record.x_lead_quality ?? "");
+  const bucket = String(record.x_pipeline_bucket ?? "");
+  const routeable = !["poor", "closed-background", "existing-project"].includes(quality)
+    && !["background", "already-won"].includes(bucket);
+  const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
+  if (record.x_classification === "noise-related-rfi" && routeable && confirmedAcoustic) {
+    return "Urgent Acoustic RFI";
+  }
+  if (confirmedAcoustic) return "Confirmed Acoustic Opportunity";
+  if (routeable) return "Potential Acoustic Fit";
+  return "General Potential / Background";
 }
 
 function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
@@ -710,6 +727,13 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
     : { rank: 250, reason: "RFI response date has passed; retained as background until refreshed" };
   if (rfi && verifiedEmailMatch) return { rank: 1000, reason: "Acoustic RFI with verified consultant email history; RFI dates unavailable" };
   if (rfi) return { rank: 950, reason: "Acoustic RFI retained for review; RFI dates unavailable" };
+  if (!confirmedAcoustic && routeable
+    && ["attached-4-plus", "lrd-100-plus"].includes(String(record.x_residential_scale ?? ""))) {
+    return {
+      rank: 500,
+      reason: "Part E commercial review: attached residential scheme of at least four units; potential acoustic work expected, ordered by project value within the Potential Acoustic Fit panel",
+    };
+  }
   if (!confirmedAcoustic) {
     if (stalePendingPlanningDecision) return retainedRelationship
       ? { rank: 180, reason: "Potential acoustic fit only; planning decision date has passed and current-project acoustic evidence is unconfirmed. Historical relationship retained for context" }
@@ -746,10 +770,10 @@ async function normalizeHistoricalOdooRecords(
       "x_studio_reference", "x_warm_connection_verified", "x_assigned_person",
       "user_id", "x_routing_reason",
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
-      "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
+      "x_lead_panel", "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
       "x_evidence_status", "x_evidence_excerpt", "x_matched_terms", "x_cpv_codes", "x_opportunity_type",
       "x_rfi_received_at", "x_rfi_response_due_at", "x_decision_due_at",
-      "x_source_major_updated_at", "x_first_seen_at", "x_project_stage",
+      "x_source_major_updated_at", "x_first_seen_at", "x_project_stage", "x_project_value", "x_residential_scale",
     ],
     limit: 5_000,
   }, fetcher) as ExistingLeadValues[];
@@ -809,6 +833,8 @@ async function normalizeHistoricalOdooRecords(
     );
     if (record.x_pipeline_priority_rank !== priority.rank) values.x_pipeline_priority_rank = priority.rank;
     if (record.x_pipeline_priority_reason !== priority.reason) values.x_pipeline_priority_reason = priority.reason;
+    const reviewPanel = historicalLeadReviewPanel(record);
+    if (record.x_lead_panel !== reviewPanel) values.x_lead_panel = reviewPanel;
     if (!confirmedAcoustic
       && !["poor", "closed-background", "existing-project", "potential"].includes(String(record.x_lead_quality ?? ""))
       && !["background", "already-won"].includes(String(record.x_pipeline_bucket ?? ""))) {

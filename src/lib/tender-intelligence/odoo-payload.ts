@@ -454,12 +454,18 @@ function isPartECommercialLead(record: TenderOpportunity) {
     && !["background", "already-won"].includes(record.leadDisposition ?? "");
 }
 
+function isPotentialAcousticFit(record: TenderOpportunity) {
+  return !hasConfirmedCurrentAcousticEvidence(record)
+    && !["poor", "closed-background", "existing-project"].includes(record.leadQuality ?? "")
+    && !["background", "already-won"].includes(record.leadDisposition ?? "");
+}
+
 function leadReviewPanel(record: TenderOpportunity) {
   if (record.classification === "noise-related-rfi" && hasConfirmedCurrentAcousticEvidence(record)) {
     return "Urgent Acoustic RFI";
   }
   if (hasConfirmedCurrentAcousticEvidence(record)) return "Confirmed Acoustic Opportunity";
-  if (isPartECommercialLead(record)) return "Part E Commercial Review";
+  if (isPotentialAcousticFit(record)) return "Potential Acoustic Fit";
   return "General Potential / Background";
 }
 
@@ -732,7 +738,7 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
   if (!confirmedAcoustic && isPartECommercialLead(record)) {
     return {
       rank: 500,
-      reason: "Part E commercial review: attached residential scheme of at least four units; potential acoustic work expected, ordered by project value within this secondary panel",
+      reason: "Part E commercial review: attached residential scheme of at least four units; potential acoustic work expected, ordered by project value within the Potential Acoustic Fit panel",
     };
   }
   if (!confirmedAcoustic && stalePendingPlanningDecision) {
