@@ -163,6 +163,30 @@ jobs:
 
           trap restore_safe_recurring_mode EXIT
 
+          # Provision the explicitly approved custom fields and inherited views
+          # before the strict preflight checks the complete field contract. This
+          # is confined to the controlled dev/test migration path; the normal
+          # scheduled run keeps UI configuration disabled.
+          az containerapp job update \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --image "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:${{ github.sha }}" \
+            --set-env-vars \
+              ODOO_CRM_UI_CONFIG_ENABLED=true \
+              ODOO_CRM_UI_CONFIG_REQUIRED=true \
+              HELMONIC_SCHEDULE_GUARD_ENABLED=false \
+              NODE_OPTIONS=--experimental-strip-types \
+            --command node \
+            --args scripts/tender_intelligence/configure-odoo-crm-ui.mjs \
+            --only-show-errors >/dev/null
+
+          schema_execution="$(az containerapp job start \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query name \
+            --output tsv)"
+          wait_for_execution "$schema_execution" "approved Odoo test schema bootstrap"
+
           # Validate the exact Odoo test endpoint, field contract, Tender Desk
           # team/stage and consultant users before permitting any write.
           az containerapp job update \
