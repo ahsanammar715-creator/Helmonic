@@ -645,6 +645,28 @@ function projectNameWithoutSourcePrefix(name: unknown) {
   return current.replace(/^\[(?:BI|PL|NPR|DCC|TD|EU)(?:\+(?:BI|PL|NPR|DCC|TD|EU))*\]\s*/i, "");
 }
 
+function isLegacyJobNumberOnly(name: unknown) {
+  return /^J[-\s]?\d+$/i.test(projectNameWithoutSourcePrefix(name));
+}
+
+function historicalProjectName(
+  record: ExistingLeadValues,
+  canonicalNamesByExternalId: ReadonlyMap<string, string>,
+) {
+  const current = projectNameWithoutSourcePrefix(record.name);
+  if (current && !isLegacyJobNumberOnly(current)) return current;
+  const externalId = typeof record.x_helmonic_external_id === "string" ? record.x_helmonic_external_id : "";
+  const canonical = projectNameWithoutSourcePrefix(canonicalNamesByExternalId.get(externalId));
+  if (canonical && !isLegacyJobNumberOnly(canonical)) return canonical;
+  const location = typeof record.street === "string" ? record.street.trim() : "";
+  if (location) return location;
+  const applicant = typeof record.x_applicant === "string" ? record.x_applicant.trim() : "";
+  const reference = typeof record.x_project_reference === "string" ? record.x_project_reference.trim() : "";
+  if (applicant && reference) return `${applicant} — ${reference}`;
+  if (applicant) return applicant;
+  return reference ? `Planning project ${reference}` : current;
+}
+
 function historicalDaysRemaining(value: unknown, now: Date) {
   if (typeof value !== "string" || !value) return false;
   const parsed = new Date(value);
@@ -841,13 +863,14 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
 async function normalizeHistoricalOdooRecords(
   config: ReturnType<typeof requiredConfig>,
   registry: TagRegistry,
+  canonicalNamesByExternalId: ReadonlyMap<string, string>,
   fetcher: typeof fetch,
 ) {
   if (!config.normalizeHistoricalRecords) return { normalized: 0, movedToLeads: 0 };
   const records = await json2Call(config, config.model, "search_read", {
     domain: [[config.externalIdField, "!=", false]],
     fields: [
-      "id", "type", "name", "priority", "tag_ids", config.externalIdField, "x_source_systems", "x_project_reference",
+      "id", "type", "name", "priority", "tag_ids", "street", "x_applicant", config.externalIdField, "x_source_systems", "x_project_reference",
       "x_studio_reference", "x_warm_connection_verified", "x_assigned_person",
       "user_id", "x_routing_reason",
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
@@ -897,7 +920,7 @@ async function normalizeHistoricalOdooRecords(
       values.type = "lead";
       movedToLeads += 1;
     }
-    const name = projectNameWithoutSourcePrefix(record.name);
+    const name = historicalProjectName(record, canonicalNamesByExternalId);
     if (name && name !== record.name) values.name = name;
     if (codes.length > 0 && record.x_project_reference) {
       const reference = `${codes.join("+")}-${record.x_project_reference}`;
@@ -1191,6 +1214,7 @@ export async function syncOdooLeads(
   const historicalNormalization = await normalizeHistoricalOdooRecords(
     config,
     tagRegistry,
+    new Map(payloads.map((payload) => [payload.matchValue, payload.values.name])),
     odooFetch,
   );
   result.historicalRecordsNormalized = historicalNormalization.normalized;

@@ -17,6 +17,7 @@ type RelationshipEntity = {
   domains?: string[];
   evidence_refs?: string[];
   historical_emails?: string[];
+  historical_phones?: string[];
   email_subject?: string;
   email_sent_at?: string;
   email_context?: string;
@@ -104,6 +105,7 @@ function uniqueEntities(entities: RelationshipEntity[]) {
       (entity.domains ?? []).join(","),
       (entity.evidence_refs ?? []).join(","),
       (entity.historical_emails ?? []).join(","),
+      (entity.historical_phones ?? []).join(","),
       entity.email_subject ?? "",
       entity.email_sent_at ?? "",
       entity.email_context ?? "",
@@ -146,6 +148,9 @@ function relationshipMatches(record: TenderOpportunity, lookup: RelationshipLook
           ...(entity.email ? { matchedEmail: normalizedEmail(entity.email) } : {}),
           ...(entity.historical_emails?.length
             ? { historicalEmails: [...new Set(entity.historical_emails.map(normalizedEmail).filter((value) => value.includes("@")))] }
+            : {}),
+          ...(entity.historical_phones?.length
+            ? { historicalPhones: [...new Set(entity.historical_phones.map(normalizeText).filter(Boolean))] }
             : {}),
           ...(entity.email_subject ? { emailSubject: normalizeText(entity.email_subject) } : {}),
           ...(entity.email_sent_at ? { emailSentAt: normalizeText(entity.email_sent_at) } : {}),

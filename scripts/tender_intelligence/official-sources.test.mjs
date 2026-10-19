@@ -1089,6 +1089,10 @@ test("Odoo promotes exact evidence-backed relationship emails into visible CRM c
       matchedEntity: "Mark Bridley",
       matchedEmail: "mark.bridley@example.ie",
       historicalEmails: ["projects@example.ie"],
+      historicalPhones: ["+353 1 555 0100"],
+      previousProjects: ["Ashcroft Offices", "Ashcroft Apartments"],
+      emailSubject: "Ashcroft acoustic review",
+      emailContext: "Glen discussed the earlier acoustic review and next steps with Mark.",
       matchType: "exact-name",
       evidenceOwners: ["Glen"],
       evidenceRefs: ["[E:glen:ashcroft-1]"],
@@ -1100,8 +1104,13 @@ test("Odoo promotes exact evidence-backed relationship emails into visible CRM c
   assert.equal(payload.values.partner_name, "Ashcroft Private Limited");
   assert.equal(payload.values.email_from, "mark.bridley@example.ie");
   assert.match(payload.values.x_party_details, /projects@example\.ie/);
+  assert.match(payload.values.x_party_details, /\+353 1 555 0100/);
   assert.match(payload.values.x_party_details, /verified iAcoustics email-history contact/);
   assert.match(payload.values.description, /Verified iAcoustics email-history match/);
+  assert.match(payload.values.description, /Glen Plunkett previously corresponded with Mark Bridley/);
+  assert.match(payload.values.description, /2 earlier or similar projects: Ashcroft Offices, Ashcroft Apartments/);
+  assert.match(payload.values.description, /Full Matched Email Evidence/);
+  assert.match(payload.values.description, /Glen discussed the earlier acoustic review and next steps with Mark/);
 });
 
 test("Odoo never promotes unverified relationship email claims into contact fields", () => {
@@ -1311,7 +1320,8 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
         {
           id: 70,
           type: "opportunity",
-          name: "J-legacy",
+          name: "J-1256",
+          street: "Unit 4 Greenacres Shopping Centre, Dundalk, Co. Louth",
           tag_ids: [1, 2, 5],
           x_helmonic_external_id: "helmonic-lead:retained-history",
           x_source_systems: "National Planning Register",
@@ -1423,7 +1433,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(result.historicalRecordsNormalized, 5);
   assert.equal(result.managedRecordsMovedToLeads, 3);
   assert.equal(current.vals.name, records[0].title);
-  assert.ok(!Object.hasOwn(historical.vals, "name"));
+  assert.equal(historical.vals.name, "Unit 4 Greenacres Shopping Centre, Dundalk, Co. Louth");
   assert.equal(historical.vals.x_studio_reference, "NPR-WEB1999/26");
   assert.equal(historical.vals.x_pipeline_priority_rank, 320);
   assert.equal(historical.vals.x_lead_panel, "Potential Acoustic Fit");
@@ -2349,7 +2359,7 @@ test("restricted Search lookup uses exact party evidence and retains only a boun
         message_id: "remote-1",
         evidence_ref: "[E:glen:remote-1]",
         subject: "Example Architect",
-        body_text: "Previous correspondence with contact@example-architect.ie",
+        body_text: "Previous correspondence with contact@example-architect.ie. Phone +353 1 555 0199.",
         mailbox_owner: "Glen",
         sent_at: "2025-02-03T09:15:00Z",
         participants: ["contact@example-architect.ie", "glen.plunkett@iacoustics.net"],
@@ -2384,8 +2394,9 @@ test("restricted Search lookup uses exact party evidence and retains only a boun
     assert.deepEqual(routed.routingEvidence[0].historicalEmails, ["contact@example-architect.ie"]);
     assert.equal(routed.routingEvidence[0].emailSubject, "Example Architect");
     assert.equal(routed.routingEvidence[0].emailSentAt, "2025-02-03T09:15:00Z");
-    assert.equal(routed.routingEvidence[0].emailContext, "Previous correspondence with contact@example-architect.ie");
+    assert.equal(routed.routingEvidence[0].emailContext, "Previous correspondence with contact@example-architect.ie. Phone +353 1 555 0199.");
     assert.ok(routed.routingEvidence[0].emailContext.length <= 422);
+    assert.deepEqual(routed.routingEvidence[0].historicalPhones, ["+353 1 555 0199"]);
     assert.deepEqual(routed.routingEvidence[0].previousProjects, ["Earlier Architect Project"]);
     assert.equal(routed.routingEvidence[0].emailSourceUri, "restricted-email://remote-1");
   } finally {

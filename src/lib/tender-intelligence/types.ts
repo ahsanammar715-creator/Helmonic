@@ -102,6 +102,7 @@ export type RelationshipRoutingEvidence = {
   matchedEntity: string;
   matchedEmail?: string;
   historicalEmails?: string[];
+  historicalPhones?: string[];
   emailSubject?: string;
   emailSentAt?: string;
   emailContext?: string;
