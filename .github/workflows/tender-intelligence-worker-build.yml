@@ -148,6 +148,22 @@ jobs:
                   ;;
                 Failed)
                   echo "$label failed: $execution_name" >&2
+                  container_name="$(az containerapp job show \
+                    --resource-group "$AZURE_RESOURCE_GROUP" \
+                    --name "$AZURE_JOB_NAME" \
+                    --query 'properties.template.containers[0].name' \
+                    --output tsv 2>/dev/null || true)"
+                  if [[ -n "$container_name" ]]; then
+                    echo "--- $label container output ---" >&2
+                    az containerapp job logs show \
+                      --resource-group "$AZURE_RESOURCE_GROUP" \
+                      --name "$AZURE_JOB_NAME" \
+                      --execution "$execution_name" \
+                      --container "$container_name" \
+                      --format text \
+                      --tail 200 2>&1 || true
+                    echo "--- end $label container output ---" >&2
+                  fi
                   return 1
                   ;;
                 *)
