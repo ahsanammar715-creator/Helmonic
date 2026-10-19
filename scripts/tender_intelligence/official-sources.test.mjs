@@ -62,7 +62,11 @@ import {
   buildOdooDryRun,
   summarizeOdooDryRun,
 } from "../../src/lib/tender-intelligence/odoo-payload.ts";
-import { preflightOdoo, syncOdooLeads } from "../../src/lib/tender-intelligence/odoo-client.ts";
+import {
+  legacySourceReferenceInLeadReference,
+  preflightOdoo,
+  syncOdooLeads,
+} from "../../src/lib/tender-intelligence/odoo-client.ts";
 import { ODOO_TENDER_FIELD_TYPES } from "../../src/lib/tender-intelligence/odoo-field-contract.ts";
 import {
   buildBuildingInfoPageUrl,
@@ -1213,6 +1217,21 @@ test("Odoo never promotes unverified relationship email claims into contact fiel
   assert.equal(payload.values.contact_name, "");
 });
 
+test("Odoo clears only legacy source IDs from Lead Reference and preserves A/L/Q/J numbers", () => {
+  assert.equal(legacySourceReferenceInLeadReference(
+    { x_studio_reference: "NPR-2660381", x_source_reference: "NPR-2660381" },
+    "NPR-2660381",
+    "2660381",
+  ), true);
+  for (const reference of ["A-0001", "L-0001", "Q-0001", "J-0001", "Human reference"]) {
+    assert.equal(legacySourceReferenceInLeadReference(
+      { x_studio_reference: reference, x_source_reference: "NPR-2660381" },
+      "NPR-2660381",
+      "2660381",
+    ), false);
+  }
+});
+
 test("Odoo synchronization can create missing attribution records, link the primary contact and update one existing lead", async () => {
   const records = annotateOpportunityDuplicates([qualifyLead(planningLead({
     id: "buildinginfo-contact-sync",
@@ -1268,7 +1287,12 @@ test("Odoo synchronization can create missing attribution records, link the prim
         ...(field === "x_studio_project_sector" ? { selection: [["industrial", "Industrial"], ["other", "Other"]] } : {}),
       }])));
     }
-    if (url.endsWith("/crm.lead/search_read")) return Response.json([{ id: 69 }]);
+    if (url.endsWith("/crm.lead/search_read")) return Response.json([{
+      id: 69,
+      x_studio_reference: "BI-2660722",
+      x_source_reference: "BI-2660722",
+      x_project_reference: "2660722",
+    }]);
     if (url.endsWith("/utm.campaign/search_read")
       || url.endsWith("/utm.medium/search_read")
       || url.endsWith("/utm.source/search_read")
@@ -1332,7 +1356,7 @@ test("Odoo synchronization can create missing attribution records, link the prim
   assert.deepEqual(writtenValues.tag_ids, [[4, 105], [4, 106]]);
   assert.equal(writtenValues.x_studio_project_sector, "industrial");
   assert.equal(writtenValues.x_source_reference, "BI-2660722");
-  assert.equal(Object.hasOwn(writtenValues, "x_studio_reference"), false);
+  assert.equal(writtenValues.x_studio_reference, false);
   assert.equal(result.updated, 1);
   assert.equal(result.contactsCreated, 1);
   assert.equal(result.attributionRecordsCreated, 3);
@@ -1517,7 +1541,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(writes.some((write) => write.ids[0] === 69 && Object.hasOwn(write.vals, "name")), false);
   assert.equal(historical.vals.name, "Unit 4 Greenacres Shopping Centre, Dundalk, Co. Louth");
   assert.equal(historical.vals.x_source_reference, "NPR-WEB1999/26");
-  assert.equal(Object.hasOwn(historical.vals, "x_studio_reference"), false);
+  assert.equal(historical.vals.x_studio_reference, false);
   assert.equal(historical.vals.x_pipeline_priority_rank, 320);
   assert.equal(historical.vals.x_lead_panel, "Potential Acoustic Fit");
   assert.equal(historical.vals.x_lead_quality, "potential");
