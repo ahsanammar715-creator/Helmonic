@@ -41,6 +41,7 @@ import {
   routeOpportunitiesByRelationships,
 } from "../../src/lib/tender-intelligence/relationship-routing.ts";
 import { loadSearchRelationshipLookup } from "../../src/lib/tender-intelligence/search-relationship-index.ts";
+import { enrichWithHistoricalProjectMatches } from "../../src/lib/tender-intelligence/search-project-history.ts";
 import {
   applyEvidenceRefresh,
   confirmedLedgerRecords,
@@ -470,12 +471,13 @@ test("Odoo payload exposes an explicit visible tag for a verified email relation
   assert.match(payload.values.description, /DCC \(DCC\)/);
   assert.match(payload.values.description, /Alan Armstrong/);
   assert.match(payload.values.description, /sales@ate\.ie/);
-  assert.match(payload.values.description, /Matched email date: 2026-09-18T10:15:00Z/);
-  assert.match(payload.values.description, /Matched email subject: Arklow industrial unit follow-up/);
-  assert.match(payload.values.description, /Email conversation context \(bounded excerpt\): We previously worked with Alan/);
-  assert.match(payload.values.description, /Evidence source: Restricted iAcoustics consultant email evidence index/);
-  assert.match(payload.values.description, /Source message URI: restricted-email:\/\/glen\/424562/);
-  assert.match(payload.values.description, /Evidence reference\(s\): \[E:glen:424562\]/);
+  assert.match(payload.values.x_relationship_summary, /2026-09-18T10:15:00Z/);
+  assert.match(payload.values.x_relationship_summary, /Arklow industrial unit follow-up/);
+  assert.match(payload.values.x_relationship_summary, /Useful conversation context: We previously worked with Alan/);
+  assert.doesNotMatch(payload.values.description, /Full Matched Email Evidence/);
+  assert.match(payload.values.x_relationship_evidence, /Evidence source: Restricted iAcoustics consultant email evidence index/);
+  assert.match(payload.values.x_relationship_evidence, /Source message URI: restricted-email:\/\/glen\/424562/);
+  assert.match(payload.values.x_relationship_evidence, /Evidence reference\(s\): \[E:glen:424562\]/);
   assert.match(payload.values.description, /Glen Plunkett — assigned from an exact single-owner email-evidence match/);
 });
 
@@ -1110,6 +1112,16 @@ test("Odoo promotes exact evidence-backed relationship emails into visible CRM c
       evidenceRefs: ["[E:glen:ashcroft-1]"],
       emailSentAt: "2025-04-03T09:30:00Z",
     }],
+    projectHistoryStatus: "matched",
+    historicalProjectMatches: [{
+      title: "Ashcroft Office Acoustic Design",
+      relationship: "same-organisation",
+      matchedOn: ["organisation Ashcroft Private Limited"],
+      sourceId: "project-history-ashcroft",
+      sourceUri: "rag://project-history-ashcroft",
+      excerpt: "iAcoustics completed the acoustic design review for Ashcroft Offices.",
+      score: 4.2,
+    }],
     crmExternalId: "helmonic-lead:relationship-contact-promotion",
   })], new Date("2026-10-12T12:00:00.000Z"))[0];
   assert.equal(payload.values.contact_name, "Mark Bridley");
@@ -1121,8 +1133,66 @@ test("Odoo promotes exact evidence-backed relationship emails into visible CRM c
   assert.match(payload.values.description, /Verified iAcoustics email-history match/);
   assert.match(payload.values.description, /Glen Plunkett previously corresponded with Mark Bridley/);
   assert.match(payload.values.description, /2 earlier or similar projects: Ashcroft Offices, Ashcroft Apartments/);
-  assert.match(payload.values.description, /Full Matched Email Evidence/);
-  assert.match(payload.values.description, /Glen discussed the earlier acoustic review and next steps with Mark/);
+  assert.doesNotMatch(payload.values.description, /Full Matched Email Evidence/);
+  assert.match(payload.values.x_relationship_summary, /mark\.bridley@example\.ie/);
+  assert.match(payload.values.x_relationship_summary, /Glen discussed the earlier acoustic review and next steps with Mark/);
+  assert.match(payload.values.x_relationship_evidence, /\[E:glen:ashcroft-1\]/);
+  assert.match(payload.values.x_project_history_summary, /Ashcroft Office Acoustic Design/);
+  assert.match(payload.values.x_project_history_evidence, /rag:\/\/project-history-ashcroft/);
+});
+
+test("controlled Azure RAG history identifies same-project and related iAcoustics project evidence", async () => {
+  const previous = {
+    enabled: process.env.HELMONIC_PROJECT_HISTORY_SEARCH_ENABLED,
+    endpoint: process.env.AZURE_PROJECT_HISTORY_SEARCH_ENDPOINT,
+    index: process.env.AZURE_PROJECT_HISTORY_SEARCH_INDEX,
+  };
+  process.env.HELMONIC_PROJECT_HISTORY_SEARCH_ENABLED = "true";
+  process.env.AZURE_PROJECT_HISTORY_SEARCH_ENDPOINT = "https://search.example.test";
+  process.env.AZURE_PROJECT_HISTORY_SEARCH_INDEX = "iacoustics-project-history";
+  try {
+    const result = await enrichWithHistoricalProjectMatches([planningLead({
+      id: "rag-history-1",
+      title: "Ashcroft Office Development in Dublin",
+      projectReference: "DCC-1234-26",
+      projectSector: "Commercial office",
+      location: "Dublin",
+      parties: [{
+        role: "architect",
+        name: "Reddy Architecture",
+        organisation: "Reddy Architecture",
+        email: "projects@reddyarchitecture.ie",
+      }],
+    })], {
+      accessToken: "test-token",
+      fetcher: async (_request, options = {}) => {
+        const request = JSON.parse(String(options.body));
+        assert.match(request.search, /Ashcroft Office Development/);
+        assert.equal(request.filter, "permission_scope eq 'iAcoustics'");
+        return Response.json({ value: [{
+          "@search.score": 9.5,
+          source_id: "historical-project-1",
+          source_uri: "rag://historical-project-1",
+          title: "Ashcroft Office Development — acoustic design",
+          section: "Project history",
+          content: "Reference DCC-1234-26. iAcoustics worked with Reddy Architecture on the acoustic design.",
+        }] });
+      },
+    });
+    assert.equal(result.enabled, true);
+    assert.equal(result.queriedRecords, 1);
+    assert.equal(result.matchedRecords, 1);
+    assert.equal(result.records[0].projectHistoryStatus, "matched");
+    assert.equal(result.records[0].historicalProjectMatches[0].relationship, "same-project");
+    assert.equal(result.records[0].historicalProjectMatches[0].sourceId, "historical-project-1");
+  } finally {
+    if (previous.enabled === undefined) delete process.env.HELMONIC_PROJECT_HISTORY_SEARCH_ENABLED;
+    else process.env.HELMONIC_PROJECT_HISTORY_SEARCH_ENABLED = previous.enabled;
+    if (previous.endpoint === undefined) delete process.env.AZURE_PROJECT_HISTORY_SEARCH_ENDPOINT;
+    else process.env.AZURE_PROJECT_HISTORY_SEARCH_ENDPOINT = previous.endpoint;
+    if (previous.index === undefined) delete process.env.AZURE_PROJECT_HISTORY_SEARCH_INDEX;
+    else process.env.AZURE_PROJECT_HISTORY_SEARCH_INDEX = previous.index;
+  }
 });
 
 test("Odoo never promotes unverified relationship email claims into contact fields", () => {
@@ -2569,7 +2639,8 @@ test("a hotel-sector relationship match remains visible but cannot prove a curre
   assert.doesNotMatch(payload.values.x_deadline_urgency, /within the 28-day RFI/i);
   assert.match(payload.values.description, /Potential only — current-project acoustic evidence unconfirmed/);
   assert.match(payload.values.description, /historical email match does not prove/i);
-  assert.match(payload.values.description, /Email conversation context \(bounded excerpt\)/);
+  assert.match(payload.values.x_relationship_summary, /Useful conversation context: Earlier correspondence about a completed hotel fit-out/);
+  assert.match(payload.values.x_relationship_evidence, /Email conversation context \(bounded excerpt\)/);
 });
 
 test("PlanningLeads free connector stays within the bounded search contract", () => {

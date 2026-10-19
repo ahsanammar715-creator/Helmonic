@@ -76,6 +76,8 @@ function preferPriorEvidence(current: TenderOpportunity, prior: TenderOpportunit
     routingReason: prior.routingReason,
     emailRelationshipStatus: prior.emailRelationshipStatus,
     emailRelationshipOwner: prior.emailRelationshipOwner,
+    projectHistoryStatus: prior.projectHistoryStatus,
+    historicalProjectMatches: prior.historicalProjectMatches,
     acousticAppointmentStatus: prior.acousticAppointmentStatus,
     appointedAcoustician: prior.appointedAcoustician,
     appointmentEvidenceExcerpt: prior.appointmentEvidenceExcerpt,
@@ -189,6 +191,8 @@ export function mergeCurrentSnapshotWithLedger(input: {
         appointmentEvidenceSourceUrl: currentMerged.appointmentEvidenceSourceUrl ?? prior.appointmentEvidenceSourceUrl,
         appointmentEvidenceDate: currentMerged.appointmentEvidenceDate ?? prior.appointmentEvidenceDate,
         buildingInfoSearchProfile: currentMerged.buildingInfoSearchProfile ?? prior.buildingInfoSearchProfile,
+        projectHistoryStatus: currentMerged.projectHistoryStatus ?? prior.projectHistoryStatus,
+        historicalProjectMatches: currentMerged.historicalProjectMatches ?? prior.historicalProjectMatches,
         ...(preservePriorRoute ? {
           routedTo: prior.routedTo,
           routingStatus: prior.routingStatus,

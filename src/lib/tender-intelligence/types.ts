@@ -113,6 +113,16 @@ export type RelationshipRoutingEvidence = {
   evidenceRefs: string[];
 };
 
+export type HistoricalProjectMatch = {
+  title: string;
+  relationship: "same-project" | "same-organisation" | "same-contact" | "similar-project";
+  matchedOn: string[];
+  sourceId: string;
+  sourceUri?: string;
+  excerpt: string;
+  score?: number;
+};
+
 export type PlanningDocumentEvidence = {
   id: string;
   documentType: string;
@@ -202,6 +212,8 @@ export type TenderOpportunity = {
   routingReason?: string;
   emailRelationshipStatus?: EmailRelationshipStatus;
   emailRelationshipOwner?: Exclude<LeadOwner, "unassigned">;
+  projectHistoryStatus?: "matched" | "no-match" | "index-unavailable" | "disabled";
+  historicalProjectMatches?: HistoricalProjectMatch[];
   acousticAppointmentStatus?: AcousticAppointmentStatus;
   appointedAcoustician?: string;
   appointmentEvidenceExcerpt?: string;

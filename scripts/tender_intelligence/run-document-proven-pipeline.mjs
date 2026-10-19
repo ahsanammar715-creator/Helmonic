@@ -11,6 +11,7 @@ import { isSalesRouteable, qualifyLead } from "../../src/lib/tender-intelligence
 import { hasConfirmedCurrentAcousticEvidence } from "../../src/lib/tender-intelligence/acoustic-evidence-guard.ts";
 import { routeOpportunitiesByRelationships } from "../../src/lib/tender-intelligence/relationship-routing.ts";
 import { loadSearchRelationshipLookup } from "../../src/lib/tender-intelligence/search-relationship-index.ts";
+import { enrichWithHistoricalProjectMatches } from "../../src/lib/tender-intelligence/search-project-history.ts";
 import { applyTargetScope } from "../../src/lib/tender-intelligence/source-scope.ts";
 import {
   applyEvidenceRefresh,
@@ -276,11 +277,19 @@ const relationshipSearch = await loadSearchRelationshipLookup(state.opportunitie
 if (relationshipSearch.lookup) {
   state.opportunities = routeCurrentAndPreserveCarryForward(state.opportunities, relationshipSearch.lookup);
 }
+const projectHistorySearch = await enrichWithHistoricalProjectMatches(state.opportunities);
+state.opportunities = projectHistorySearch.records;
 console.log(JSON.stringify({
   relationshipSearch: {
     enabled: relationshipSearch.enabled,
     queriedParties: relationshipSearch.queriedParties,
     matchedEntities: relationshipSearch.matchedEntities,
+  },
+  projectHistorySearch: {
+    enabled: projectHistorySearch.enabled,
+    queriedRecords: projectHistorySearch.queriedRecords,
+    matchedRecords: projectHistorySearch.matchedRecords,
+    failedRecords: projectHistorySearch.failedRecords,
   },
 }));
 state.status = "complete";
@@ -386,6 +395,7 @@ const report = {
     balancedAssignments: confirmed.filter((record) => record.routingReason?.startsWith("balanced-assignment-")).length,
     needsTriage: confirmed.filter((record) => record.routingStatus === "needs-triage").length,
     relationshipIndexUnavailable: confirmed.filter((record) => record.routingStatus === "relationship-index-unavailable").length,
+    historicalProjectMatches: state.opportunities.filter((record) => (record.historicalProjectMatches?.length ?? 0) > 0).length,
     carriedForwardUnconfirmed: confirmed.filter((record) => record.cycleStatus === "unconfirmed-this-cycle").length,
     resolved: state.opportunities.filter((record) => record.cycleStatus === "resolved").length,
   },
@@ -422,6 +432,8 @@ const report = {
     outreachEligibility: record.outreachEligibility,
     outreachSuppressionReason: record.outreachSuppressionReason,
     outreachKey: record.outreachKey,
+    projectHistoryStatus: record.projectHistoryStatus,
+    historicalProjectMatches: record.historicalProjectMatches,
     cycleStatus: record.cycleStatus,
     carryForwardReason: record.carryForwardReason,
     missingSince: record.missingSince,
