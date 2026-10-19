@@ -668,27 +668,71 @@ function isPostDecisionStage(record: TenderOpportunity) {
 }
 
 function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
-  const received = rfiReceivedOrDetectedAt(record);
-  if (!received) return false;
-  const age = calendarDaysRemaining(received, now);
-  return age !== false && age <= 0 && age >= -42;
+  return [rfiReceivedOrDetectedAt(record), rfiPublishedAt(record)]
+    .map((value) => calendarDaysRemaining(value, now))
+    .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
-function liveRfiPriority(daysRemaining: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
-  // Every full day is worth more than all source/relationship tie-breakers combined,
-  // so an RFI expiring sooner always stays ahead of one expiring later.
-  const dueDateRank = 2_000_000 - Math.min(daysRemaining, 10_000) * 100;
-  const commercialTieBreaker = buildingInfo && verifiedEmailMatch ? 30
+function commercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {
+  return buildingInfo && verifiedEmailMatch ? 30
     : verifiedEmailMatch ? 20
       : buildingInfo ? 10 : 0;
-  return dueDateRank + commercialTieBreaker;
 }
 
-function liveRfiPriorityReason(daysRemaining: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
+function rfiActivityFreshness(record: TenderOpportunity, now: Date) {
+  return [rfiReceivedOrDetectedAt(record), rfiPublishedAt(record)]
+    .map((value) => calendarDaysRemaining(value, now))
+    .filter((days): days is number => days !== false && days <= 0)
+    .map((days) => 900 - Math.min(Math.abs(days), 900))
+    .reduce((freshest, score) => Math.max(freshest, score), 0);
+}
+
+function liveRfiPriority(
+  daysRemaining: number,
+  activityFreshness: number,
+  buildingInfo: boolean,
+  verifiedEmailMatch: boolean,
+) {
+  // One due-date day is worth 100,000 points, which is greater than the
+  // complete received/published-date and commercial tie-break range. This
+  // guarantees that a later deadline can never overtake an earlier one.
+  const dueDateRank = 2_000_000_000 - Math.min(daysRemaining, 10_000) * 100_000;
+  return dueDateRank
+    + activityFreshness * 100
+    + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
+}
+
+function recentUndatedRfiPriority(
+  activityFreshness: number,
+  buildingInfo: boolean,
+  verifiedEmailMatch: boolean,
+) {
+  return 500_000_000
+    + activityFreshness * 100
+    + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
+}
+
+function expiredRfiPriority(daysPastDue: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
+  // Expired RFIs remain below every live/undated recent RFI. Within the
+  // expired queue, the most recently expired date wins before source/match.
+  return 100_000_000
+    - Math.min(daysPastDue, 9_000) * 10_000
+    + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
+}
+
+function liveRfiPriorityReason(
+  daysRemaining: number,
+  hasActivityDate: boolean,
+  buildingInfo: boolean,
+  verifiedEmailMatch: boolean,
+) {
   const due = daysRemaining === 0 ? "due today" : `due in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}`;
+  const chronology = hasActivityDate
+    ? "; RFI received/published date is the secondary ordering key"
+    : "; RFI received/published date unavailable";
   const source = buildingInfo ? "; human-reviewed BuildingInfo source" : "";
   const relationship = verifiedEmailMatch ? "; verified acoustic consultant email relationship" : "";
-  return `Active acoustic RFI ${due}; response deadline takes precedence${source}${relationship}`;
+  return `Active acoustic RFI ${due}; response deadline takes precedence${chronology}${source}${relationship}`;
 }
 
 function pipelinePriority(record: TenderOpportunity, now: Date) {
@@ -700,6 +744,7 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
   const rfi = record.classification === "noise-related-rfi" && routeable && confirmedAcoustic;
   const buildingInfo = sourceValues(record).codes.split("+").includes("BI");
   const rfiDaysRemaining = calendarDaysRemaining(record.responseDeadline ?? "", now);
+  const activityFreshness = rfiActivityFreshness(record, now);
   const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
   const recentUndatedRfi = rfi && rfiDaysRemaining === false && recentRfiWithoutDueDate(record, now);
   const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
@@ -712,24 +757,20 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
 
   if (liveDatedRfi) {
     return {
-      rank: liveRfiPriority(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
-      reason: liveRfiPriorityReason(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
+      rank: liveRfiPriority(rfiDaysRemaining, activityFreshness, buildingInfo, verifiedEmailMatch),
+      reason: liveRfiPriorityReason(rfiDaysRemaining, activityFreshness > 0, buildingInfo, verifiedEmailMatch),
     };
   }
-  if (buildingInfo && recentUndatedRfi && verifiedEmailMatch) {
-    return { rank: 1450, reason: "Recent human-reviewed BuildingInfo acoustic RFI with verified consultant email history; response due date not supplied" };
-  }
-  if (recentUndatedRfi && verifiedEmailMatch) {
-    return { rank: 1400, reason: "Recent acoustic RFI with verified consultant email history; response due date not supplied" };
-  }
-  if (buildingInfo && recentUndatedRfi) {
-    return { rank: 1350, reason: "Recent human-reviewed BuildingInfo acoustic RFI; response due date not supplied" };
-  }
-  if (recentUndatedRfi) return { rank: 1300, reason: "Recent acoustic RFI; response due date not supplied" };
+  if (recentUndatedRfi) return {
+    rank: recentUndatedRfiPriority(activityFreshness, buildingInfo, verifiedEmailMatch),
+    reason: `Recent confirmed acoustic RFI ordered by received/published date; response due date not supplied${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${verifiedEmailMatch ? "; verified acoustic consultant email relationship" : ""}`,
+  };
   if (expiredRfi) {
-    return verifiedEmailMatch
-      ? { rank: 450, reason: "RFI response date has passed; retained with verified relationship for consultant review" }
-      : { rank: 250, reason: "RFI response date has passed; retained as background until refreshed" };
+    const daysPastDue = Math.abs(rfiDaysRemaining);
+    return {
+      rank: expiredRfiPriority(daysPastDue, buildingInfo, verifiedEmailMatch),
+      reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; expiry date controls the demoted RFI queue${verifiedEmailMatch ? "; verified relationship retained for consultant review" : ""}`,
+    };
   }
   if (rfi && verifiedEmailMatch) {
     return { rank: 1000, reason: "Acoustic RFI with verified consultant email history; RFI dates unavailable" };

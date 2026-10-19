@@ -303,9 +303,11 @@ function ownerUserId(payload: OdooLeadDryRun, config: ReturnType<typeof required
 }
 
 function odooPriorityFromRank(rank: number) {
-  // Reserve Odoo's three-star treatment for current, actionable RFIs. This
-  // prevents an older generic email match from visually outranking a live RFI.
-  if (rank >= 1300) return "3";
+  // Reserve Odoo's three-star treatment for live and recent undated RFIs.
+  // Expired RFIs retain their date-led queue position but are visually
+  // demoted to two stars so they cannot be mistaken for current deadlines.
+  if (rank >= 500_000_000) return "3";
+  if (rank >= 1_000_000) return "2";
   if (rank >= 900) return "2";
   if (rank >= 600) return "1";
   return "0";
@@ -650,24 +652,66 @@ function historicalDaysRemaining(value: unknown, now: Date) {
 }
 
 function historicalRecentRfi(record: ExistingLeadValues, now: Date) {
-  const received = record.x_rfi_received_at || record.x_source_major_updated_at || record.x_first_seen_at;
-  const age = historicalDaysRemaining(received, now);
-  return age !== false && age <= 0 && age >= -42;
+  return [record.x_rfi_received_at, record.x_rfi_published_at, record.x_source_major_updated_at, record.x_first_seen_at]
+    .map((value) => historicalDaysRemaining(value, now))
+    .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
-function historicalLiveRfiPriority(daysRemaining: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
-  const dueDateRank = 2_000_000 - Math.min(daysRemaining, 10_000) * 100;
-  const commercialTieBreaker = buildingInfo && verifiedEmailMatch ? 30
+function historicalCommercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {
+  return buildingInfo && verifiedEmailMatch ? 30
     : verifiedEmailMatch ? 20
       : buildingInfo ? 10 : 0;
-  return dueDateRank + commercialTieBreaker;
 }
 
-function historicalLiveRfiPriorityReason(daysRemaining: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
+function historicalRfiActivityFreshness(record: ExistingLeadValues, now: Date) {
+  return [record.x_rfi_received_at, record.x_rfi_published_at, record.x_source_major_updated_at, record.x_first_seen_at]
+    .map((value) => historicalDaysRemaining(value, now))
+    .filter((days): days is number => days !== false && days <= 0)
+    .map((days) => 900 - Math.min(Math.abs(days), 900))
+    .reduce((freshest, score) => Math.max(freshest, score), 0);
+}
+
+function historicalLiveRfiPriority(
+  daysRemaining: number,
+  activityFreshness: number,
+  buildingInfo: boolean,
+  verifiedEmailMatch: boolean,
+) {
+  const dueDateRank = 2_000_000_000 - Math.min(daysRemaining, 10_000) * 100_000;
+  return dueDateRank
+    + activityFreshness * 100
+    + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
+}
+
+function historicalRecentUndatedRfiPriority(
+  activityFreshness: number,
+  buildingInfo: boolean,
+  verifiedEmailMatch: boolean,
+) {
+  return 500_000_000
+    + activityFreshness * 100
+    + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
+}
+
+function historicalExpiredRfiPriority(daysPastDue: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
+  return 100_000_000
+    - Math.min(daysPastDue, 9_000) * 10_000
+    + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
+}
+
+function historicalLiveRfiPriorityReason(
+  daysRemaining: number,
+  hasActivityDate: boolean,
+  buildingInfo: boolean,
+  verifiedEmailMatch: boolean,
+) {
   const due = daysRemaining === 0 ? "due today" : `due in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}`;
+  const chronology = hasActivityDate
+    ? "; RFI received/published date is the secondary ordering key"
+    : "; RFI received/published date unavailable";
   const source = buildingInfo ? "; human-reviewed BuildingInfo source" : "";
   const relationship = verifiedEmailMatch ? "; verified acoustic consultant email relationship" : "";
-  return `Active acoustic RFI ${due}; response deadline takes precedence${source}${relationship}`;
+  return `Active acoustic RFI ${due}; response deadline takes precedence${chronology}${source}${relationship}`;
 }
 
 function historicalConfirmedAcousticEvidence(record: ExistingLeadValues) {
@@ -708,6 +752,7 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const rfi = record.x_classification === "noise-related-rfi" && routeable && confirmedAcoustic;
   const buildingInfo = sourceCodesFromSystems(record.x_source_systems).includes("BI");
   const rfiDaysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
+  const activityFreshness = historicalRfiActivityFreshness(record, now);
   const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
   const recentUndatedRfi = rfi && rfiDaysRemaining === false && historicalRecentRfi(record, now);
   const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
@@ -715,16 +760,20 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const postDecisionStage = /granted|commencement|construction|on site|completed/i.test(String(record.x_project_stage ?? ""));
   const stalePendingPlanningDecision = !rfi && decisionDaysRemaining !== false && decisionDaysRemaining < 0 && !postDecisionStage;
   if (liveDatedRfi) return {
-    rank: historicalLiveRfiPriority(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
-    reason: historicalLiveRfiPriorityReason(rfiDaysRemaining, buildingInfo, verifiedEmailMatch),
+    rank: historicalLiveRfiPriority(rfiDaysRemaining, activityFreshness, buildingInfo, verifiedEmailMatch),
+    reason: historicalLiveRfiPriorityReason(rfiDaysRemaining, activityFreshness > 0, buildingInfo, verifiedEmailMatch),
   };
-  if (buildingInfo && recentUndatedRfi && verifiedEmailMatch) return { rank: 1450, reason: "Recent human-reviewed BuildingInfo acoustic RFI with verified consultant email history; response due date not supplied" };
-  if (recentUndatedRfi && verifiedEmailMatch) return { rank: 1400, reason: "Recent acoustic RFI with verified consultant email history; response due date not supplied" };
-  if (buildingInfo && recentUndatedRfi) return { rank: 1350, reason: "Recent human-reviewed BuildingInfo acoustic RFI; response due date not supplied" };
-  if (recentUndatedRfi) return { rank: 1300, reason: "Recent acoustic RFI; response due date not supplied" };
-  if (expiredRfi) return verifiedEmailMatch
-    ? { rank: 450, reason: "RFI response date has passed; retained with verified relationship for consultant review" }
-    : { rank: 250, reason: "RFI response date has passed; retained as background until refreshed" };
+  if (recentUndatedRfi) return {
+    rank: historicalRecentUndatedRfiPriority(activityFreshness, buildingInfo, verifiedEmailMatch),
+    reason: `Recent confirmed acoustic RFI ordered by received/published date; response due date not supplied${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${verifiedEmailMatch ? "; verified acoustic consultant email relationship" : ""}`,
+  };
+  if (expiredRfi) {
+    const daysPastDue = Math.abs(rfiDaysRemaining);
+    return {
+      rank: historicalExpiredRfiPriority(daysPastDue, buildingInfo, verifiedEmailMatch),
+      reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; expiry date controls the demoted RFI queue${verifiedEmailMatch ? "; verified relationship retained for consultant review" : ""}`,
+    };
+  }
   if (rfi && verifiedEmailMatch) return { rank: 1000, reason: "Acoustic RFI with verified consultant email history; RFI dates unavailable" };
   if (rfi) return { rank: 950, reason: "Acoustic RFI retained for review; RFI dates unavailable" };
   if (!confirmedAcoustic && routeable
@@ -772,7 +821,7 @@ async function normalizeHistoricalOdooRecords(
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
       "x_lead_panel", "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
       "x_evidence_status", "x_evidence_excerpt", "x_matched_terms", "x_cpv_codes", "x_opportunity_type",
-      "x_rfi_received_at", "x_rfi_response_due_at", "x_decision_due_at",
+      "x_rfi_published_at", "x_rfi_received_at", "x_rfi_response_due_at", "x_decision_due_at",
       "x_source_major_updated_at", "x_first_seen_at", "x_project_stage", "x_project_value", "x_residential_scale",
     ],
     limit: 5_000,

@@ -281,7 +281,7 @@ const kanbanOrderValues = {
   inherit_id: kanbanViewRows[0].id,
   priority: 100,
   active: true,
-  arch_db: `<data><xpath expr="//kanban" position="attributes"><attribute name="default_order">x_pipeline_priority_rank desc, x_project_value desc, x_rfi_response_due_at asc, x_rfi_received_at desc, x_rfi_published_at desc, x_source_updated_at desc, x_decision_due_at asc, date_deadline asc, priority desc, id desc</attribute></xpath></data>`,
+  arch_db: `<data><xpath expr="//kanban" position="attributes"><attribute name="default_order">x_pipeline_priority_rank desc, x_rfi_response_due_at asc, x_rfi_received_at desc, x_rfi_published_at desc, x_project_value desc, x_source_updated_at desc, x_decision_due_at asc, date_deadline asc, priority desc, id desc</attribute></xpath></data>`,
 };
 let kanbanOrderViewId;
 let kanbanOrderAction;
@@ -312,7 +312,7 @@ const leadListOrderValues = {
   active: true,
   arch_db: `<data>
     <xpath expr="//list" position="attributes">
-      <attribute name="default_order">x_pipeline_priority_rank desc, x_project_value desc, x_rfi_response_due_at asc, x_rfi_received_at desc, x_rfi_published_at desc, x_source_updated_at desc, x_decision_due_at asc, date_deadline asc, priority desc, id desc</attribute>
+      <attribute name="default_order">x_pipeline_priority_rank desc, x_rfi_response_due_at asc, x_rfi_received_at desc, x_rfi_published_at desc, x_project_value desc, x_source_updated_at desc, x_decision_due_at asc, date_deadline asc, priority desc, id desc</attribute>
     </xpath>
     <xpath expr="//field[@name='user_id']" position="attributes">
       <attribute name="string">Acoustic Consultant</attribute>

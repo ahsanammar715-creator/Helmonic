@@ -759,7 +759,7 @@ test("Odoo pipeline priority leads with qualified verified email matches", async
   assert.equal(writtenPriorities.get("helmonic-lead:excellent-unmatched-priority"), "1");
 });
 
-test("Odoo pipeline rank makes RFI due date primary and source or email matches tie-breakers", () => {
+test("Odoo pipeline rank makes RFI due date primary, activity date secondary and source or email matches tertiary", () => {
   const records = [
     planningLead({
       id: "buildinginfo-matched-rfi-rank",
@@ -767,6 +767,7 @@ test("Odoo pipeline rank makes RFI due date primary and source or email matches 
       sourceRecordId: "424562",
       sourceUrl: "https://app.buildinginfo.com/p-OTNsZQ==-",
       classification: "noise-related-rfi",
+      rfiReceivedAt: "2026-10-10",
       responseDeadline: "2026-10-20",
       leadQuality: "excellent",
       leadDisposition: "active",
@@ -778,6 +779,7 @@ test("Odoo pipeline rank makes RFI due date primary and source or email matches 
     planningLead({
       id: "matched-rfi-rank",
       classification: "noise-related-rfi",
+      rfiReceivedAt: "2026-10-10",
       responseDeadline: "2026-10-20",
       leadQuality: "excellent",
       leadDisposition: "active",
@@ -789,6 +791,7 @@ test("Odoo pipeline rank makes RFI due date primary and source or email matches 
     planningLead({
       id: "unmatched-rfi-rank",
       classification: "noise-related-rfi",
+      rfiReceivedAt: "2026-10-10",
       responseDeadline: "2026-10-20",
       leadQuality: "excellent",
       leadDisposition: "active",
@@ -801,6 +804,7 @@ test("Odoo pipeline rank makes RFI due date primary and source or email matches 
       sourceSystem: "BuildingInfo",
       sourceRecordId: "424563",
       classification: "noise-related-rfi",
+      rfiReceivedAt: "2026-10-10",
       responseDeadline: "2026-10-20",
       leadQuality: "excellent",
       leadDisposition: "active",
@@ -809,8 +813,20 @@ test("Odoo pipeline rank makes RFI due date primary and source or email matches 
       crmExternalId: "helmonic-lead:buildinginfo-unmatched-rfi-rank",
     }),
     planningLead({
+      id: "newer-unmatched-rfi-rank",
+      classification: "noise-related-rfi",
+      rfiReceivedAt: "2026-10-11",
+      responseDeadline: "2026-10-20",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      emailRelationshipStatus: "no-confirmed-match",
+      routedTo: "Owen",
+      crmExternalId: "helmonic-lead:newer-unmatched-rfi-rank",
+    }),
+    planningLead({
       id: "earlier-unmatched-rfi-rank",
       classification: "noise-related-rfi",
+      rfiReceivedAt: "2026-10-01",
       responseDeadline: "2026-10-19",
       leadQuality: "excellent",
       leadDisposition: "active",
@@ -831,13 +847,43 @@ test("Odoo pipeline rank makes RFI due date primary and source or email matches 
   ];
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   const ranks = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values.x_pipeline_priority_rank]));
-  assert.equal(ranks["helmonic-lead:buildinginfo-matched-rfi-rank"], 1_999_230);
-  assert.equal(ranks["helmonic-lead:matched-rfi-rank"], 1_999_220);
-  assert.equal(ranks["helmonic-lead:buildinginfo-unmatched-rfi-rank"], 1_999_210);
-  assert.equal(ranks["helmonic-lead:unmatched-rfi-rank"], 1_999_200);
-  assert.equal(ranks["helmonic-lead:earlier-unmatched-rfi-rank"], 1_999_300);
+  assert.ok(ranks["helmonic-lead:buildinginfo-matched-rfi-rank"] > ranks["helmonic-lead:matched-rfi-rank"]);
+  assert.ok(ranks["helmonic-lead:matched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-unmatched-rfi-rank"]);
+  assert.ok(ranks["helmonic-lead:buildinginfo-unmatched-rfi-rank"] > ranks["helmonic-lead:unmatched-rfi-rank"]);
+  assert.ok(ranks["helmonic-lead:newer-unmatched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-matched-rfi-rank"]);
   assert.ok(ranks["helmonic-lead:earlier-unmatched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-matched-rfi-rank"]);
   assert.equal(ranks["helmonic-lead:matched-standard-rank"], 900);
+});
+
+test("Odoo orders recent undated RFIs by received or published date before commercial tie-breakers", () => {
+  const payloads = buildOdooDryRun([
+    planningLead({
+      id: "older-undated-buildinginfo-match",
+      sourceSystem: "BuildingInfo",
+      classification: "noise-related-rfi",
+      rfiReceivedAt: "2026-10-01",
+      responseDeadline: "",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      emailRelationshipStatus: "verified-single-owner",
+      emailRelationshipOwner: "Glen",
+      routedTo: "Glen",
+      crmExternalId: "helmonic-lead:older-undated-buildinginfo-match",
+    }),
+    planningLead({
+      id: "newer-undated-unmatched",
+      classification: "noise-related-rfi",
+      rfiPublishedAt: "2026-10-11",
+      responseDeadline: "",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      emailRelationshipStatus: "no-confirmed-match",
+      routedTo: "Owen",
+      crmExternalId: "helmonic-lead:newer-undated-unmatched",
+    }),
+  ], new Date("2026-10-12T12:00:00.000Z"));
+  const ranks = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values.x_pipeline_priority_rank]));
+  assert.ok(ranks["helmonic-lead:newer-undated-unmatched"] > ranks["helmonic-lead:older-undated-buildinginfo-match"]);
 });
 
 test("Odoo keeps all potential acoustic fits together while Part E leads retain commercial priority", () => {
@@ -922,6 +968,16 @@ test("Odoo pipeline demotes expired RFIs and planning decisions below live dated
       crmExternalId: "helmonic-lead:expired-matched-rfi",
     }),
     planningLead({
+      id: "recently-expired-unmatched-rfi",
+      classification: "noise-related-rfi",
+      responseDeadline: "2026-10-10",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      emailRelationshipStatus: "no-confirmed-match",
+      routedTo: "Owen",
+      crmExternalId: "helmonic-lead:recently-expired-unmatched-rfi",
+    }),
+    planningLead({
       id: "expired-planning-decision",
       deadline: "2026-09-15",
       projectStage: "Plans Applied",
@@ -943,9 +999,10 @@ test("Odoo pipeline demotes expired RFIs and planning decisions below live dated
   ];
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
-  assert.equal(values["helmonic-lead:live-buildinginfo-rfi"].x_pipeline_priority_rank, 1_999_410);
-  assert.equal(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_rank, 450);
-  assert.match(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_reason, /has passed/i);
+  assert.ok(values["helmonic-lead:live-buildinginfo-rfi"].x_pipeline_priority_rank > 500_000_000);
+  assert.ok(values["helmonic-lead:recently-expired-unmatched-rfi"].x_pipeline_priority_rank
+    > values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_rank);
+  assert.match(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_reason, /passed/i);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_rank, 350);
   assert.match(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_reason, /refresh required/i);
   assert.equal(values["helmonic-lead:granted-post-decision"].x_pipeline_priority_rank, 800);
@@ -1304,14 +1361,14 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   );
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
-  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1_000_030);
+  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1_000_000_030);
   assert.equal(buildingInfoHistorical.vals.x_lead_panel, "Urgent Acoustic RFI");
   assert.equal(buildingInfoHistorical.vals.name, "J-buildinginfo-rfi");
   assert.equal(buildingInfoHistorical.vals.type, "lead");
   assert.equal(buildingInfoHistorical.vals.priority, "3");
   assert.match(
     buildingInfoHistorical.vals.x_pipeline_priority_reason,
-    /^Active acoustic RFI due in \d+ days; response deadline takes precedence; human-reviewed BuildingInfo source; verified acoustic consultant email relationship$/,
+    /^Active acoustic RFI due in \d+ days; response deadline takes precedence; RFI received\/published date unavailable; human-reviewed BuildingInfo source; verified acoustic consultant email relationship$/,
   );
   assert.equal(partEHistorical.vals.x_lead_panel, "Potential Acoustic Fit");
   assert.equal(partEHistorical.vals.x_pipeline_priority_rank, 500);
