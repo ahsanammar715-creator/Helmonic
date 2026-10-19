@@ -213,6 +213,8 @@ export function parseNationalPlanningFeatures(payload: unknown): TenderOpportuni
       cpvCodes: [],
       matchedTerms: matchedAcousticTerms(description),
       fitScore: 0,
+      projectStage: decision || undefined,
+      sourceStatus: decision || undefined,
     };
     opportunity.fitScore = scoreOpportunity(opportunity);
     return [opportunity];
@@ -279,6 +281,8 @@ export function parseDccPlanningCsv(baseText: string, furtherInformationText: st
       cpvCodes: [],
       matchedTerms: matchedAcousticTerms(description, evidenceText),
       fitScore: 0,
+      projectStage: effectiveStage || undefined,
+      sourceStatus: effectiveStage || undefined,
     };
     opportunity.fitScore = scoreOpportunity(opportunity);
     return [opportunity];
@@ -367,6 +371,8 @@ export function parseDccWeeklyDocx(bytes: Uint8Array, documentUrl: string): Tend
       cpvCodes: [],
       matchedTerms,
       fitScore: 0,
+      projectStage: stage || undefined,
+      sourceStatus: stage || undefined,
     };
     opportunity.fitScore = scoreOpportunity(opportunity);
     return [opportunity];
@@ -646,6 +652,8 @@ export function parsePlanningLeads(payload: unknown): TenderOpportunity[] {
       cpvCodes: [],
       matchedTerms,
       fitScore: 0,
+      projectStage: stage || undefined,
+      sourceStatus: stage || undefined,
     };
     opportunity.fitScore = scoreOpportunity(opportunity);
     return [opportunity];

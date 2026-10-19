@@ -267,6 +267,79 @@ function parseReceivedAt(value?: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const monthNumbers = new Map([
+  ["jan", 0], ["january", 0], ["feb", 1], ["february", 1], ["mar", 2], ["march", 2],
+  ["apr", 3], ["april", 3], ["may", 4], ["jun", 5], ["june", 5], ["jul", 6], ["july", 6],
+  ["aug", 7], ["august", 7], ["sep", 8], ["sept", 8], ["september", 8], ["oct", 9],
+  ["october", 9], ["nov", 10], ["november", 10], ["dec", 11], ["december", 11],
+]);
+
+function isoDate(year: number, month: number, day: number) {
+  const value = new Date(Date.UTC(year, month, day));
+  if (value.getUTCFullYear() !== year || value.getUTCMonth() !== month || value.getUTCDate() !== day) return undefined;
+  return value.toISOString().slice(0, 10);
+}
+
+function normalizedDocumentDate(value?: string) {
+  if (!value) return undefined;
+  const input = normalizeText(value).replace(/(\d)(?:st|nd|rd|th)\b/gi, "$1");
+  let match = input.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
+  if (match) return isoDate(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  match = input.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](20\d{2})\b/);
+  if (match) {
+    const first = Number(match[1]);
+    const second = Number(match[2]);
+    // Irish sources normally use DD/MM/YYYY, but some DCC metadata is
+    // returned in US MM/DD/YYYY form. A value above 12 removes ambiguity.
+    const day = second > 12 && first <= 12 ? second : first;
+    const month = second > 12 && first <= 12 ? first : second;
+    return isoDate(Number(match[3]), month - 1, day);
+  }
+  match = input.match(/\b(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(20\d{2})\b/i);
+  if (match) return isoDate(Number(match[3]), monthNumbers.get(match[2].toLowerCase())!, Number(match[1]));
+  match = input.match(/\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2}),?\s+(20\d{2})\b/i);
+  if (match) return isoDate(Number(match[3]), monthNumbers.get(match[1].toLowerCase())!, Number(match[2]));
+  return undefined;
+}
+
+function addUtcMonths(value: string, months: number) {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  const day = parsed.getUTCDate();
+  const result = new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth() + months, 1));
+  const lastDay = new Date(Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0)).getUTCDate();
+  result.setUTCDate(Math.min(day, lastDay));
+  return result.toISOString().slice(0, 10);
+}
+
+export function extractRfiDocumentDates(document: DccDocumentDescriptor, text: string) {
+  const publishedAt = normalizedDocumentDate(document.receivedAt);
+  const normalized = normalizeText(text);
+  const explicitDeadlinePatterns = [
+    /(?:response|reply|further information|additional information|requested information|submission)[^\n.]{0,180}?(?:on or before|no later than|not later than|by|before)\s+(?:the\s+)?([^\n.;]{4,45})/i,
+    /(?:on or before|no later than|not later than)\s+(?:the\s+)?([^\n.;]{4,45})[^\n.]{0,120}?(?:response|further information|additional information)/i,
+  ];
+  let responseDeadline: string | undefined;
+  for (const pattern of explicitDeadlinePatterns) {
+    const candidate = normalized.match(pattern)?.[1];
+    responseDeadline = normalizedDocumentDate(candidate);
+    if (responseDeadline) break;
+  }
+  let confidence: "exact" | "derived" | "unavailable" = responseDeadline || publishedAt ? "exact" : "unavailable";
+  if (!responseDeadline && publishedAt && /within\s+(?:six|6)\s+months/i.test(normalized)) {
+    responseDeadline = addUtcMonths(publishedAt, 6);
+    confidence = "derived";
+  }
+  return {
+    rfiPublishedAt: publishedAt,
+    responseDeadline,
+    rfiDateSource: publishedAt || responseDeadline
+      ? `Official council RFI document metadata/text: ${document.sourceUrl}`
+      : undefined,
+    rfiDateConfidence: confidence,
+  };
+}
+
 async function mapConcurrent<T, U>(items: T[], concurrency: number, worker: (item: T) => Promise<U>) {
   const output = new Array<U>(items.length);
   let next = 0;
@@ -321,6 +394,9 @@ export async function fetchDccApplicationEvidence(
       const text = normalizeText(await extractDccDocumentText(response.headers.get("content-type") || "", bytes));
       if (!text) throw new Error("document-has-no-extractable-text");
       const classified = classifyDccDocumentText(document, text);
+      const rfiDates = classified.classification === "noise-related-rfi"
+        ? extractRfiDocumentDates(document, text)
+        : {};
       return {
         id: document.id,
         documentType: document.documentType,
@@ -331,6 +407,7 @@ export async function fetchDccApplicationEvidence(
         matchedTerms: classified.matchedTerms,
         excerpt: classified.excerpt ?? retainedOfficialExcerpt(text),
         classification: classified.classification,
+        ...rfiDates,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "document-fetch-failed";
@@ -383,7 +460,9 @@ export async function enrichDccPlanningOpportunity(
   const matchedTerms = [...new Set(fetchedDocuments.flatMap((document) => document.matchedTerms))];
   const result: TenderOpportunity = {
     ...opportunity,
-    sourceUrl: confirmed?.sourceUrl || evidence.applicationUrl,
+    // Keep the application page as the project link. Evidence documents are
+    // exposed separately and must never replace the direct council record.
+    sourceUrl: evidence.applicationUrl,
     evidenceStatus: "official-text",
     evidenceDocuments: evidence.documents,
     evidenceUnavailableReason: evidence.documents.some((document) => document.fetchStatus !== "fetched")
@@ -396,6 +475,21 @@ export async function enrichDccPlanningOpportunity(
         : "no-relevant-opportunity"
     ),
     matchedTerms,
+    rfiPublishedAt: confirmed?.classification === "noise-related-rfi"
+      ? confirmed.rfiPublishedAt ?? confirmed.receivedAt ?? opportunity.rfiPublishedAt
+      : opportunity.rfiPublishedAt,
+    rfiReceivedAt: confirmed?.classification === "noise-related-rfi"
+      ? confirmed.receivedAt ?? opportunity.rfiReceivedAt
+      : opportunity.rfiReceivedAt,
+    responseDeadline: confirmed?.classification === "noise-related-rfi"
+      ? confirmed.responseDeadline ?? opportunity.responseDeadline
+      : opportunity.responseDeadline,
+    rfiDateSource: confirmed?.classification === "noise-related-rfi"
+      ? confirmed.rfiDateSource ?? opportunity.rfiDateSource
+      : opportunity.rfiDateSource,
+    rfiDateConfidence: confirmed?.classification === "noise-related-rfi"
+      ? confirmed.rfiDateConfidence ?? opportunity.rfiDateConfidence ?? "unavailable"
+      : opportunity.rfiDateConfidence,
     fitScore: 0,
   };
   result.fitScore = scoreOpportunity(result);

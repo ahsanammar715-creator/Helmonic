@@ -677,7 +677,8 @@ function historicalLiveRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  const dueDateRank = 2_000_000_000 - Math.min(daysRemaining, 10_000) * 100_000;
+  const sourceBand = buildingInfo ? 3_000_000_000 : 2_000_000_000;
+  const dueDateRank = sourceBand - Math.min(daysRemaining, 5_000) * 100_000;
   return dueDateRank
     + activityFreshness * 100
     + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
@@ -688,7 +689,7 @@ function historicalRecentUndatedRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  return 500_000_000
+  return (buildingInfo ? 1_500_000_000 : 500_000_000)
     + activityFreshness * 100
     + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
@@ -779,6 +780,21 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
     return {
       rank: historicalExpiredRfiPriority(daysPastDue, buildingInfo, verifiedEmailMatch),
       reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; retained for consultant-reviewed competitive follow-up and ordered by expiry date${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
+    };
+  }
+  if (buildingInfo && routeable) {
+    const partE = !confirmedAcoustic
+      && ["attached-4-plus", "lrd-100-plus"].includes(String(record.x_residential_scale ?? ""));
+    const commercialRank = !confirmedAcoustic
+      ? partE ? 500 : retainedRelationship ? 320 : 220
+      : verifiedEmailMatch ? 900
+        : record.x_acoustic_appointment_status === "competitor-appointed" ? 700
+          : quality === "excellent" ? 800
+            : quality === "good" ? 600
+              : quality === "medium" ? 400 : 200;
+    return {
+      rank: 1_000_000 + commercialRank,
+      reason: `Human-reviewed BuildingInfo lead; ${confirmedAcoustic ? "current acoustic evidence confirmed" : "retained as a potential acoustic fit pending authoritative confirmation"}`,
     };
   }
   if (rfi && verifiedEmailMatch) return { rank: 1000, reason: "Acoustic RFI with verified consultant email history; RFI dates unavailable" };

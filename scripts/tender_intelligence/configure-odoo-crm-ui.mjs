@@ -319,9 +319,13 @@ const leadListOrderValues = {
     </xpath>
     <xpath expr="//field[@name='name']" position="after">
       <field name="x_source_systems" string="Source" optional="show"/>
+      <field name="x_project_link" string="Project Link" widget="url" optional="show"/>
+      <field name="x_project_stage" string="Project Stage" optional="show"/>
       <field name="x_lead_quality" string="Lead Quality" optional="show"/>
       <field name="x_lead_panel" string="Lead Review Panel" optional="show"/>
       <field name="x_project_value" string="Project Value" optional="show"/>
+      <field name="x_rfi_published_at" string="RFI Published" optional="show"/>
+      <field name="x_rfi_received_at" string="RFI Received / Detected" optional="show"/>
       <field name="x_rfi_response_due_at" string="RFI Response Due" optional="show"/>
       <field name="x_warm_connection_verified" string="Verified Email Match" optional="show"/>
       <field name="x_pipeline_priority_reason" string="Priority Reason" optional="hide"/>

@@ -610,12 +610,35 @@ function htmlRows(rows: Array<[string, unknown]>) {
   ).join("")}</table>`;
 }
 
-function htmlLinks(title: string, urls: string[]) {
-  const unique = [...new Set(urls.map((url) => String(url ?? "").trim()).filter(Boolean))];
-  if (unique.length === 0) return `<h3>${escapeHtml(title)}</h3><p>Not supplied</p>`;
-  return `<h3>${escapeHtml(title)}</h3><ul>${unique.map((url) =>
-    `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a></li>`,
+function htmlNamedLinks(title: string, links: Array<{ label: string; url: string }>) {
+  const unique = new Map<string, string>();
+  for (const link of links) {
+    const url = String(link.url ?? "").trim();
+    if (url && !unique.has(url)) unique.set(url, String(link.label ?? "").trim() || url);
+  }
+  if (unique.size === 0) return `<h3>${escapeHtml(title)}</h3><p>Not supplied</p>`;
+  return `<h3>${escapeHtml(title)}</h3><ul>${[...unique].map(([url, label]) =>
+    `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a></li>`,
   ).join("")}</ul>`;
+}
+
+function projectSourceLinks(record: TenderOpportunity) {
+  const sources = record.duplicateSources?.length ? record.duplicateSources : [{
+    sourceSystem: record.sourceSystem,
+    sourceRecordId: record.sourceRecordId,
+    sourceUrl: record.sourceUrl,
+  }];
+  return sources.map((source) => ({
+    label: `${source.sourceSystem} project · ${source.sourceRecordId}`,
+    url: source.sourceUrl,
+  }));
+}
+
+function evidenceDocumentLinks(record: TenderOpportunity) {
+  return (record.evidenceDocuments ?? []).map((document) => ({
+    label: `${document.documentType}${document.description && document.description !== document.documentType ? ` · ${document.description}` : ""}`,
+    url: document.sourceUrl,
+  }));
 }
 
 function allPartyRows(record: TenderOpportunity) {
@@ -701,10 +724,11 @@ function liveRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  // One due-date day is worth 100,000 points, which is greater than the
-  // complete received/published-date and commercial tie-break range. This
-  // guarantees that a later deadline can never overtake an earlier one.
-  const dueDateRank = 2_000_000_000 - Math.min(daysRemaining, 10_000) * 100_000;
+  // BuildingInfo receives the reviewed-source band. Inside either source
+  // band, one due-date day outweighs every activity or relationship tie-break,
+  // so the earliest response deadline is always first in that band.
+  const sourceBand = buildingInfo ? 3_000_000_000 : 2_000_000_000;
+  const dueDateRank = sourceBand - Math.min(daysRemaining, 5_000) * 100_000;
   return dueDateRank
     + activityFreshness * 100
     + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
@@ -715,7 +739,7 @@ function recentUndatedRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  return 500_000_000
+  return (buildingInfo ? 1_500_000_000 : 500_000_000)
     + activityFreshness * 100
     + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
@@ -740,7 +764,10 @@ function liveRfiPriorityReason(
     : "; RFI received/published date unavailable";
   const source = buildingInfo ? "; human-reviewed BuildingInfo source" : "";
   const relationship = verifiedEmailMatch ? "; verified acoustic consultant email relationship" : "";
-  return `Active acoustic RFI ${due}; response deadline takes precedence${chronology}${source}${relationship}`;
+  const ordering = buildingInfo
+    ? "; reviewed BuildingInfo RFI band first, then response deadline"
+    : "; response deadline leads the non-BuildingInfo RFI band";
+  return `Active acoustic RFI ${due}${ordering}${chronology}${source}${relationship}`;
 }
 
 function pipelinePriority(record: TenderOpportunity, now: Date) {
@@ -778,6 +805,19 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
     return {
       rank: expiredRfiPriority(daysPastDue, buildingInfo, verifiedEmailMatch),
       reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; retained for consultant-reviewed competitive follow-up and ordered by expiry date${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
+    };
+  }
+  if (buildingInfo && routeable) {
+    const commercialRank = !confirmedAcoustic
+      ? isPartECommercialLead(record) ? 500 : retainedRelationship ? 320 : 220
+      : verifiedEmailMatch ? 900
+        : record.acousticAppointmentStatus === "competitor-appointed" ? 700
+          : record.leadQuality === "excellent" ? 800
+            : record.leadQuality === "good" ? 600
+              : record.leadQuality === "medium" ? 400 : 200;
+    return {
+      rank: 1_000_000 + commercialRank,
+      reason: `Human-reviewed BuildingInfo lead; ${confirmedAcoustic ? "current acoustic evidence confirmed" : "retained as a potential acoustic fit pending authoritative confirmation"}`,
     };
   }
   if (rfi && verifiedEmailMatch) {
@@ -820,8 +860,6 @@ function description(record: TenderOpportunity, now: Date) {
   const primary = primaryParty(record);
   const primaryOrganisation = primary?.organisation ?? record.applicant ?? record.buyer ?? "Not supplied";
   const primaryName = primary?.name && primary.name !== primaryOrganisation ? primary.name : "Not supplied";
-  const sourceUrls = sources.urls.split("\n").filter(Boolean);
-  const documentUrls = evidenceDocumentUrls(record).split("\n").filter(Boolean);
   const actionDeadline = actionableDeadline(record);
   const daysRemaining = calendarDaysRemaining(actionDeadline, now);
   return [
@@ -885,8 +923,8 @@ function description(record: TenderOpportunity, now: Date) {
       ["Deduplication status", record.deduplicationStatus ?? "unique"],
       ["Possible duplicates", (record.possibleDuplicateIds ?? []).join("; ")],
     ]),
-    htmlLinks("Project and Source Links", sourceUrls.length ? sourceUrls : [record.sourceUrl]),
-    htmlLinks("Evidence Document Links", documentUrls),
+    htmlNamedLinks("Project and Source Links", projectSourceLinks(record)),
+    htmlNamedLinks("Evidence Document Links", evidenceDocumentLinks(record)),
     "<h2>Recommended Next Review Action</h2>",
     `<p>${htmlText(recommendedReviewAction(record, now))}</p>`,
   ].join("");

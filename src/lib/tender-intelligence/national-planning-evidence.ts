@@ -1,5 +1,6 @@
 import {
   classifyDccDocumentText,
+  extractRfiDocumentDates,
   extractDccDocumentText,
   isDccEvidenceDocument,
   type DccDocumentDescriptor,
@@ -108,6 +109,15 @@ function stringField(record: Record<string, unknown> | undefined, names: string[
   return "";
 }
 
+function firstStringField(value: unknown, names: string[]) {
+  const items = Array.isArray(value) ? value : [value];
+  for (const item of items) {
+    const result = stringField(asRecord(item), names);
+    if (result) return result;
+  }
+  return "";
+}
+
 function agileParties(application: unknown): LeadParty[] {
   const record = asRecord(application);
   if (!record) return [];
@@ -159,14 +169,23 @@ async function agileCouncilEvidence(record: TenderOpportunity, fetcher: FetchLik
       const payload = await fetchJson(fetcher, sourceUrl, headers);
       const text = officialJsonText(payload);
       if (!text) continue;
-      const descriptor = evidenceDescriptor(`${clientCode}:${applicationId}:${endpoint}`, label, sourceUrl);
+      const descriptor = {
+        ...evidenceDescriptor(`${clientCode}:${applicationId}:${endpoint}`, label, sourceUrl),
+        receivedAt: firstStringField(payload, [
+          "requestDate", "dateRequested", "issuedDate", "dateIssued", "receivedDate", "dateReceived", "createdAt", "date",
+        ]) || undefined,
+      };
       const classified = classifyDccDocumentText(descriptor, text);
+      const rfiDates = classified.classification === "noise-related-rfi"
+        ? extractRfiDocumentDates(descriptor, text)
+        : {};
       documents.push({
         ...descriptor,
         fetchStatus: "fetched",
         matchedTerms: classified.matchedTerms,
         excerpt: classified.excerpt ?? retainedOfficialExcerpt(text),
         classification: classified.classification,
+        ...rfiDates,
       });
     } catch (error) {
       documents.push({
@@ -197,13 +216,22 @@ async function agileCouncilEvidence(record: TenderOpportunity, fetcher: FetchLik
         if (bytes.byteLength > maxDocumentBytes) throw new Error(`document-too-large:${bytes.byteLength}`);
         const text = normalizeText(await extractDccDocumentText(response.headers.get("content-type") ?? "", bytes));
         if (!text) throw new Error("document-has-no-extractable-text");
-        const descriptor = evidenceDescriptor(id, label, sourceUrl);
+        const descriptor = {
+          ...evidenceDescriptor(id, label, sourceUrl),
+          receivedAt: stringField(document, [
+            "dateReceived", "receivedDate", "documentDate", "dateCreated", "createdAt", "uploadedAt", "date",
+          ]) || undefined,
+        };
         const classified = classifyDccDocumentText(descriptor, text);
+        const rfiDates = classified.classification === "noise-related-rfi"
+          ? extractRfiDocumentDates(descriptor, text)
+          : {};
         documents.push({
           ...descriptor,
           fetchStatus: "fetched",
           ...classified,
           excerpt: classified.excerpt ?? retainedOfficialExcerpt(text),
+          ...rfiDates,
         });
       } catch (error) {
         documents.push({
@@ -334,6 +362,10 @@ export async function enrichNationalPlanningOpportunity(
 
   const confirmed = chooseConfirmed(result.documents);
   if (confirmed) {
+    const confirmedRfi = confirmed.classification === "noise-related-rfi";
+    const confirmedRfiDateConfidence = confirmedRfi
+      ? confirmed.rfiDateConfidence ?? record.rfiDateConfidence ?? "unavailable"
+      : record.rfiDateConfidence;
     const enriched = {
       ...record,
       parties: [...(record.parties ?? []), ...result.parties],
@@ -342,9 +374,24 @@ export async function enrichNationalPlanningOpportunity(
       evidenceDocuments: result.documents,
       evidenceExcerpt: confirmed.excerpt,
       evidenceUnavailableReason: undefined,
-      sourceUrl: confirmed.sourceUrl,
+      // The source URL remains the public application page. Evidence PDF/API
+      // links are kept in evidenceDocuments and displayed separately in Odoo.
+      sourceUrl: record.sourceUrl,
       classification: confirmed.classification,
       matchedTerms: confirmed.matchedTerms,
+      rfiPublishedAt: confirmedRfi
+        ? confirmed.rfiPublishedAt ?? confirmed.receivedAt ?? record.rfiPublishedAt
+        : record.rfiPublishedAt,
+      rfiReceivedAt: confirmedRfi
+        ? confirmed.receivedAt ?? record.rfiReceivedAt
+        : record.rfiReceivedAt,
+      responseDeadline: confirmedRfi
+        ? confirmed.responseDeadline ?? record.responseDeadline
+        : record.responseDeadline,
+      rfiDateSource: confirmedRfi
+        ? confirmed.rfiDateSource ?? record.rfiDateSource
+        : record.rfiDateSource,
+      rfiDateConfidence: confirmedRfiDateConfidence,
     };
     return { ...enriched, fitScore: scoreOpportunity(enriched) };
   }

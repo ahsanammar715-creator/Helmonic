@@ -22,6 +22,7 @@ import { classifyPlanningEvidence } from "../../src/lib/tender-intelligence/poli
 import {
   classifyDccDocumentText,
   enrichDccPlanningOpportunity,
+  extractRfiDocumentDates,
   isDccEvidenceDocument,
   parseDccDocumentIndex,
 } from "../../src/lib/tender-intelligence/dcc-document-evidence.ts";
@@ -385,6 +386,7 @@ test("Odoo payload populates native contact, planning attribution, sector and re
   assert.equal(payload.values.x_rfi_trigger, "Further Information Request");
   assert.match(payload.values.description, /Project and Source Links/);
   assert.match(payload.values.description, /href="https:\/\/example\.test\/project"/);
+  assert.match(payload.values.description, /BuildingInfo project · 424562/);
   assert.match(payload.values.description, /All Project Parties and Contacts/);
   assert.match(payload.values.description, /RFI published date/);
   assert.match(payload.values.description, /RFI received \/ detected date/);
@@ -776,7 +778,7 @@ test("Odoo pipeline priority leads with qualified verified email matches", async
   assert.equal(writtenPriorities.get("helmonic-lead:excellent-unmatched-priority"), "1");
 });
 
-test("Odoo pipeline rank makes RFI due date primary, activity date secondary and source or email matches tertiary", () => {
+test("Odoo pipeline rank leads with reviewed BuildingInfo RFIs, then due dates and verified matches inside each source band", () => {
   const records = [
     planningLead({
       id: "buildinginfo-matched-rfi-rank",
@@ -864,15 +866,16 @@ test("Odoo pipeline rank makes RFI due date primary, activity date secondary and
   ];
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   const ranks = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values.x_pipeline_priority_rank]));
-  assert.ok(ranks["helmonic-lead:buildinginfo-matched-rfi-rank"] > ranks["helmonic-lead:matched-rfi-rank"]);
-  assert.ok(ranks["helmonic-lead:matched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-unmatched-rfi-rank"]);
+  assert.ok(ranks["helmonic-lead:buildinginfo-matched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-unmatched-rfi-rank"]);
+  assert.ok(ranks["helmonic-lead:buildinginfo-unmatched-rfi-rank"] > ranks["helmonic-lead:matched-rfi-rank"]);
+  assert.ok(ranks["helmonic-lead:matched-rfi-rank"] > ranks["helmonic-lead:unmatched-rfi-rank"]);
   assert.ok(ranks["helmonic-lead:buildinginfo-unmatched-rfi-rank"] > ranks["helmonic-lead:unmatched-rfi-rank"]);
-  assert.ok(ranks["helmonic-lead:newer-unmatched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-matched-rfi-rank"]);
-  assert.ok(ranks["helmonic-lead:earlier-unmatched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-matched-rfi-rank"]);
+  assert.ok(ranks["helmonic-lead:buildinginfo-matched-rfi-rank"] > ranks["helmonic-lead:newer-unmatched-rfi-rank"]);
+  assert.ok(ranks["helmonic-lead:earlier-unmatched-rfi-rank"] > ranks["helmonic-lead:newer-unmatched-rfi-rank"]);
   assert.equal(ranks["helmonic-lead:matched-standard-rank"], 900);
 });
 
-test("Odoo orders recent undated RFIs by received or published date before commercial tie-breakers", () => {
+test("Odoo keeps reviewed BuildingInfo undated RFIs ahead, then orders activity dates inside each source band", () => {
   const payloads = buildOdooDryRun([
     planningLead({
       id: "older-undated-buildinginfo-match",
@@ -900,7 +903,7 @@ test("Odoo orders recent undated RFIs by received or published date before comme
     }),
   ], new Date("2026-10-12T12:00:00.000Z"));
   const ranks = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values.x_pipeline_priority_rank]));
-  assert.ok(ranks["helmonic-lead:newer-undated-unmatched"] > ranks["helmonic-lead:older-undated-buildinginfo-match"]);
+  assert.ok(ranks["helmonic-lead:older-undated-buildinginfo-match"] > ranks["helmonic-lead:newer-undated-unmatched"]);
 });
 
 test("Odoo keeps all potential acoustic fits together while Part E leads retain commercial priority", () => {
@@ -1407,7 +1410,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   );
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
-  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1_000_000_030);
+  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 2_500_000_030);
   assert.equal(buildingInfoHistorical.vals.x_lead_panel, "Urgent Acoustic RFI");
   assert.equal(buildingInfoHistorical.vals.name, "J-buildinginfo-rfi");
   assert.equal(buildingInfoHistorical.vals.type, "lead");
@@ -1784,6 +1787,17 @@ test("BuildingInfo weekly CSV keeps RFI received, RFI response due and planning 
   assert.equal(payload.values.x_decision_due_at, "2026-12-14 00:00:00");
 });
 
+test("BuildingInfo marks a supplied RFI due date as exact even when no received date is provided", () => {
+  const csv = [
+    "bi_project_id,project_title,county,bi_project_url,report_type,evidence_document,evidence_excerpt,project_stage,rfi_response_due_date",
+    "424563,Warehouse Development,Wicklow,https://app.buildinginfo.com/p-example,acoustic,noise-rfi.pdf,Submit a noise impact assessment.,Plans Applied,2026-11-09",
+  ].join("\n");
+  const [record] = parseBuildingInfoCsv(csv, "buildinginfo-due-only.csv");
+  assert.equal(record.responseDeadline, "2026-11-09");
+  assert.equal(record.rfiDateConfidence, "exact");
+  assert.match(record.rfiDateSource, /supplied RFI date columns/i);
+});
+
 test("repeated BuildingInfo weekly rows collapse to one stable project while preserving distinct evidence", () => {
   const header = "project_id,project_title,county,project_url,trigger_type,evidence_document,evidence_excerpt,last_updated";
   const first = parseBuildingInfoCsv([
@@ -2142,8 +2156,34 @@ test("DCC evidence enrichment fetches the actual document and cites it", async (
   assert.equal(enriched.evidenceStatus, "official-text");
   assert.equal(enriched.classification, "granted-with-noise-conditions");
   assert.equal(enriched.evidenceDocuments?.length, 1);
-  assert.match(enriched.sourceUrl, new RegExp(guid));
+  assert.match(enriched.sourceUrl, /RunThirdPartySearch/);
+  assert.match(enriched.evidenceDocuments?.[0].sourceUrl, new RegExp(guid));
   assert.match(enriched.evidenceExcerpt, /acoustic report/i);
+});
+
+test("official RFI documents provide exact or derived received and response dates without guessing", () => {
+  const descriptor = {
+    guid: "A".repeat(32),
+    documentType: "Further Information",
+    description: "Request for Further Information",
+    receivedAt: "09/24/2026",
+    sourceUrl: "https://example.test/rfi-document",
+  };
+  const exact = extractRfiDocumentDates(
+    descriptor,
+    "The further information response must be submitted no later than 28 October 2026.",
+  );
+  assert.equal(exact.rfiPublishedAt, "2026-09-24");
+  assert.equal(exact.responseDeadline, "2026-10-28");
+  assert.equal(exact.rfiDateConfidence, "exact");
+
+  const derived = extractRfiDocumentDates(
+    descriptor,
+    "The requested further information must be submitted within 6 months of this notice.",
+  );
+  assert.equal(derived.rfiPublishedAt, "2026-09-24");
+  assert.equal(derived.responseDeadline, "2027-03-24");
+  assert.equal(derived.rfiDateConfidence, "derived");
 });
 
 test("DCC evidence enrichment fails closed when the application documents are unavailable", async () => {
@@ -2211,6 +2251,7 @@ test("Agile council adapter reads the real further-information endpoint and pres
   assert.equal(enriched.evidenceStatus, "official-text");
   assert.equal(enriched.classification, "noise-related-rfi");
   assert.equal(enriched.applicant, "Example Developments Ltd");
+  assert.equal(enriched.sourceUrl, "https://planning.agileapplications.ie/southdublin/application-details/70996");
   assert.match(enriched.evidenceExcerpt, /acoustic report/i);
 });
 

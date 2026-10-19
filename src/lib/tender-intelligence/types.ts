@@ -114,6 +114,10 @@ export type PlanningDocumentEvidence = {
   documentType: string;
   description?: string;
   receivedAt?: string;
+  rfiPublishedAt?: string;
+  responseDeadline?: string;
+  rfiDateSource?: string;
+  rfiDateConfidence?: "exact" | "derived" | "unavailable";
   sourceUrl: string;
   fetchStatus: "fetched" | "unavailable" | "unsupported";
   matchedTerms: string[];

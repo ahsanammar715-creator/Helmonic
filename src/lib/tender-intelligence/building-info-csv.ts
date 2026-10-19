@@ -240,6 +240,10 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       "rfi_received_date", "rfi received date", "rfi_detected_date", "rfi detected date",
       "first_detected_date", "first detected date",
     ]);
+    const responseDeadline = optionalValue(row, [
+      "rfi_response_due_date", "rfi response due date", "rfi_response_deadline", "rfi response deadline",
+      "rfi_deadline", "rfi deadline", "response_deadline", "response deadline", "deadline",
+    ]);
     const appointedAcoustician = optionalValue(row, ["appointed_acoustician", "appointed acoustician", "appointed_acoustic_consultant", "appointed acoustic consultant", "acoustic_consultant", "acoustic consultant"]);
     const appointmentEvidenceExcerpt = optionalValue(row, ["appointment_evidence", "appointment evidence", "appointment_evidence_excerpt", "appointment evidence excerpt"]);
     const appointmentEvidenceUrlInput = optionalValue(row, ["appointment_evidence_url", "appointment evidence url", "appointment_source_url", "appointment source url"]);
@@ -268,18 +272,15 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       ]) || undefined,
       rfiPublishedAt: rfiPublishedAt || undefined,
       rfiReceivedAt: rfiReceivedAt || undefined,
-      rfiDateSource: rfiPublishedAt || rfiReceivedAt
+      rfiDateSource: rfiPublishedAt || rfiReceivedAt || responseDeadline
         ? `${sourceName} supplied RFI date columns`
         : undefined,
-      rfiDateConfidence: rfiPublishedAt || rfiReceivedAt ? "exact" : "unavailable",
+      rfiDateConfidence: rfiPublishedAt || rfiReceivedAt || responseDeadline ? "exact" : "unavailable",
       deadline: optionalValue(row, [
         "planning_decision_due_date", "planning decision due date", "planning_deadline", "planning deadline",
         "decision_due_date", "decision due date",
       ]) || undefined,
-      responseDeadline: optionalValue(row, [
-        "rfi_response_due_date", "rfi response due date", "rfi_response_deadline", "rfi response deadline",
-        "rfi_deadline", "rfi deadline", "response_deadline", "response deadline", "deadline",
-      ]) || undefined,
+      responseDeadline: responseDeadline || undefined,
       sourceUrl: projectUrl,
       evidenceStatus: evidenceStatus(excerpt),
       evidenceExcerpt: excerpt,
