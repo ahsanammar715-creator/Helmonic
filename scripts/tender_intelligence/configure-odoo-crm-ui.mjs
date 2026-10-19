@@ -325,22 +325,35 @@ const leadListOrderValues = {
     </xpath>
     <xpath expr="//field[@name='user_id']" position="attributes">
       <attribute name="string">Acoustic Consultant</attribute>
+      <attribute name="optional">show</attribute>
     </xpath>
-    <xpath expr="//field[@name='name']" position="after">
+    <xpath expr="//field[@name='contact_name']" position="attributes">
+      <attribute name="optional">show</attribute>
+    </xpath>
+    <xpath expr="//field[@name='email_from']" position="attributes">
+      <attribute name="optional">show</attribute>
+    </xpath>
+    <xpath expr="//field[@name='team_id']" position="attributes">
+      <attribute name="optional">hide</attribute>
+    </xpath>
+    <xpath expr="//field[@name='source_id']" position="attributes">
+      <attribute name="optional">hide</attribute>
+    </xpath>
+    <xpath expr="//field[@name='email_from']" position="after">
       <field name="x_source_systems" string="Source" optional="show"/>
-      <field name="x_project_link" string="Project Link" widget="url" optional="show"/>
-      <field name="x_project_stage" string="Project Stage" optional="show"/>
-      <field name="x_lead_quality" string="Lead Quality" optional="show"/>
       <field name="x_lead_panel" string="Lead Review Panel" optional="show"/>
-      <field name="x_project_value" string="Project Value" optional="show"/>
-      <field name="x_rfi_published_at" string="RFI Published" optional="show"/>
-      <field name="x_rfi_received_at" string="RFI Received / Detected" optional="show"/>
+      <field name="x_lead_quality" string="Lead Quality" optional="show"/>
+      <field name="x_project_stage" string="Project Stage" optional="show"/>
       <field name="x_rfi_response_due_at" string="RFI Response Due" optional="show"/>
-      <field name="x_rfi_response_received_at" string="FI Response Received" optional="show"/>
-      <field name="x_planning_received_at" string="Planning Received" optional="show"/>
-      <field name="x_planning_validated_at" string="Planning Validated" optional="show"/>
+      <field name="x_rfi_received_at" string="RFI Received / Detected" optional="show"/>
       <field name="x_decision_due_at" string="Planning Decision Due" optional="show"/>
       <field name="x_warm_connection_verified" string="Verified Email Match" optional="show"/>
+      <field name="x_project_value" string="Project Value" optional="show"/>
+      <field name="x_project_link" string="Project Link" widget="url" optional="show"/>
+      <field name="x_rfi_published_at" string="RFI Published" optional="hide"/>
+      <field name="x_rfi_response_received_at" string="FI Response Received" optional="hide"/>
+      <field name="x_planning_received_at" string="Planning Received" optional="hide"/>
+      <field name="x_planning_validated_at" string="Planning Validated" optional="hide"/>
       <field name="x_pipeline_priority_reason" string="Priority Reason" optional="hide"/>
     </xpath>
   </data>`,
