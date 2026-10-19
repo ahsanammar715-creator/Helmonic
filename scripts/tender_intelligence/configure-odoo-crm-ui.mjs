@@ -135,9 +135,9 @@ if (baseViewRows.length !== 1 || !Number.isInteger(baseViewRows[0].res_id)) {
 }
 
 const kanbanModelRows = await call("ir.model.data", "search_read", {
-  domain: [["module", "=", "crm"], ["name", "in", ["crm_case_kanban_view_leads", "crm_case_kanban_view_oppor"]]],
+  domain: [["module", "=", "crm"], ["name", "=", "crm_case_kanban_view_leads"]],
   fields: ["id", "name", "res_id"],
-  limit: 10,
+  limit: 2,
 });
 const kanbanCandidateIds = kanbanModelRows.map((row) => row.res_id).filter(Number.isInteger);
 const kanbanViewRows = kanbanCandidateIds.length ? await call("ir.ui.view", "search_read", {
