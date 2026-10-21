@@ -152,6 +152,15 @@ if (leadListModelRows.length !== 1 || !Number.isInteger(leadListModelRows[0].res
   throw new Error("Could not resolve the standard CRM Leads list view exactly once.");
 }
 
+const leadSearchModelRows = await call("ir.model.data", "search_read", {
+  domain: [["module", "=", "crm"], ["name", "=", "view_crm_case_leads_filter"]],
+  fields: ["id", "name", "res_id"],
+  limit: 2,
+});
+if (leadSearchModelRows.length !== 1 || !Number.isInteger(leadSearchModelRows[0].res_id)) {
+  throw new Error("Could not resolve the standard CRM Leads search view exactly once.");
+}
+
 const viewName = "Helmonic Tender Intelligence CRM lead form";
 const viewArchitecture = `<data>
   <xpath expr="//field[@name='phone']/ancestor::div[1]" position="after">
@@ -380,6 +389,85 @@ if (existingLeadListOrderViews.length === 1) {
   throw new Error("More than one Helmonic CRM Leads-ordering view exists.");
 }
 
+const leadSearchViewName = "Helmonic Tender Intelligence CRM Leads target filters";
+const existingLeadSearchViews = await call("ir.ui.view", "search_read", {
+  domain: [["name", "=", leadSearchViewName], ["model", "=", "crm.lead"]],
+  fields: ["id", "name", "inherit_id", "arch_db", "active"],
+  limit: 2,
+});
+const leadSearchValues = {
+  name: leadSearchViewName,
+  type: "search",
+  model: "crm.lead",
+  mode: "extension",
+  inherit_id: leadSearchModelRows[0].res_id,
+  priority: 100,
+  active: true,
+  arch_db: `<data>
+    <xpath expr="//search" position="inside">
+      <separator/>
+      <filter name="helmonic_primary_targets" string="Primary Acoustic Targets" domain="[('x_lead_panel', 'in', ['Urgent Acoustic RFI', 'Granted with Acoustic Conditions'])]"/>
+      <filter name="helmonic_live_acoustic_rfis" string="Live Further Information Requests" domain="[('x_lead_panel', '=', 'Urgent Acoustic RFI')]"/>
+      <filter name="helmonic_granted_acoustic_conditions" string="Granted — Acoustic Conditions" domain="[('x_lead_panel', '=', 'Granted with Acoustic Conditions')]"/>
+      <filter name="helmonic_secondary_potential" string="Secondary / Potential" domain="[('x_lead_panel', 'in', ['Confirmed Acoustic Opportunity', 'Potential Acoustic Fit'])]"/>
+      <filter name="helmonic_reengagement" string="Expired / Re-engagement" domain="[('x_lead_panel', '=', 'Competitive / Re-engagement')]"/>
+      <group expand="0" string="Helmonic Group By">
+        <filter name="helmonic_group_by_review_panel" string="Lead Review Panel" context="{'group_by': 'x_lead_panel'}"/>
+        <filter name="helmonic_group_by_classification" string="Classification" context="{'group_by': 'x_classification'}"/>
+      </group>
+    </xpath>
+  </data>`,
+};
+let leadSearchViewId;
+let leadSearchAction;
+if (existingLeadSearchViews.length === 1) {
+  leadSearchViewId = existingLeadSearchViews[0].id;
+  await call("ir.ui.view", "write", { ids: [leadSearchViewId], vals: leadSearchValues });
+  leadSearchAction = "updated";
+} else if (existingLeadSearchViews.length === 0) {
+  leadSearchViewId = createdId(await call("ir.ui.view", "create", { vals_list: [leadSearchValues] }));
+  leadSearchAction = "created";
+} else {
+  throw new Error("More than one Helmonic CRM Leads target-filter view exists.");
+}
+
+const leadActions = await call("ir.actions.act_window", "search_read", {
+  domain: [["res_model", "=", "crm.lead"], ["name", "=", "Leads"]],
+  fields: ["id", "name", "domain", "context"],
+  limit: 20,
+});
+const targetLeadActions = leadActions.filter((action) => String(action.domain ?? "").includes("'type', '=', 'lead'")
+  || String(action.domain ?? "").includes('"type", "=", "lead"')
+  || String(action.domain ?? "").includes("type") && String(action.domain ?? "").includes("lead"));
+const defaultFilterActions = [];
+for (const action of targetLeadActions) {
+  const filterName = "Helmonic Primary Acoustic Targets";
+  const existingFilters = await call("ir.filters", "search_read", {
+    domain: [["name", "=", filterName], ["model_id", "=", "crm.lead"], ["action_id", "=", action.id]],
+    fields: ["id", "name", "domain", "context", "sort", "is_default", "action_id"],
+    limit: 2,
+  });
+  const filterValues = {
+    name: filterName,
+    model_id: "crm.lead",
+    user_id: false,
+    domain: JSON.stringify([["x_lead_panel", "in", ["Urgent Acoustic RFI", "Granted with Acoustic Conditions"]]]),
+    context: JSON.stringify({}),
+    sort: JSON.stringify(["x_pipeline_priority_rank desc", "x_rfi_response_due_at asc"]),
+    is_default: true,
+    action_id: action.id,
+  };
+  if (existingFilters.length === 1) {
+    await call("ir.filters", "write", { ids: [existingFilters[0].id], vals: filterValues });
+    defaultFilterActions.push({ actionId: action.id, filterId: existingFilters[0].id, action: "updated" });
+  } else if (existingFilters.length === 0) {
+    const filterId = createdId(await call("ir.filters", "create", { vals_list: [filterValues] }));
+    defaultFilterActions.push({ actionId: action.id, filterId, action: "created" });
+  } else {
+    throw new Error(`More than one Helmonic primary-target filter exists for Leads action ${action.id}.`);
+  }
+}
+
 const verificationFields = await call("crm.lead", "fields_get", {
   allfields: fieldNames,
   attributes: ["string", "type"],
@@ -395,5 +483,7 @@ console.log(JSON.stringify({
   view: { id: viewId, action: viewAction, name: viewName },
   kanbanOrderView: { id: kanbanOrderViewId, action: kanbanOrderAction, name: kanbanOrderViewName },
   leadListOrderView: { id: leadListOrderViewId, action: leadListOrderAction, name: leadListOrderViewName },
+  leadSearchView: { id: leadSearchViewId, action: leadSearchAction, name: leadSearchViewName },
+  defaultFilterActions,
   verifiedFields: Object.fromEntries(fieldNames.map((name) => [name, verificationFields[name]])),
 }, null, 2));

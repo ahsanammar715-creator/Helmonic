@@ -426,10 +426,16 @@ export async function fetchDccApplicationEvidence(
   return { applicationUrl, documents };
 }
 
-function chooseConfirmedEvidence(documents: PlanningDocumentEvidence[]) {
-  return documents
+function chooseConfirmedEvidence(documents: PlanningDocumentEvidence[], stage = "") {
+  const normalizedStage = normalizeText(stage).toLowerCase();
+  const preferred = /grant|condition|conditional/.test(normalizedStage)
+    ? "granted-with-noise-conditions"
+    : /refus/.test(normalizedStage) ? "refused-on-noise-grounds"
+      : /further information|additional information|rfi/.test(normalizedStage) ? "noise-related-rfi" : "";
+  const classified = documents
     .filter((document) => document.classification)
-    .sort((a, b) => parseReceivedAt(b.receivedAt) - parseReceivedAt(a.receivedAt))[0];
+    .sort((a, b) => parseReceivedAt(b.receivedAt) - parseReceivedAt(a.receivedAt));
+  return classified.find((document) => document.classification === preferred) ?? classified[0];
 }
 
 export async function enrichDccPlanningOpportunity(
@@ -440,7 +446,10 @@ export async function enrichDccPlanningOpportunity(
   if (!reference) return opportunity;
   const evidence = await fetchDccApplicationEvidence(reference, fetcher);
   const fetchedDocuments = evidence.documents.filter((document) => document.fetchStatus === "fetched");
-  const confirmed = chooseConfirmedEvidence(fetchedDocuments);
+  const confirmed = chooseConfirmedEvidence(
+    fetchedDocuments,
+    opportunity.projectStage ?? opportunity.sourceStatus,
+  );
 
   if (fetchedDocuments.length === 0) {
     const reason = evidence.error || evidence.documents.map((document) => document.error).filter(Boolean).join("; ") || "planning-documents-unavailable";

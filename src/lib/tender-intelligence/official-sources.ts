@@ -28,6 +28,7 @@ import { enrichDccPlanningOpportunities } from "./dcc-document-evidence.ts";
 import { enrichFormalTenderOpportunities } from "./formal-document-evidence.ts";
 import { enrichNationalPlanningOpportunities } from "./national-planning-evidence.ts";
 import { routeOpportunitiesByRelationships } from "./relationship-routing.ts";
+import { nationalPlanningProjectUrl } from "./project-links.ts";
 import {
   applyTargetScope,
   leinsterPlanningAuthorities,
@@ -175,7 +176,11 @@ export function parseNationalPlanningFeatures(payload: unknown): TenderOpportuni
     const reference = normalizeText(attributes.ApplicationNumber);
     const description = normalizeText(attributes.DevelopmentDescription);
     const decision = normalizeText(attributes.Decision || attributes.ApplicationStatus);
-    const sourceUrl = normalizeText(attributes.LinkAppDetails);
+    const sourceUrl = nationalPlanningProjectUrl(
+      authority,
+      reference,
+      normalizeText(attributes.LinkAppDetails),
+    );
     if (!authority || !reference) return [];
     const recentActivity = [
       attributes.ReceivedDate,
@@ -215,7 +220,7 @@ export function parseNationalPlanningFeatures(payload: unknown): TenderOpportuni
         ? `${sourceUrl || "National Planning Register"} — FIRequestDate`
         : undefined,
       rfiDateConfidence: attributes.FIRequestDate ? "exact" : "unavailable",
-      sourceUrl: sourceUrl || "https://planning.localgov.ie/",
+      sourceUrl,
       evidenceStatus: "discovery-only",
       classification,
       cpvCodes: [],

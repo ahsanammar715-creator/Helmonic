@@ -340,10 +340,15 @@ async function eplanningCouncilEvidence(record: TenderOpportunity, fetcher: Fetc
   return { documents, parties: eplanningParties(applicationHtml) };
 }
 
-function chooseConfirmed(documents: PlanningDocumentEvidence[]) {
-  return documents.find((document) => document.classification === "noise-related-rfi")
-    ?? documents.find((document) => document.classification === "granted-with-noise-conditions")
-    ?? documents.find((document) => document.classification === "refused-on-noise-grounds");
+function chooseConfirmed(documents: PlanningDocumentEvidence[], stage = "") {
+  const normalizedStage = normalizeText(stage).toLowerCase();
+  const order = /grant|condition|conditional/.test(normalizedStage)
+    ? ["granted-with-noise-conditions", "noise-related-rfi", "refused-on-noise-grounds"]
+    : /refus/.test(normalizedStage)
+      ? ["refused-on-noise-grounds", "noise-related-rfi", "granted-with-noise-conditions"]
+      : ["noise-related-rfi", "granted-with-noise-conditions", "refused-on-noise-grounds"];
+  return order.map((classification) =>
+    documents.find((document) => document.classification === classification)).find(Boolean);
 }
 
 export async function enrichNationalPlanningOpportunity(
@@ -360,7 +365,7 @@ export async function enrichNationalPlanningOpportunity(
     result = { documents: [], parties: [], error: error instanceof Error ? error.message : "council-document-retrieval-failed" };
   }
 
-  const confirmed = chooseConfirmed(result.documents);
+  const confirmed = chooseConfirmed(result.documents, record.projectStage ?? record.sourceStatus);
   if (confirmed) {
     const confirmedRfi = confirmed.classification === "noise-related-rfi";
     const confirmedRfiDateConfidence = confirmedRfi

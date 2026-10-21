@@ -1,6 +1,7 @@
 import type { OdooLeadDryRun } from "./odoo-payload.ts";
 import { ODOO_TENDER_FIELD_TYPES } from "./odoo-field-contract.ts";
 import { acousticCpvCodes, relevantTenderText } from "./policy.ts";
+import { genericPlanningPortalUrl } from "./project-links.ts";
 
 export type OdooJson2Config = {
   enabled: boolean;
@@ -649,6 +650,7 @@ type ExistingLeadValues = {
   x_decision_due_at?: string | false;
   x_source_major_updated_at?: string | false;
   x_first_seen_at?: string | false;
+  x_last_seen_at?: string | false;
   x_project_stage?: string | false;
   x_project_value?: number | false;
   x_residential_scale?: string | false;
@@ -755,6 +757,14 @@ function historicalRfiActivityFreshness(record: ExistingLeadValues, now: Date) {
     .reduce((freshest, score) => Math.max(freshest, score), 0);
 }
 
+function historicalGrantedConditionsActivityAge(record: ExistingLeadValues, now: Date) {
+  const ages = [record.x_source_major_updated_at, record.x_last_seen_at, record.x_first_seen_at]
+    .map((value) => historicalDaysRemaining(value, now))
+    .filter((days): days is number => days !== false && days <= 0)
+    .map((days) => Math.abs(days));
+  return ages.length ? Math.min(...ages) : false;
+}
+
 function historicalLiveRfiPriority(
   daysRemaining: number,
   activityFreshness: number,
@@ -782,13 +792,24 @@ function historicalExpiredRfiPriority(daysPastDue: number, buildingInfo: boolean
     + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
 
-function historicalLivePlanningDecisionPriority(
+function historicalSecondaryPlanningDecisionPriority(
   daysRemaining: number,
   buildingInfo: boolean,
   retainedRelationship: boolean,
 ) {
-  return 800_000_000 - Math.min(daysRemaining, 5_000) * 100_000
-    + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship) * 2_500;
+  return 20_000
+    + (5_000 - Math.min(daysRemaining, 5_000)) * 10
+    + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship);
+}
+
+function historicalGrantedAcousticConditionsPriority(
+  daysSinceActivity: number,
+  buildingInfo: boolean,
+  retainedRelationship: boolean,
+) {
+  return 1_200_000_000
+    + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship) * 2_500
+    + (120 - Math.min(daysSinceActivity, 120)) * 1_000;
 }
 
 function historicalPostDecisionStage(value: unknown) {
@@ -844,6 +865,14 @@ function historicalLeadReviewPanel(record: ExistingLeadValues, now: Date) {
     if (daysRemaining !== false && daysRemaining < 0) return "Competitive / Re-engagement";
     return "Urgent Acoustic RFI";
   }
+  const grantedConditionsAge = historicalGrantedConditionsActivityAge(record, now);
+  if (record.x_classification === "granted-with-noise-conditions"
+    && routeable
+    && confirmedAcoustic
+    && grantedConditionsAge !== false
+    && grantedConditionsAge <= 120) {
+    return "Granted with Acoustic Conditions";
+  }
   if (routeable && historicalPostDecisionStage(record.x_project_stage)) return "Competitive / Re-engagement";
   if (record.x_acoustic_appointment_status === "competitor-appointed") return "Competitive / Re-engagement";
   if (confirmedAcoustic) return "Confirmed Acoustic Opportunity";
@@ -860,9 +889,16 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const retainedRelationship = record.x_warm_connection_verified === true;
   const verifiedEmailMatch = retainedRelationship && routeable && confirmedAcoustic;
   const rfi = record.x_classification === "noise-related-rfi" && routeable && confirmedAcoustic;
+  const grantedAcousticConditions = record.x_classification === "granted-with-noise-conditions"
+    && routeable
+    && confirmedAcoustic;
   const buildingInfo = sourceCodesFromSystems(record.x_source_systems).includes("BI");
   const rfiDaysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
   const activityFreshness = historicalRfiActivityFreshness(record, now);
+  const grantedConditionsAge = historicalGrantedConditionsActivityAge(record, now);
+  const currentGrantedConditions = grantedAcousticConditions
+    && grantedConditionsAge !== false
+    && grantedConditionsAge <= 120;
   const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
   const recentUndatedRfi = rfi && rfiDaysRemaining === false && historicalRecentRfi(record, now);
   const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
@@ -894,6 +930,14 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
       reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; retained for consultant-reviewed competitive follow-up and ordered by expiry date${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
     };
   }
+  if (currentGrantedConditions) return {
+    rank: historicalGrantedAcousticConditionsPriority(grantedConditionsAge || 0, buildingInfo, retainedRelationship),
+    reason: `Recent permission granted with confirmed acoustic/noise conditions; second priority after current Further Information Requests; newest grant evidence first${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${retainedRelationship ? "; verified historical relationship" : ""}`,
+  };
+  if (grantedAcousticConditions) return {
+    rank: 100 + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship),
+    reason: "Permission was granted with an acoustic/noise condition, but the latest dated evidence is older than 120 days or unavailable; retained for later follow-up and excluded from the current primary queue",
+  };
   if (postDecisionStage) return {
     rank: 100 + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship),
     reason: "Planning outcome is already conditional, granted, refused or otherwise decided; retained for later competitive follow-up and demoted below live work",
@@ -902,8 +946,8 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
     ? { rank: 180, reason: "Planning decision due date has passed with no confirmed outcome; refresh required before action. Historical relationship retained for context" }
     : { rank: 120, reason: "Planning decision due date has passed with no confirmed outcome; retained below live work until refreshed" };
   if (livePlanningDecision) return {
-    rank: historicalLivePlanningDecisionPriority(decisionDaysRemaining, buildingInfo, retainedRelationship),
-    reason: `Active planning decision due in ${decisionDaysRemaining} day${decisionDaysRemaining === 1 ? "" : "s"}; earliest live date first${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${retainedRelationship ? "; verified historical relationship" : ""}`,
+    rank: historicalSecondaryPlanningDecisionPriority(decisionDaysRemaining, buildingInfo, retainedRelationship),
+    reason: `Secondary planning monitor: decision due in ${decisionDaysRemaining} day${decisionDaysRemaining === 1 ? "" : "s"}; current-project acoustic evidence is not one of the two primary targets${buildingInfo ? "; human-reviewed BuildingInfo source retained" : ""}${retainedRelationship ? "; verified historical relationship retained" : ""}`,
   };
   if (buildingInfo && routeable) {
     const partE = !confirmedAcoustic
@@ -916,8 +960,8 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
             : quality === "good" ? 600
               : quality === "medium" ? 400 : 200;
     return {
-      rank: 700_000_000 + commercialRank,
-      reason: `Human-reviewed BuildingInfo lead; ${confirmedAcoustic ? "current acoustic evidence confirmed" : "retained as a potential acoustic fit pending authoritative confirmation"}`,
+      rank: 10_000 + commercialRank,
+      reason: `Secondary BuildingInfo review; ${confirmedAcoustic ? "current acoustic evidence confirmed but it is not a live RFI or granted acoustic condition" : "retained as a potential acoustic fit pending authoritative confirmation"}`,
     };
   }
   if (rfi && verifiedEmailMatch) return { rank: 1000, reason: "Acoustic RFI with verified consultant email history; RFI dates unavailable" };
@@ -1066,6 +1110,54 @@ function mergedValues(left: unknown, right: unknown, separator: string) {
   return [...new Set(items)].join(separator);
 }
 
+function mergedProjectUrls(left: unknown, right: unknown) {
+  return mergedValues(left, right, "\n")
+    .split("\n")
+    .map((value) => value.trim().replace(/^http:/i, "https:"))
+    .filter((value) => value && !genericPlanningPortalUrl(value))
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .join("\n");
+}
+
+function conciseLegacyRelationshipSummary(value: unknown) {
+  const source = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!source) return "";
+  const legacyEvidence = /Matched project party:|Evidence source:|Source message URI:|Evidence reference\(s\):/i.test(source);
+  if (!legacyEvidence && source.length <= 1_600) return source;
+
+  const captured = (pattern: RegExp, maximum = 5) => {
+    const values = [...source.matchAll(pattern)]
+      .map((match) => String(match[1] ?? "").trim())
+      .filter(Boolean);
+    return [...new Set(values)].slice(0, maximum);
+  };
+  const consultants = captured(/Verified consultant history:\s*([^|]+)/gi, 2);
+  const contacts = captured(/Matched email contact:\s*([^|]+)/gi);
+  const organisations = captured(/Matched project party:\s*([^|]+)/gi);
+  const dates = captured(/Matched email date:\s*([^|]+)/gi, 2);
+  const subjects = captured(/Matched email subject:\s*([^|]+)/gi, 2);
+  const projects = captured(/Earlier job\(s\):\s*([^|]+)/gi);
+  const emails = [...new Set((source.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [])
+    .map((email) => email.toLowerCase()))].slice(0, 5);
+  const phones = [...new Set((source.match(/(?:\+|00)?\d[\d\s().-]{7,}\d/g) ?? [])
+    .map((phone) => phone.trim()))].slice(0, 5);
+  const conversations = Math.max(
+    captured(/Evidence reference\(s\):\s*([^|]+)/gi, 25).length,
+    dates.length,
+    1,
+  );
+  const summary = [
+    `${consultants.join(" and ") || "iAcoustics"} previously corresponded with ${contacts.join(", ") || organisations.join(", ") || "the project team"} (${conversations} verified email conversation${conversations === 1 ? "" : "s"}${dates[0] ? `; latest ${dates[0]}` : ""}).`,
+    organisations.length ? `Relationship organisation/project party: ${organisations.join(", ")}.` : "",
+    emails.length ? `Known email contacts: ${emails.join(", ")}.` : "",
+    phones.length ? `Known phone numbers: ${phones.join(", ")}.` : "",
+    subjects.length ? `Matched conversation subjects: ${subjects.join("; ")}.` : "",
+    projects.length ? `Earlier or similar iAcoustics work referenced in the email history: ${projects.join(", ")}.` : "",
+    "This is historical relationship context; the current project's acoustic requirement is assessed separately.",
+  ].filter(Boolean).join(" ");
+  return summary.length <= 1_600 ? summary : `${summary.slice(0, 1_599).trimEnd()}…`;
+}
+
 function existingEmailMatchTag(existing: ExistingLeadValues, registry?: TagRegistry) {
   const names = (existing.tag_ids ?? []).map((id) => registry?.byId.get(id) ?? "");
   if (names.some((name) => /multiple owners|glen \+ eoghan/i.test(name))) return "Email Match: Glen + Eoghan";
@@ -1121,8 +1213,11 @@ function payloadWithExistingEvidence(
       x_source_systems: sourceSystems,
       x_source_ledger: mergedValues(existing.x_source_ledger, payload.values.x_source_ledger, "\n"),
       x_source_record_ids: mergedValues(existing.x_source_record_ids, payload.values.x_source_record_ids, "; "),
-      x_project_link: preserveWhenMissing(payload.values.x_project_link, existing.x_project_link),
-      x_source_urls: mergedValues(existing.x_source_urls, payload.values.x_source_urls, "\n"),
+      x_project_link: preserveWhenMissing(
+        genericPlanningPortalUrl(String(payload.values.x_project_link ?? "")) ? "" : payload.values.x_project_link,
+        genericPlanningPortalUrl(String(existing.x_project_link ?? "")) ? "" : existing.x_project_link,
+      ),
+      x_source_urls: mergedProjectUrls(existing.x_source_urls, payload.values.x_source_urls),
       x_evidence_document_urls: mergedValues(
         existing.x_evidence_document_urls,
         payload.values.x_evidence_document_urls,
@@ -1145,7 +1240,7 @@ function payloadWithExistingEvidence(
           ].filter(Boolean).join(". "))
         : payload.values.x_routing_reason,
       x_relationship_summary: preserveVerifiedRelationship
-        ? preserveWhenMissing("", existing.x_relationship_summary) || payload.values.x_relationship_summary
+        ? conciseLegacyRelationshipSummary(existing.x_relationship_summary) || payload.values.x_relationship_summary
         : payload.values.x_relationship_summary,
       x_relationship_evidence: preserveVerifiedRelationship
         ? preserveWhenMissing("", existing.x_relationship_evidence) || payload.values.x_relationship_evidence

@@ -87,6 +87,10 @@ import {
 import { xlsxFirstSheetToCsv } from "../../src/lib/tender-intelligence/xlsx.ts";
 import { applyAppointmentSafeguards } from "../../src/lib/tender-intelligence/appointment-classification.ts";
 import { BUILDINGINFO_NATIVE_SEARCH_PROFILE } from "../../src/lib/tender-intelligence/building-info-search-profile.ts";
+import {
+  genericPlanningPortalUrl,
+  nationalPlanningProjectUrl,
+} from "../../src/lib/tender-intelligence/project-links.ts";
 
 function planningLead(overrides = {}) {
   return {
@@ -483,6 +487,32 @@ test("Odoo payload exposes an explicit visible tag for a verified email relation
   assert.match(payload.values.x_relationship_evidence, /Source message URI: restricted-email:\/\/glen\/424562/);
   assert.match(payload.values.x_relationship_evidence, /Evidence reference\(s\): \[E:glen:424562\]/);
   assert.match(payload.values.description, /Glen Plunkett — assigned from an exact single-owner email-evidence match/);
+});
+
+test("Odoo relationship summary is bounded and excludes quoted mail headers and confidentiality text", () => {
+  const lookup = buildRelationshipLookup([{
+    name: "Ronan Woods",
+    email: "ronan@example.test",
+    evidence_refs: ["[E:glen:1]"],
+    email_subject: "Earlier acoustic project",
+    email_sent_at: "2026-09-18T10:15:00Z",
+    email_context: "Useful agreed next step. From: Ronan Woods Sent: yesterday To: Eoghan Subject: reply This email is confidential and intended solely for the recipient.",
+    previous_projects: ["Earlier housing noise assessment"],
+  }]);
+  const routed = routeOpportunityByRelationships(planningLead({
+    id: "bounded-relationship-summary",
+    evidenceStatus: "official-text",
+    classification: "noise-related-rfi",
+    parties: [{ role: "applicant", name: "Ronan Woods", organisation: "Ronan Woods", email: "ronan@example.test" }],
+  }), lookup);
+  const [payload] = buildOdooDryRun([{
+    ...routed,
+    crmExternalId: "helmonic-lead:bounded-relationship-summary",
+  }]);
+  assert.ok(payload.values.x_relationship_summary.length <= 1_600);
+  assert.match(payload.values.x_relationship_summary, /Useful agreed next step/);
+  assert.doesNotMatch(payload.values.x_relationship_summary, /This email is confidential/i);
+  assert.doesNotMatch(payload.values.description, /Evidence source:|Source message URI:|Evidence reference\(s\):/i);
 });
 
 test("Odoo marks an exact email relationship to multiple owners as verified and visibly tagged", () => {
@@ -953,6 +983,88 @@ test("Odoo keeps a live confirmed RFI ahead of an undated BuildingInfo discovery
   const ranks = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values.x_pipeline_priority_rank]));
   assert.ok(ranks["helmonic-lead:other-live-rfi-after-bi"] > ranks["helmonic-lead:buildinginfo-potential-first"]);
   assert.ok(Math.max(...Object.values(ranks)) <= 2_147_483_647);
+});
+
+test("Odoo makes current acoustic RFIs primary, granted acoustic conditions second, and potentials secondary", () => {
+  const payloads = buildOdooDryRun([
+    planningLead({
+      id: "live-current-acoustic-rfi",
+      classification: "noise-related-rfi",
+      evidenceStatus: "official-text",
+      evidenceExcerpt: "Further information requested: submit a noise impact assessment.",
+      matchedTerms: ["noise impact assessment"],
+      responseDeadline: "2026-10-24",
+      crmExternalId: "helmonic-lead:live-current-acoustic-rfi",
+    }),
+    planningLead({
+      id: "granted-acoustic-condition",
+      classification: "granted-with-noise-conditions",
+      projectStage: "GRANT PERMISSION WITH CONDITIONS",
+      sourceMajorUpdatedAt: "2026-10-20",
+      evidenceStatus: "official-text",
+      evidenceExcerpt: "Permission granted subject to a condition requiring an acoustic report and plant noise limits.",
+      matchedTerms: ["acoustic report", "plant noise"],
+      crmExternalId: "helmonic-lead:granted-acoustic-condition",
+    }),
+    planningLead({
+      id: "planning-potential-secondary",
+      classification: "design-construction-potential",
+      evidenceStatus: "discovery-only",
+      deadline: "2026-10-23",
+      projectStage: "NEW APPLICATION",
+      crmExternalId: "helmonic-lead:planning-potential-secondary",
+    }),
+  ], new Date("2026-10-21T12:00:00.000Z"));
+  const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
+  assert.equal(values["helmonic-lead:live-current-acoustic-rfi"].x_lead_panel, "Urgent Acoustic RFI");
+  assert.equal(values["helmonic-lead:granted-acoustic-condition"].x_lead_panel, "Granted with Acoustic Conditions");
+  assert.equal(values["helmonic-lead:planning-potential-secondary"].x_lead_panel, "Potential Acoustic Fit");
+  assert.ok(values["helmonic-lead:live-current-acoustic-rfi"].x_pipeline_priority_rank
+    > values["helmonic-lead:granted-acoustic-condition"].x_pipeline_priority_rank);
+  assert.ok(values["helmonic-lead:granted-acoustic-condition"].x_pipeline_priority_rank
+    > values["helmonic-lead:planning-potential-secondary"].x_pipeline_priority_rank);
+});
+
+test("Odoo keeps only recent granted acoustic conditions in the primary queue and orders them newest first", () => {
+  const payloads = buildOdooDryRun([
+    planningLead({
+      id: "newest-granted-acoustic-condition",
+      classification: "granted-with-noise-conditions",
+      projectStage: "GRANT PERMISSION WITH CONDITIONS",
+      sourceMajorUpdatedAt: "2026-10-20",
+      evidenceStatus: "official-text",
+      evidenceExcerpt: "Permission granted with a condition requiring an acoustic report.",
+      matchedTerms: ["acoustic report"],
+      crmExternalId: "helmonic-lead:newest-granted-acoustic-condition",
+    }),
+    planningLead({
+      id: "older-current-granted-acoustic-condition",
+      classification: "granted-with-noise-conditions",
+      projectStage: "GRANT PERMISSION WITH CONDITIONS",
+      sourceMajorUpdatedAt: "2026-09-20",
+      evidenceStatus: "official-text",
+      evidenceExcerpt: "Permission granted with a condition requiring a noise impact assessment.",
+      matchedTerms: ["noise impact assessment"],
+      crmExternalId: "helmonic-lead:older-current-granted-acoustic-condition",
+    }),
+    planningLead({
+      id: "stale-granted-acoustic-condition",
+      classification: "granted-with-noise-conditions",
+      projectStage: "GRANT PERMISSION WITH CONDITIONS",
+      sourceMajorUpdatedAt: "2026-01-10",
+      evidenceStatus: "official-text",
+      evidenceExcerpt: "Permission granted with a condition requiring an acoustic report.",
+      matchedTerms: ["acoustic report"],
+      crmExternalId: "helmonic-lead:stale-granted-acoustic-condition",
+    }),
+  ], new Date("2026-10-21T12:00:00.000Z"));
+  const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
+  assert.equal(values["helmonic-lead:newest-granted-acoustic-condition"].x_lead_panel, "Granted with Acoustic Conditions");
+  assert.equal(values["helmonic-lead:older-current-granted-acoustic-condition"].x_lead_panel, "Granted with Acoustic Conditions");
+  assert.ok(values["helmonic-lead:newest-granted-acoustic-condition"].x_pipeline_priority_rank
+    > values["helmonic-lead:older-current-granted-acoustic-condition"].x_pipeline_priority_rank);
+  assert.equal(values["helmonic-lead:stale-granted-acoustic-condition"].x_lead_panel, "Competitive / Re-engagement");
+  assert.match(values["helmonic-lead:stale-granted-acoustic-condition"].x_pipeline_priority_reason, /older than 120 days/i);
 });
 
 test("Odoo keeps all potential acoustic fits together while Part E leads retain commercial priority", () => {
@@ -1708,11 +1820,13 @@ test("Odoo refreshes enrich source evidence without overwriting human CRM decisi
       x_source_systems: "BuildingInfo",
       x_source_ledger: "Source: BuildingInfo | Record ID: 424562 | URL: https://app.buildinginfo.com/p-OTNsZQ==-",
       x_source_record_ids: "BuildingInfo:424562",
-      x_source_urls: "https://app.buildinginfo.com/p-OTNsZQ==-",
+      x_source_urls: "https://app.buildinginfo.com/p-OTNsZQ==-\nhttps://planning.localgov.ie/",
+      x_project_link: "https://planning.localgov.ie/",
       x_evidence_document_urls: "https://buildinginfo.example/evidence.pdf",
       x_assigned_person: "Glen Plunkett",
       x_warm_connection_verified: true,
       x_routing_reason: "exact-party-match-supported-by-glen-email-evidence",
+      x_relationship_summary: "Matched project party: Armstrong Timber Engineering Ltd. | Matched email contact: Alan Armstrong | Verified consultant history: Glen | Matched email date: 2026-09-18 | Matched email subject: Arklow quote | Earlier job(s): Earlier Arklow project | Evidence source: Restricted iAcoustics consultant email evidence index | Source message URI: email-evidence://glen/1 | Evidence reference(s): [E:glen:1]",
       x_acoustic_appointment_status: "iacoustics-appointed",
       x_appointed_acoustician: "iAcoustics",
       x_appointment_evidence: "iAcoustics has been appointed as acoustic consultant.",
@@ -1752,6 +1866,11 @@ test("Odoo refreshes enrich source evidence without overwriting human CRM decisi
   assert.match(writtenValues.x_source_record_ids, /BuildingInfo:424562/);
   assert.match(writtenValues.x_source_record_ids, /National Planning Register:Wicklow:2660722/);
   assert.match(writtenValues.x_source_urls, /app\.buildinginfo\.com/);
+  assert.doesNotMatch(writtenValues.x_source_urls, /planning\.localgov\.ie\/$/);
+  assert.notEqual(writtenValues.x_project_link, "https://planning.localgov.ie/");
+  assert.ok(writtenValues.x_relationship_summary.length <= 1_600);
+  assert.match(writtenValues.x_relationship_summary, /Glen previously corresponded with Alan Armstrong/);
+  assert.doesNotMatch(writtenValues.x_relationship_summary, /Evidence source:|Source message URI:|Evidence reference\(s\):/);
   assert.equal(writtenValues.partner_name, "Armstrong Timber Engineering Ltd.");
   assert.equal(writtenValues.contact_name, "Manually Corrected Contact");
   assert.equal(writtenValues.email_from, "manual-correction@example.ie");
@@ -2179,6 +2298,25 @@ test("national register records are discovery-only until council wording is insp
   assert.equal(records[0].rfiPublishedAt, "2026-10-10T00:00:00.000Z");
   assert.equal(records[0].rfiReceivedAt, "2026-10-10T00:00:00.000Z");
   assert.equal(records[0].rfiResponseReceivedAt, "2026-10-18T00:00:00.000Z");
+});
+
+test("national planning links are always project-specific and never a generic portal homepage", () => {
+  assert.equal(genericPlanningPortalUrl("https://planning.localgov.ie/"), true);
+  assert.equal(
+    nationalPlanningProjectUrl("Kildare County Council", "2660381", ""),
+    "https://www.eplanning.ie/KildareCC/AppFileRefDetails/2660381/0",
+  );
+  const dublinUrl = nationalPlanningProjectUrl("Dún Laoghaire-Rathdown County Council", "D26A/0190/WEB", "");
+  assert.match(dublinUrl, /^https:\/\/planning\.agileapplications\.ie\/dunlaoghaire\/search-applications\/results\?/);
+  assert.match(decodeURIComponent(dublinUrl), /D26A\/0190\/WEB/);
+  const [record] = parseNationalPlanningFeatures({ features: [{ attributes: {
+    PlanningAuthority: "Kildare County Council",
+    ApplicationNumber: "2660381",
+    DevelopmentDescription: "Example project requiring a noise assessment",
+    ReceivedDate: Date.parse("2026-10-20T00:00:00Z"),
+    LinkAppDetails: "https://planning.localgov.ie/",
+  } }] });
+  assert.equal(record.sourceUrl, "https://www.eplanning.ie/KildareCC/AppFileRefDetails/2660381/0");
 });
 
 test("national register live query is bounded to current weekly discovery activity", () => {

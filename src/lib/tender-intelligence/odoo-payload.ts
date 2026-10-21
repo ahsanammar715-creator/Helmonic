@@ -3,6 +3,7 @@ import {
   acousticEvidenceGateLabel,
   hasConfirmedCurrentAcousticEvidence,
 } from "./acoustic-evidence-guard.ts";
+import { genericPlanningPortalUrl, nationalPlanningProjectUrl } from "./project-links.ts";
 
 export type OdooLeadDryRun = {
   operation: "upsert";
@@ -322,6 +323,25 @@ function compact(value: string | undefined, limit: number) {
   return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
+function conciseConversationContext(value: string | undefined) {
+  const withoutQuotedHeaders = String(value ?? "")
+    .replace(/\b(?:From|Sent|To|Cc|Subject):\s*/gi, " ")
+    .replace(/\b(?:This (?:email|message)|The information in this email|Confidentiality notice|DISCLAIMER)\b[\s\S]*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return compact(withoutQuotedHeaders, 240);
+}
+
+function summarizedList(values: string[], maximum = 5) {
+  const unique = [...new Set(values.map((value) => compact(value, 160)).filter(Boolean))];
+  const visible = unique.slice(0, maximum);
+  return {
+    text: visible.join(", "),
+    total: unique.length,
+    omitted: Math.max(0, unique.length - visible.length),
+  };
+}
+
 function relationshipDetails(record: TenderOpportunity) {
   const matches = record.routingEvidence ?? [];
   if (record.emailRelationshipStatus === "index-unavailable") {
@@ -373,27 +393,28 @@ function relationshipSummary(record: TenderOpportunity) {
   if (matches.length === 0) {
     return "No exact project-party relationship was verified in the restricted iAcoustics email history.";
   }
-  const consultants = [...new Set(matches.flatMap(consultantNames))];
-  const contacts = [...new Set(matches.map((match) => match.matchedEntity || match.party).filter(Boolean))];
-  const emails = [...new Set(matches.flatMap((match) => [match.matchedEmail, ...(match.historicalEmails ?? [])])
-    .map(normalizedEmail).filter((email) => email.includes("@")))];
-  const phones = [...new Set(matches.flatMap((match) => match.historicalPhones ?? []).filter(Boolean))];
-  const projects = [...new Set(matches.flatMap((match) => match.previousProjects ?? []).filter(Boolean))];
-  const organisations = [...new Set(matches.map((match) => match.party).filter(Boolean))];
+  const consultants = summarizedList(matches.flatMap(consultantNames), 2);
+  const contacts = summarizedList(matches.map((match) => match.matchedEntity || match.party).filter(Boolean), 5);
+  const emails = summarizedList(matches.flatMap((match) => [match.matchedEmail, ...(match.historicalEmails ?? [])])
+    .map(normalizedEmail).filter((email) => email.includes("@")), 5);
+  const phones = summarizedList(matches.flatMap((match) => match.historicalPhones ?? []).filter(Boolean), 5);
+  const projects = summarizedList(matches.flatMap((match) => match.previousProjects ?? []).filter(Boolean), 5);
+  const organisations = summarizedList(matches.map((match) => match.party).filter(Boolean), 5);
   const dates = matches.map((match) => match.emailSentAt).filter((value): value is string => Boolean(value));
   const latestDate = dates[0];
   const conversationCount = new Set(matches.flatMap((match) => match.evidenceRefs)).size;
   const latest = matches[0];
-  return [
-    `${consultants.join(" and ")} previously corresponded with ${contacts.join(", ")} (${conversationCount} verified email conversation${conversationCount === 1 ? "" : "s"}${latestDate ? `; latest ${latestDate}` : ""}).`,
-    organisations.length ? `Relationship organisation${organisations.length === 1 ? "" : "s"}/project part${organisations.length === 1 ? "y" : "ies"}: ${organisations.join(", ")}.` : "",
-    emails.length ? `Known email contact${emails.length === 1 ? "" : "s"}: ${emails.join(", ")}.` : "",
-    phones.length ? `Phone number${phones.length === 1 ? "" : "s"} found in the matched email history: ${phones.join(", ")}.` : "",
+  const summary = [
+    `${consultants.text} previously corresponded with ${contacts.text} (${conversationCount} verified email conversation${conversationCount === 1 ? "" : "s"}${latestDate ? `; latest ${latestDate}` : ""}).`,
+    organisations.total ? `Relationship organisation${organisations.total === 1 ? "" : "s"}/project part${organisations.total === 1 ? "y" : "ies"}: ${organisations.text}${organisations.omitted ? `, plus ${organisations.omitted} more` : ""}.` : "",
+    emails.total ? `Known email contact${emails.total === 1 ? "" : "s"}: ${emails.text}${emails.omitted ? `, plus ${emails.omitted} more` : ""}.` : "",
+    phones.total ? `Phone number${phones.total === 1 ? "" : "s"} found in the matched email history: ${phones.text}${phones.omitted ? `, plus ${phones.omitted} more` : ""}.` : "",
     latest?.emailSubject ? `Most recent matched conversation: ${latestDate ? `${latestDate} — ` : ""}${compact(latest.emailSubject, 140)}.` : "",
-    latest?.emailContext ? `Useful conversation context: ${compact(latest.emailContext, 280)}.` : "",
-    projects.length ? `iAcoustics email history references ${projects.length} earlier or similar project${projects.length === 1 ? "" : "s"}: ${projects.join(", ")}.` : "",
+    latest?.emailContext ? `Useful conversation context: ${conciseConversationContext(latest.emailContext)}.` : "",
+    projects.total ? `iAcoustics email history references ${projects.total} earlier or similar project${projects.total === 1 ? "" : "s"}: ${projects.text}${projects.omitted ? `, plus ${projects.omitted} more` : ""}.` : "",
     "This is historical relationship context; the current project's acoustic requirement is assessed separately.",
   ].filter(Boolean).join(" ");
+  return compact(summary, 1_600);
 }
 
 function projectHistorySummary(record: TenderOpportunity) {
@@ -466,6 +487,20 @@ const SOURCE_CODES: Record<TenderOpportunity["sourceSystem"], string> = {
 };
 
 const SOURCE_CODE_ORDER = ["BI", "PL", "NPR", "DCC", "TD", "EU"];
+
+function sourceProjectUrl(
+  record: TenderOpportunity,
+  source: { sourceSystem: TenderOpportunity["sourceSystem"]; sourceRecordId?: string; sourceUrl?: string },
+) {
+  const supplied = String(source.sourceUrl ?? "").trim().replace(/^http:/i, "https:");
+  if (supplied && !genericPlanningPortalUrl(supplied)) return supplied;
+  if (source.sourceSystem !== "National Planning Register") return "";
+  const reference = record.projectReference
+    || String(source.sourceRecordId ?? record.sourceRecordId).split(":").at(-1)
+    || "";
+  if (!reference) return "";
+  return nationalPlanningProjectUrl(record.planningAuthority ?? "", reference, supplied);
+}
 
 function withoutSourcePrefix(value: string | undefined) {
   return String(value ?? "").trim()
@@ -595,6 +630,11 @@ function leadReviewPanel(record: TenderOpportunity, now: Date) {
     if (daysRemaining !== false && daysRemaining < 0) return "Competitive / Re-engagement";
     return "Urgent Acoustic RFI";
   }
+  if (record.classification === "granted-with-noise-conditions"
+    && hasConfirmedCurrentAcousticEvidence(record)
+    && currentGrantedAcousticConditions(record, now)) {
+    return "Granted with Acoustic Conditions";
+  }
   if (isPostDecisionStage(record)) return "Competitive / Re-engagement";
   if (record.acousticAppointmentStatus === "competitor-appointed") return "Competitive / Re-engagement";
   if (hasConfirmedCurrentAcousticEvidence(record)) return "Confirmed Acoustic Opportunity";
@@ -629,7 +669,7 @@ function sourceValues(record: TenderOpportunity) {
       .join("+"),
     systems: [...new Set(sources.map((source) => source.sourceSystem))].join("; "),
     recordIds: sources.map((source) => `${source.sourceSystem}:${source.sourceRecordId}`).join("; "),
-    urls: [...new Set(sources.map((source) => source.sourceUrl).filter(Boolean))].join("\n"),
+    urls: [...new Set(sources.map((source) => sourceProjectUrl(record, source)).filter(Boolean))].join("\n"),
   };
 }
 
@@ -657,7 +697,7 @@ function sourceLedger(record: TenderOpportunity) {
       `First seen: ${source.firstSeenAt || "Unavailable"}`,
       `Last seen: ${source.lastSeenAt || "Unavailable"}`,
       `Observed/imported: ${source.observedAt || "Unavailable"}`,
-      `Project URL: ${source.sourceUrl || "Not supplied"}`,
+      `Project URL: ${sourceProjectUrl(record, source) || "Not supplied"}`,
       `Document name(s): ${(source.documentNames ?? []).join("; ") || "Not supplied"}`,
       `Document URL(s): ${(source.documentUrls ?? []).join("; ") || "Not supplied"}`,
       `Evidence status: ${source.evidenceStatus}`,
@@ -715,10 +755,18 @@ function projectLink(record: TenderOpportunity) {
     sourceSystem: record.sourceSystem,
     sourceUrl: record.sourceUrl,
   }];
-  return sources.find((source) => source.sourceSystem === "BuildingInfo" && source.sourceUrl)?.sourceUrl
-    ?? sources.find((source) => source.sourceUrl)?.sourceUrl
-    ?? record.sourceUrl
-    ?? "";
+  const buildingInfo = sources.find((source) => source.sourceSystem === "BuildingInfo"
+    && sourceProjectUrl(record, source));
+  if (buildingInfo) return sourceProjectUrl(record, buildingInfo);
+  for (const source of sources) {
+    const url = sourceProjectUrl(record, source);
+    if (url) return url;
+  }
+  return sourceProjectUrl(record, {
+    sourceSystem: record.sourceSystem,
+    sourceRecordId: record.sourceRecordId,
+    sourceUrl: record.sourceUrl,
+  });
 }
 
 function escapeHtml(value: unknown) {
@@ -761,8 +809,8 @@ function projectSourceLinks(record: TenderOpportunity) {
   }];
   return sources.map((source) => ({
     label: `${source.sourceSystem} project · ${source.sourceRecordId}`,
-    url: source.sourceUrl,
-  }));
+    url: sourceProjectUrl(record, source),
+  })).filter((source) => Boolean(source.url));
 }
 
 function evidenceDocumentLinks(record: TenderOpportunity) {
@@ -814,6 +862,10 @@ function recommendedReviewAction(record: TenderOpportunity, now: Date) {
     const urgency = recordUrgency(record, now);
     return `${urgency}. Review the exact RFI evidence, confirm the most relevant project contact and decide the response before the RFI due date.`;
   }
+  if (record.classification === "granted-with-noise-conditions"
+    && hasConfirmedCurrentAcousticEvidence(record)) {
+    return "Permission has been granted with an explicit acoustic or noise condition. Review the exact condition, project stage and verified contacts, then decide the consultant-led approach.";
+  }
   if (hasConfirmedCurrentAcousticEvidence(record) && verifiedWarmConnection(record)) {
     return "Review the verified historical relationship and current acoustic evidence together, then decide the appropriate consultant-led contact.";
   }
@@ -851,6 +903,31 @@ function rfiActivityFreshness(record: TenderOpportunity, now: Date) {
     .reduce((freshest, score) => Math.max(freshest, score), 0);
 }
 
+function grantedConditionsActivityAge(record: TenderOpportunity, now: Date) {
+  const documentDates = (record.evidenceDocuments ?? [])
+    .filter((document) => document.classification === "granted-with-noise-conditions")
+    .map((document) => document.receivedAt);
+  const ages = [
+    ...documentDates,
+    record.sourceMajorUpdatedAt,
+    record.sourceUpdatedAt,
+    record.lastConfirmedAt,
+    record.lastSeenAt,
+    record.publishedAt,
+    record.planningReceivedAt,
+    record.firstSeenAt,
+  ]
+    .map((value) => calendarDaysRemaining(value ?? "", now))
+    .filter((days): days is number => days !== false && days <= 0)
+    .map((days) => Math.abs(days));
+  return ages.length ? Math.min(...ages) : false;
+}
+
+function currentGrantedAcousticConditions(record: TenderOpportunity, now: Date) {
+  const age = grantedConditionsActivityAge(record, now);
+  return age !== false && age <= 120;
+}
+
 function liveRfiPriority(
   daysRemaining: number,
   activityFreshness: number,
@@ -882,13 +959,24 @@ function expiredRfiPriority(daysPastDue: number, buildingInfo: boolean, verified
     + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
 
-function livePlanningDecisionPriority(
+function grantedAcousticConditionsPriority(
+  daysSinceActivity: number,
+  buildingInfo: boolean,
+  verifiedEmailMatch: boolean,
+) {
+  return 1_200_000_000
+    + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch) * 2_500
+    + (120 - Math.min(daysSinceActivity, 120)) * 1_000;
+}
+
+function secondaryPlanningDecisionPriority(
   daysRemaining: number,
   buildingInfo: boolean,
   retainedRelationship: boolean,
 ) {
-  return 800_000_000 - Math.min(daysRemaining, 5_000) * 100_000
-    + commercialRfiTieBreaker(buildingInfo, retainedRelationship) * 2_500;
+  return 20_000
+    + (5_000 - Math.min(daysRemaining, 5_000)) * 10
+    + commercialRfiTieBreaker(buildingInfo, retainedRelationship);
 }
 
 function liveRfiPriorityReason(
@@ -914,9 +1002,15 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
   const retainedRelationship = verifiedWarmConnection(record);
   const verifiedEmailMatch = retainedRelationship && routeable && confirmedAcoustic;
   const rfi = record.classification === "noise-related-rfi" && routeable && confirmedAcoustic;
+  const grantedAcousticConditions = record.classification === "granted-with-noise-conditions"
+    && routeable
+    && confirmedAcoustic;
   const buildingInfo = sourceValues(record).codes.split("+").includes("BI");
   const rfiDaysRemaining = calendarDaysRemaining(record.responseDeadline ?? "", now);
   const activityFreshness = rfiActivityFreshness(record, now);
+  const grantedConditionsAge = grantedConditionsActivityAge(record, now);
+  const currentGrantedConditions = grantedAcousticConditions
+    && currentGrantedAcousticConditions(record, now);
   const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
   const recentUndatedRfi = rfi && rfiDaysRemaining === false && recentRfiWithoutDueDate(record, now);
   const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
@@ -958,6 +1052,18 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
       reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; retained for consultant-reviewed competitive follow-up and ordered by expiry date${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
     };
   }
+  if (currentGrantedConditions) {
+    return {
+      rank: grantedAcousticConditionsPriority(grantedConditionsAge || 0, buildingInfo, retainedRelationship),
+      reason: `Recent permission granted with confirmed acoustic/noise conditions; second priority after current Further Information Requests; newest grant evidence first${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${retainedRelationship ? "; verified historical relationship" : ""}`,
+    };
+  }
+  if (grantedAcousticConditions) {
+    return {
+      rank: 100 + commercialRfiTieBreaker(buildingInfo, retainedRelationship),
+      reason: "Permission was granted with an acoustic/noise condition, but the latest dated evidence is older than 120 days or unavailable; retained for later follow-up and excluded from the current primary queue",
+    };
+  }
   if (postDecisionStage) {
     return {
       rank: 100 + commercialRfiTieBreaker(buildingInfo, retainedRelationship),
@@ -971,8 +1077,8 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
   }
   if (livePlanningDecision) {
     return {
-      rank: livePlanningDecisionPriority(decisionDaysRemaining, buildingInfo, retainedRelationship),
-      reason: `Active planning decision due in ${decisionDaysRemaining} day${decisionDaysRemaining === 1 ? "" : "s"}; earliest live date first${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${retainedRelationship ? "; verified historical relationship" : ""}`,
+      rank: secondaryPlanningDecisionPriority(decisionDaysRemaining, buildingInfo, retainedRelationship),
+      reason: `Secondary planning monitor: decision due in ${decisionDaysRemaining} day${decisionDaysRemaining === 1 ? "" : "s"}; current-project acoustic evidence is not one of the two primary targets${buildingInfo ? "; human-reviewed BuildingInfo source retained" : ""}${retainedRelationship ? "; verified historical relationship retained" : ""}`,
     };
   }
   if (buildingInfo && routeable) {
@@ -984,8 +1090,8 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
             : record.leadQuality === "good" ? 600
               : record.leadQuality === "medium" ? 400 : 200;
     return {
-      rank: 700_000_000 + commercialRank,
-      reason: `Human-reviewed BuildingInfo lead; ${confirmedAcoustic ? "current acoustic evidence confirmed" : "retained as a potential acoustic fit pending authoritative confirmation"}`,
+      rank: 10_000 + commercialRank,
+      reason: `Secondary BuildingInfo review; ${confirmedAcoustic ? "current acoustic evidence confirmed but it is not a live RFI or granted acoustic condition" : "retained as a potential acoustic fit pending authoritative confirmation"}`,
     };
   }
   if (rfi && verifiedEmailMatch) {
