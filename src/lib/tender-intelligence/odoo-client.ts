@@ -761,11 +761,10 @@ function historicalLiveRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  const sourceBand = buildingInfo ? 2_000_000_000 : 1_000_000_000;
-  const dueDateRank = sourceBand - Math.min(daysRemaining, 5_000) * 100_000;
+  const dueDateRank = 2_100_000_000 - Math.min(daysRemaining, 5_000) * 100_000;
   return dueDateRank
-    + activityFreshness * 100
-    + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
+    + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch) * 2_500
+    + activityFreshness * 20;
 }
 
 function historicalRecentUndatedRfiPriority(
@@ -773,14 +772,31 @@ function historicalRecentUndatedRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  return (buildingInfo ? 1_400_000_000 : 400_000_000)
+  return 1_500_000_000
     + activityFreshness * 100
     + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
 
 function historicalExpiredRfiPriority(daysPastDue: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
-  return (buildingInfo ? 1_200_000_000 : 0) - Math.min(daysPastDue, 9_000) * 100
+  return -100_000_000 - Math.min(daysPastDue, 9_000) * 100
     + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
+}
+
+function historicalLivePlanningDecisionPriority(
+  daysRemaining: number,
+  buildingInfo: boolean,
+  retainedRelationship: boolean,
+) {
+  return 800_000_000 - Math.min(daysRemaining, 5_000) * 100_000
+    + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship) * 2_500;
+}
+
+function historicalPostDecisionStage(value: unknown) {
+  const stage = String(value ?? "");
+  if (/request(?:ed)?\s+(?:for\s+)?additional information|additional information requested|further information requested/i.test(stage)) {
+    return false;
+  }
+  return /grant(?:ed)?|conditional|refus(?:e|ed|al)|withdrawn|invalid(?:ated)?|commencement|construction|on site|completed/i.test(stage);
 }
 
 function historicalLiveRfiPriorityReason(
@@ -828,6 +844,7 @@ function historicalLeadReviewPanel(record: ExistingLeadValues, now: Date) {
     if (daysRemaining !== false && daysRemaining < 0) return "Competitive / Re-engagement";
     return "Urgent Acoustic RFI";
   }
+  if (routeable && historicalPostDecisionStage(record.x_project_stage)) return "Competitive / Re-engagement";
   if (record.x_acoustic_appointment_status === "competitor-appointed") return "Competitive / Re-engagement";
   if (confirmedAcoustic) return "Confirmed Acoustic Opportunity";
   if (routeable) return "Potential Acoustic Fit";
@@ -851,7 +868,12 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
   const fulfilledRfi = rfi && Boolean(record.x_rfi_response_received_at);
   const decisionDaysRemaining = historicalDaysRemaining(record.x_decision_due_at, now);
-  const postDecisionStage = /granted|commencement|construction|on site|completed/i.test(String(record.x_project_stage ?? ""));
+  const postDecisionStage = historicalPostDecisionStage(record.x_project_stage);
+  const livePlanningDecision = !rfi
+    && routeable
+    && decisionDaysRemaining !== false
+    && decisionDaysRemaining >= 0
+    && !postDecisionStage;
   const stalePendingPlanningDecision = !rfi && decisionDaysRemaining !== false && decisionDaysRemaining < 0 && !postDecisionStage;
   if (liveDatedRfi && !fulfilledRfi) return {
     rank: historicalLiveRfiPriority(rfiDaysRemaining, activityFreshness, buildingInfo, verifiedEmailMatch),
@@ -862,8 +884,8 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
     reason: `Recent confirmed acoustic RFI ordered by received/published date; response due date not supplied${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${verifiedEmailMatch ? "; verified acoustic consultant email relationship" : ""}`,
   };
   if (fulfilledRfi) return {
-    rank: buildingInfo ? 1_200_000_000 : -100_000_000,
-    reason: `Further-information response was received ${record.x_rfi_response_received_at}; retained for relationship and competitive follow-up, not treated as an open RFI${buildingInfo ? "; human-reviewed BuildingInfo source retained in the leading source band" : ""}`,
+    rank: -200_000_000 + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch),
+    reason: `Further-information response was received ${record.x_rfi_response_received_at}; retained for relationship and competitive follow-up, never treated as an open RFI${buildingInfo ? "; human-reviewed BuildingInfo provenance retained" : ""}`,
   };
   if (expiredRfi) {
     const daysPastDue = Math.abs(rfiDaysRemaining);
@@ -872,6 +894,17 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
       reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; retained for consultant-reviewed competitive follow-up and ordered by expiry date${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
     };
   }
+  if (postDecisionStage) return {
+    rank: 100 + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship),
+    reason: "Planning outcome is already conditional, granted, refused or otherwise decided; retained for later competitive follow-up and demoted below live work",
+  };
+  if (stalePendingPlanningDecision) return retainedRelationship
+    ? { rank: 180, reason: "Planning decision due date has passed with no confirmed outcome; refresh required before action. Historical relationship retained for context" }
+    : { rank: 120, reason: "Planning decision due date has passed with no confirmed outcome; retained below live work until refreshed" };
+  if (livePlanningDecision) return {
+    rank: historicalLivePlanningDecisionPriority(decisionDaysRemaining, buildingInfo, retainedRelationship),
+    reason: `Active planning decision due in ${decisionDaysRemaining} day${decisionDaysRemaining === 1 ? "" : "s"}; earliest live date first${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${retainedRelationship ? "; verified historical relationship" : ""}`,
+  };
   if (buildingInfo && routeable) {
     const partE = !confirmedAcoustic
       && ["attached-4-plus", "lrd-100-plus"].includes(String(record.x_residential_scale ?? ""));
@@ -883,7 +916,7 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
             : quality === "good" ? 600
               : quality === "medium" ? 400 : 200;
     return {
-      rank: 1_300_000_000 + commercialRank,
+      rank: 700_000_000 + commercialRank,
       reason: `Human-reviewed BuildingInfo lead; ${confirmedAcoustic ? "current acoustic evidence confirmed" : "retained as a potential acoustic fit pending authoritative confirmation"}`,
     };
   }
@@ -897,16 +930,10 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
     };
   }
   if (!confirmedAcoustic) {
-    if (stalePendingPlanningDecision) return retainedRelationship
-      ? { rank: 180, reason: "Potential acoustic fit only; planning decision date has passed and current-project acoustic evidence is unconfirmed. Historical relationship retained for context" }
-      : { rank: 120, reason: "Potential acoustic fit only; planning decision date has passed and current-project acoustic evidence is unconfirmed" };
     return retainedRelationship
       ? { rank: 320, reason: "Potential acoustic fit only; current-project acoustic evidence is unconfirmed. Verified historical relationship retained for context, not opportunity proof" }
       : { rank: 220, reason: "Potential acoustic fit only; current-project acoustic evidence is unconfirmed" };
   }
-  if (stalePendingPlanningDecision) return verifiedEmailMatch
-    ? { rank: 350, reason: "Planning decision due date has passed with no confirmed outcome; refresh required before action" }
-    : { rank: 150, reason: "Planning decision due date has passed with no confirmed outcome; retained as background" };
   if (verifiedEmailMatch) return { rank: 900, reason: "Qualified opportunity with a verified consultant email relationship" };
   if (quality === "excellent") return { rank: 800, reason: "Excellent opportunity without a verified email relationship" };
   if (record.x_acoustic_appointment_status === "competitor-appointed") {

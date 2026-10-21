@@ -595,6 +595,7 @@ function leadReviewPanel(record: TenderOpportunity, now: Date) {
     if (daysRemaining !== false && daysRemaining < 0) return "Competitive / Re-engagement";
     return "Urgent Acoustic RFI";
   }
+  if (isPostDecisionStage(record)) return "Competitive / Re-engagement";
   if (record.acousticAppointmentStatus === "competitor-appointed") return "Competitive / Re-engagement";
   if (hasConfirmedCurrentAcousticEvidence(record)) return "Confirmed Acoustic Opportunity";
   if (isPotentialAcousticFit(record)) return "Potential Acoustic Fit";
@@ -823,9 +824,11 @@ function recommendedReviewAction(record: TenderOpportunity, now: Date) {
 }
 
 function isPostDecisionStage(record: TenderOpportunity) {
-  return /granted|commencement|construction|on site|completed/i.test(
-    `${record.projectStage ?? ""} ${record.sourceStatus ?? ""}`,
-  );
+  const stage = `${record.projectStage ?? ""} ${record.sourceStatus ?? ""}`;
+  if (/request(?:ed)?\s+(?:for\s+)?additional information|additional information requested|further information requested/i.test(stage)) {
+    return false;
+  }
+  return /grant(?:ed)?|conditional|refus(?:e|ed|al)|withdrawn|invalid(?:ated)?|commencement|construction|on site|completed/i.test(stage);
 }
 
 function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
@@ -854,14 +857,12 @@ function liveRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  // BuildingInfo receives the reviewed-source band. Inside either source
-  // band, one due-date day outweighs every activity or relationship tie-break,
-  // so the earliest response deadline is always first in that band.
-  const sourceBand = buildingInfo ? 2_000_000_000 : 1_000_000_000;
-  const dueDateRank = sourceBand - Math.min(daysRemaining, 5_000) * 100_000;
+  // The response date is absolute across every source. BuildingInfo and
+  // verified relationships break ties only after the deadline has matched.
+  const dueDateRank = 2_100_000_000 - Math.min(daysRemaining, 5_000) * 100_000;
   return dueDateRank
-    + activityFreshness * 100
-    + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
+    + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch) * 2_500
+    + activityFreshness * 20;
 }
 
 function recentUndatedRfiPriority(
@@ -869,17 +870,25 @@ function recentUndatedRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  return (buildingInfo ? 1_400_000_000 : 400_000_000)
+  return 1_500_000_000
     + activityFreshness * 100
     + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
 
 function expiredRfiPriority(daysPastDue: number, buildingInfo: boolean, verifiedEmailMatch: boolean) {
-  // Expired RFIs remain available for reviewed competitive follow-up. The
-  // BuildingInfo band remains ahead because the user explicitly treats all
-  // human-reviewed BuildingInfo records as the first source tier.
-  return (buildingInfo ? 1_200_000_000 : 0) - Math.min(daysPastDue, 9_000) * 100
+  // Expired RFIs remain searchable for competitive follow-up but can never
+  // outrank a live RFI or an active planning decision.
+  return -100_000_000 - Math.min(daysPastDue, 9_000) * 100
     + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
+}
+
+function livePlanningDecisionPriority(
+  daysRemaining: number,
+  buildingInfo: boolean,
+  retainedRelationship: boolean,
+) {
+  return 800_000_000 - Math.min(daysRemaining, 5_000) * 100_000
+    + commercialRfiTieBreaker(buildingInfo, retainedRelationship) * 2_500;
 }
 
 function liveRfiPriorityReason(
@@ -894,9 +903,7 @@ function liveRfiPriorityReason(
     : "; RFI received/published date unavailable";
   const source = buildingInfo ? "; human-reviewed BuildingInfo source" : "";
   const relationship = verifiedEmailMatch ? "; verified acoustic consultant email relationship" : "";
-  const ordering = buildingInfo
-    ? "; reviewed BuildingInfo RFI band first, then response deadline"
-    : "; response deadline leads the non-BuildingInfo RFI band";
+  const ordering = "; response deadline has absolute precedence across all sources";
   return `Active acoustic RFI ${due}${ordering}${chronology}${source}${relationship}`;
 }
 
@@ -915,11 +922,18 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
   const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
   const fulfilledRfi = rfi && Boolean(record.rfiResponseReceivedAt);
   const decisionDaysRemaining = calendarDaysRemaining(planningDecisionDueAt(record), now);
+  const postDecisionStage = isPostDecisionStage(record);
+  const livePlanningDecision = record.type === "planning-pipeline-lead"
+    && !rfi
+    && routeable
+    && decisionDaysRemaining !== false
+    && decisionDaysRemaining >= 0
+    && !postDecisionStage;
   const stalePendingPlanningDecision = record.type === "planning-pipeline-lead"
     && !rfi
     && decisionDaysRemaining !== false
     && decisionDaysRemaining < 0
-    && !isPostDecisionStage(record);
+    && !postDecisionStage;
 
   if (liveDatedRfi && !fulfilledRfi) {
     return {
@@ -933,8 +947,8 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
   };
   if (fulfilledRfi) {
     return {
-      rank: buildingInfo ? 1_200_000_000 : -100_000_000,
-      reason: `Further-information response was received ${record.rfiResponseReceivedAt}; retained for relationship and competitive follow-up, not treated as an open RFI${buildingInfo ? "; human-reviewed BuildingInfo source retained in the leading source band" : ""}`,
+      rank: -200_000_000 + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch),
+      reason: `Further-information response was received ${record.rfiResponseReceivedAt}; retained for relationship and competitive follow-up, never treated as an open RFI${buildingInfo ? "; human-reviewed BuildingInfo provenance retained" : ""}`,
     };
   }
   if (expiredRfi) {
@@ -942,6 +956,23 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
     return {
       rank: expiredRfiPriority(daysPastDue, buildingInfo, verifiedEmailMatch),
       reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; retained for consultant-reviewed competitive follow-up and ordered by expiry date${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
+    };
+  }
+  if (postDecisionStage) {
+    return {
+      rank: 100 + commercialRfiTieBreaker(buildingInfo, retainedRelationship),
+      reason: "Planning outcome is already conditional, granted, refused or otherwise decided; retained for later competitive follow-up and demoted below live work",
+    };
+  }
+  if (stalePendingPlanningDecision) {
+    return retainedRelationship
+      ? { rank: 180, reason: "Planning decision due date has passed with no confirmed outcome; refresh required before action. Historical relationship retained for context" }
+      : { rank: 120, reason: "Planning decision due date has passed with no confirmed outcome; retained below live work until refreshed" };
+  }
+  if (livePlanningDecision) {
+    return {
+      rank: livePlanningDecisionPriority(decisionDaysRemaining, buildingInfo, retainedRelationship),
+      reason: `Active planning decision due in ${decisionDaysRemaining} day${decisionDaysRemaining === 1 ? "" : "s"}; earliest live date first${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${retainedRelationship ? "; verified historical relationship" : ""}`,
     };
   }
   if (buildingInfo && routeable) {
@@ -953,7 +984,7 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
             : record.leadQuality === "good" ? 600
               : record.leadQuality === "medium" ? 400 : 200;
     return {
-      rank: 1_300_000_000 + commercialRank,
+      rank: 700_000_000 + commercialRank,
       reason: `Human-reviewed BuildingInfo lead; ${confirmedAcoustic ? "current acoustic evidence confirmed" : "retained as a potential acoustic fit pending authoritative confirmation"}`,
     };
   }
@@ -966,16 +997,6 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
       rank: 500,
       reason: "Part E commercial review: attached residential scheme of at least four units; potential acoustic work expected, ordered by project value within the Potential Acoustic Fit panel",
     };
-  }
-  if (!confirmedAcoustic && stalePendingPlanningDecision) {
-    return retainedRelationship
-      ? { rank: 180, reason: "Potential acoustic fit only; planning decision date has passed and current-project acoustic evidence is unconfirmed. Historical relationship retained for context" }
-      : { rank: 120, reason: "Potential acoustic fit only; planning decision date has passed and current-project acoustic evidence is unconfirmed" };
-  }
-  if (stalePendingPlanningDecision) {
-    return retainedRelationship
-      ? { rank: 350, reason: "Planning decision due date has passed with no confirmed outcome; refresh required before action" }
-      : { rank: 150, reason: "Planning decision due date has passed with no confirmed outcome; retained as background" };
   }
   if (!confirmedAcoustic) {
     return retainedRelationship
