@@ -257,4 +257,46 @@ if [[ "$run_smoke_test" == "true" ]]; then
     exit 1
   fi
   echo "Started controlled BuildingInfo dev/test execution: $execution_name"
+
+  for attempt in {1..80}; do
+    execution_status="$(az containerapp job execution show \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --name "$AZURE_BUILDINGINFO_JOB_NAME" \
+      --job-execution-name "$execution_name" \
+      --query properties.status \
+      --output tsv 2>/dev/null || true)"
+
+    case "$execution_status" in
+      Succeeded)
+        echo "Controlled BuildingInfo dev/test execution succeeded: $execution_name"
+        exit 0
+        ;;
+      Failed)
+        echo "Controlled BuildingInfo dev/test execution failed: $execution_name" >&2
+        container_name="$(az containerapp job show \
+          --resource-group "$AZURE_RESOURCE_GROUP" \
+          --name "$AZURE_BUILDINGINFO_JOB_NAME" \
+          --query 'properties.template.containers[0].name' \
+          --output tsv 2>/dev/null || true)"
+        if [[ -n "$container_name" ]]; then
+          echo "--- BuildingInfo dev/test container output ---" >&2
+          az containerapp job logs show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_BUILDINGINFO_JOB_NAME" \
+            --execution "$execution_name" \
+            --container "$container_name" \
+            --format text \
+            --tail 200 2>&1 || true
+          echo "--- end BuildingInfo dev/test container output ---" >&2
+        fi
+        exit 1
+        ;;
+    esac
+
+    echo "BuildingInfo dev/test execution status: ${execution_status:-Pending} (check $attempt/80)"
+    sleep 30
+  done
+
+  echo "Timed out waiting for the controlled BuildingInfo dev/test execution: $execution_name" >&2
+  exit 1
 fi
