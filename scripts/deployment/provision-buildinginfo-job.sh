@@ -22,7 +22,16 @@ password_secret_name="${BUILDINGINFO_PASSWORD_SECRET_NAME:-buildinginfo-password
 run_smoke_test="${BUILDINGINFO_RUN_SMOKE_TEST:-false}"
 
 work_dir="$(mktemp -d)"
+schedule_guard_override_active="false"
 cleanup() {
+  if [[ "$schedule_guard_override_active" == "true" ]]; then
+    az containerapp job update \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --name "$AZURE_BUILDINGINFO_JOB_NAME" \
+      --set-env-vars HELMONIC_SCHEDULE_GUARD_ENABLED=true \
+      --only-show-errors \
+      --output none 2>/dev/null || true
+  fi
   rm -rf -- "$work_dir"
 }
 trap cleanup EXIT
@@ -32,7 +41,6 @@ source_secrets="$work_dir/source-secrets.json"
 target_secrets="$work_dir/target-secrets.json"
 merged_secrets="$work_dir/merged-secrets.json"
 target_body="$work_dir/target-job.json"
-smoke_body="$work_dir/smoke-execution.json"
 
 az containerapp job show \
   --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -248,20 +256,27 @@ if [[ "$actual_trigger" != "Schedule" || "$actual_cron" != "$cron_expression" ]]
 fi
 
 if [[ "$run_smoke_test" == "true" ]]; then
-  jq '
-    .properties.template
-    | .containers[0].env = (
-        ((.containers[0].env // []) | map(select(.name != "HELMONIC_SCHEDULE_GUARD_ENABLED")))
-        + [{name: "HELMONIC_SCHEDULE_GUARD_ENABLED", value: "false"}]
-      )
-  ' "$target_body" >"$smoke_body"
+  az containerapp job update \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --name "$AZURE_BUILDINGINFO_JOB_NAME" \
+    --set-env-vars HELMONIC_SCHEDULE_GUARD_ENABLED=false \
+    --only-show-errors \
+    --output none
+  schedule_guard_override_active="true"
 
-  execution_name="$(az rest \
-    --method post \
-    --uri "https://management.azure.com${target_id}/start?api-version=2025-07-01" \
-    --body "@$smoke_body" \
+  execution_name="$(az containerapp job start \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --name "$AZURE_BUILDINGINFO_JOB_NAME" \
     --query name \
     --output tsv)"
+
+  az containerapp job update \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --name "$AZURE_BUILDINGINFO_JOB_NAME" \
+    --set-env-vars HELMONIC_SCHEDULE_GUARD_ENABLED=true \
+    --only-show-errors \
+    --output none
+  schedule_guard_override_active="false"
   if [[ -z "$execution_name" ]]; then
     echo "Azure did not return an execution name for the BuildingInfo smoke test." >&2
     exit 1
