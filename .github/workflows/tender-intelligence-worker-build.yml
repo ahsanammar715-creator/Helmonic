@@ -13,6 +13,16 @@ on:
         required: true
         default: false
         type: boolean
+      provision_buildinginfo_job:
+        description: Create or update the separate 10am BuildingInfo dev/test job
+        required: true
+        default: false
+        type: boolean
+      start_buildinginfo_test_run:
+        description: Start one controlled BuildingInfo dev/test execution after provisioning (credentials must already exist)
+        required: true
+        default: false
+        type: boolean
   push:
     branches:
       - codex/tender-intelligence-release
@@ -21,6 +31,7 @@ on:
       - package.json
       - package-lock.json
       - scripts/tender_intelligence/**
+      - scripts/deployment/provision-buildinginfo-job.sh
       - src/lib/tender-intelligence/**
       - .github/workflows/tender-intelligence-worker-build.yml
 
@@ -38,6 +49,7 @@ env:
   IMAGE_REPOSITORY: helmonic-tender-intelligence
   AZURE_RESOURCE_GROUP: RG-HELMONIC-DEV
   AZURE_JOB_NAME: ca-helmonic-ti-dev-001
+  AZURE_BUILDINGINFO_JOB_NAME: ca-helmonic-ti-bi-dev-001
 
 jobs:
   diagnose-azure-jobs:
@@ -97,6 +109,16 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Create or update the separate 10am BuildingInfo dev/test job
+        if: github.event_name == 'workflow_dispatch' && inputs.provision_buildinginfo_job
+        shell: bash
+        env:
+          AZURE_SOURCE_JOB_NAME: ${{ env.AZURE_JOB_NAME }}
+          BUILDINGINFO_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+          BUILDINGINFO_CONSENT_REFERENCE: account-owner-confirmed-provider-agreement-2026-10-23
+          BUILDINGINFO_RUN_SMOKE_TEST: ${{ inputs.start_buildinginfo_test_run }}
+        run: bash scripts/deployment/provision-buildinginfo-job.sh
 
       - name: Migrate managed Tender Desk records to the Odoo Leads review queue
         if: >-
