@@ -42,7 +42,7 @@ const searchStages = (process.env.BUILDINGINFO_BROWSER_STAGES
 const maximumProjects = Math.max(1, Number.parseInt(process.env.BUILDINGINFO_BROWSER_MAX_PROJECTS || "150", 10));
 const maximumResultsPerSearch = Math.max(1, Number.parseInt(process.env.BUILDINGINFO_BROWSER_MAX_RESULTS_PER_SEARCH || "2000", 10));
 const maximumLoadMoreClicks = Math.max(0, Number.parseInt(process.env.BUILDINGINFO_BROWSER_MAX_LOAD_MORE_CLICKS || "4", 10));
-const requestDelayMs = Math.max(500, Number.parseInt(process.env.BUILDINGINFO_BROWSER_REQUEST_DELAY_MS || "1400", 10));
+const requestDelayMs = Math.max(750, Number.parseInt(process.env.BUILDINGINFO_BROWSER_REQUEST_DELAY_MS || "2200", 10));
 const navigationTimeoutMs = Math.max(5_000, Number.parseInt(process.env.BUILDINGINFO_BROWSER_TIMEOUT_MS || "45000", 10));
 const includePotential = process.env.BUILDINGINFO_BROWSER_INCLUDE_POTENTIAL !== "false";
 const headless = process.env.BUILDINGINFO_BROWSER_HEADLESS !== "false";
@@ -61,7 +61,7 @@ function redactError(error) {
 }
 
 function delay(milliseconds = requestDelayMs) {
-  const jitter = Math.floor(Math.random() * Math.min(350, Math.max(1, milliseconds / 4)));
+  const jitter = Math.floor(Math.random() * Math.min(750, Math.max(1, milliseconds / 3)));
   return new Promise((resolve) => setTimeout(resolve, milliseconds + jitter));
 }
 

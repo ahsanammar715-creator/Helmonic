@@ -21,6 +21,7 @@ const runId = startedAt.toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, 
 const outputDirectory = path.join(automationRoot, runId);
 const summaryPath = path.join(outputDirectory, "summary.json");
 const summarizeOnly = process.argv.includes("--summarize-only");
+const buildingInfoRun = process.argv.includes("--buildinginfo-run");
 
 if (process.env.HELMONIC_ODOO_PREFLIGHT_ONLY === "true") {
   await import("./preflight-odoo.mjs");
@@ -37,7 +38,12 @@ function localHour(date, timeZone) {
 
 if (process.env.HELMONIC_SCHEDULE_GUARD_ENABLED === "true") {
   const timeZone = process.env.HELMONIC_SCHEDULE_TIMEZONE || "Europe/Dublin";
-  const targetHour = Number.parseInt(process.env.HELMONIC_SCHEDULE_LOCAL_HOUR || "7", 10);
+  const targetHour = Number.parseInt(
+    buildingInfoRun
+      ? process.env.HELMONIC_BUILDINGINFO_BROWSER_SCHEDULE_LOCAL_HOUR || "10"
+      : process.env.HELMONIC_SCHEDULE_LOCAL_HOUR || "7",
+    10,
+  );
   const observedHour = localHour(startedAt, timeZone);
   if (observedHour !== targetHour) {
     console.log(JSON.stringify({
@@ -49,6 +55,10 @@ if (process.env.HELMONIC_SCHEDULE_GUARD_ENABLED === "true") {
     }));
     process.exit(0);
   }
+}
+
+if (buildingInfoRun && process.env.HELMONIC_BUILDINGINFO_BROWSER_ENABLED !== "true") {
+  throw new Error("The 10:00 BuildingInfo run was requested but authenticated browser intake is disabled.");
 }
 
 await mkdir(outputDirectory, { recursive: true });
@@ -115,6 +125,7 @@ const summary = {
   buildingInfoEnabled: process.env.HELMONIC_BUILDINGINFO_ENABLED === "true",
   buildingInfoCsvEnabled: process.env.HELMONIC_BUILDINGINFO_CSV_ENABLED === "true",
   buildingInfoBrowserEnabled: process.env.HELMONIC_BUILDINGINFO_BROWSER_ENABLED === "true",
+  buildingInfoRun,
   summarizeOnly,
   optionalSteps: [],
   completedSteps: [],
