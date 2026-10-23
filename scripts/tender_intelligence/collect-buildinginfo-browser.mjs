@@ -155,9 +155,23 @@ async function runSearch(page, term) {
     });
   }
   const stageFilter = await applyOptionalStageFilters(page);
-  const searchButton = page.getByRole("button", { name: /^Search$/i }).first();
-  if (!await searchButton.isVisible().catch(() => false)) throw new Error("BuildingInfo Search button was not found.");
-  await searchButton.click();
+  const searchActivated = await page
+    .locator('button, input[type="submit"], input[type="button"], a')
+    .evaluateAll((elements) => {
+      const control = elements.find((element) => {
+        const label = (
+          element.textContent
+          || element.value
+          || element.getAttribute("aria-label")
+          || ""
+        ).replace(/\s+/g, " ").trim().toLowerCase();
+        return label === "search";
+      });
+      if (!control) return false;
+      control.click();
+      return true;
+    });
+  if (!searchActivated) throw new Error("BuildingInfo Search control was not found.");
   await page.waitForLoadState("domcontentloaded", { timeout: navigationTimeoutMs }).catch(() => undefined);
   await delay(700);
   await assertNoAccessChallenge(page, `search for ${term}`);
