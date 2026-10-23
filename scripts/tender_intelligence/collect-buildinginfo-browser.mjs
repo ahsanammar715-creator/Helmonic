@@ -155,22 +155,39 @@ async function runSearch(page, term) {
     });
   }
   const stageFilter = await applyOptionalStageFilters(page);
-  const searchActivated = await page
-    .locator('button, input[type="submit"], input[type="button"], a')
-    .evaluateAll((elements) => {
-      const control = elements.find((element) => {
-        const label = (
-          element.textContent
-          || element.value
-          || element.getAttribute("aria-label")
-          || ""
-        ).replace(/\s+/g, " ").trim().toLowerCase();
-        return label === "search";
-      });
-      if (!control) return false;
-      control.click();
-      return true;
-    });
+  // BuildingInfo's responsive search page has used both native buttons and
+  // styled div/span controls. Locate the visible exact-text control, then
+  // click its nearest interactive ancestor so either implementation works.
+  const searchActivated = await page.locator("body").evaluate((body) => {
+    const normalise = (value) => String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+    const isVisible = (element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== "none"
+        && style.visibility !== "hidden"
+        && Number.parseFloat(style.opacity || "1") > 0
+        && rect.width > 0
+        && rect.height > 0;
+    };
+    const candidates = [...body.querySelectorAll("*")]
+      .filter((element) => {
+        const label = normalise(
+          element.getAttribute("aria-label")
+          || (element instanceof HTMLInputElement ? element.value : "")
+          || element.textContent,
+        );
+        return label === "search" && isVisible(element);
+      })
+      .sort((left, right) => left.querySelectorAll("*").length - right.querySelectorAll("*").length);
+    const labelElement = candidates[0];
+    if (!labelElement) return false;
+    const control = labelElement.closest(
+      'button, a, input[type="submit"], input[type="button"], [role="button"], [onclick]',
+    ) || labelElement;
+    if (!(control instanceof HTMLElement)) return false;
+    control.click();
+    return true;
+  });
   if (!searchActivated) throw new Error("BuildingInfo Search control was not found.");
   await page.waitForLoadState("domcontentloaded", { timeout: navigationTimeoutMs }).catch(() => undefined);
   await delay(700);
