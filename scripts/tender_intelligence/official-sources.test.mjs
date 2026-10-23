@@ -628,6 +628,7 @@ test("Odoo preflight validates the complete contract and routing with zero write
       return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
         type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
           name: "char",
+          active: "boolean",
           description: "html",
           partner_name: "char",
           contact_name: "char",
@@ -696,6 +697,7 @@ test("Odoo creates new Tender Desk records as leads, preserves conversion and su
       return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
         type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
           name: "char",
+          active: "boolean",
           description: "html",
           partner_name: "char",
           contact_name: "char",
@@ -798,7 +800,7 @@ test("Odoo pipeline priority leads with qualified verified email matches", async
     if (url.endsWith("/crm.lead/fields_get")) {
       return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
         type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
-          name: "char", description: "html", partner_name: "char", contact_name: "char",
+          name: "char", active: "boolean", description: "html", partner_name: "char", contact_name: "char",
           email_from: "char", phone: "char", function: "char", street: "char", date_deadline: "date",
           partner_id: "many2one", campaign_id: "many2one", medium_id: "many2one", source_id: "many2one",
           tag_ids: "many2many", type: "selection", team_id: "many2one", user_id: "many2one", priority: "selection",
@@ -953,6 +955,7 @@ test("Odoo orders recent undated RFIs by their received or published activity da
   ], new Date("2026-10-12T12:00:00.000Z"));
   const ranks = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values.x_pipeline_priority_rank]));
   assert.ok(ranks["helmonic-lead:newer-undated-unmatched"] > ranks["helmonic-lead:older-undated-buildinginfo-match"]);
+  assert.ok(payloads.every((payload) => payload.values.active === true));
 });
 
 test("Odoo keeps a live confirmed RFI ahead of an undated BuildingInfo discovery lead", () => {
@@ -1126,7 +1129,7 @@ test("Odoo keeps all potential acoustic fits together while Part E leads retain 
   assert.equal(sorted[2].matchValue, "helmonic-lead:general-potential-fit");
 });
 
-test("Odoo retains expired RFIs in a date-led competitive re-engagement panel", () => {
+test("Odoo archives expired RFIs out of active Leads while retaining their audit context", () => {
   const records = [
     planningLead({
       id: "live-buildinginfo-rfi",
@@ -1160,6 +1163,24 @@ test("Odoo retains expired RFIs in a date-led competitive re-engagement panel", 
       crmExternalId: "helmonic-lead:recently-expired-unmatched-rfi",
     }),
     planningLead({
+      id: "answered-rfi",
+      classification: "noise-related-rfi",
+      responseDeadline: "2026-10-18",
+      rfiResponseReceivedAt: "2026-10-11",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      crmExternalId: "helmonic-lead:answered-rfi",
+    }),
+    planningLead({
+      id: "stale-undated-rfi",
+      classification: "noise-related-rfi",
+      rfiPublishedAt: "2026-07-01",
+      responseDeadline: "",
+      leadQuality: "excellent",
+      leadDisposition: "active",
+      crmExternalId: "helmonic-lead:stale-undated-rfi",
+    }),
+    planningLead({
       id: "expired-planning-decision",
       deadline: "2026-09-15",
       projectStage: "Plans Applied",
@@ -1183,6 +1204,7 @@ test("Odoo retains expired RFIs in a date-led competitive re-engagement panel", 
   const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
   assert.ok(values["helmonic-lead:live-buildinginfo-rfi"].x_pipeline_priority_rank > 500_000_000);
   assert.equal(values["helmonic-lead:live-buildinginfo-rfi"].x_lead_panel, "Urgent Acoustic RFI");
+  assert.equal(values["helmonic-lead:live-buildinginfo-rfi"].active, true);
   assert.ok(values["helmonic-lead:recently-expired-unmatched-rfi"].x_pipeline_priority_rank < 0);
   assert.ok(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_rank < 0);
   assert.ok(
@@ -1191,9 +1213,15 @@ test("Odoo retains expired RFIs in a date-led competitive re-engagement panel", 
   );
   assert.equal(values["helmonic-lead:recently-expired-unmatched-rfi"].x_lead_panel, "Competitive / Re-engagement");
   assert.equal(values["helmonic-lead:expired-matched-rfi"].x_lead_panel, "Competitive / Re-engagement");
+  assert.equal(values["helmonic-lead:recently-expired-unmatched-rfi"].active, false);
+  assert.equal(values["helmonic-lead:expired-matched-rfi"].active, false);
+  assert.equal(values["helmonic-lead:answered-rfi"].active, false);
+  assert.equal(values["helmonic-lead:stale-undated-rfi"].active, false);
+  assert.match(values["helmonic-lead:answered-rfi"].x_pipeline_priority_reason, /archived from active Leads/i);
   assert.equal(values["helmonic-lead:recently-expired-unmatched-rfi"].x_rfi_response_due_at, "2026-10-10 00:00:00");
   assert.equal(values["helmonic-lead:expired-matched-rfi"].x_rfi_response_due_at, "2026-09-15 00:00:00");
-  assert.match(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_reason, /competitive follow-up/i);
+  assert.match(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_reason, /archived from active Leads/i);
+  assert.equal(Object.hasOwn(values["helmonic-lead:expired-planning-decision"], "active"), false);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_rank, 180);
   assert.match(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_reason, /refresh required/i);
   assert.equal(values["helmonic-lead:granted-post-decision"].x_pipeline_priority_rank, 100);
@@ -1420,6 +1448,7 @@ test("Odoo synchronization can create missing attribution records, link the prim
       return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
         type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
           name: "char",
+          active: "boolean",
           description: "html",
           partner_name: "char",
           contact_name: "char",
@@ -1537,6 +1566,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
       return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
         type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
           name: "char",
+          active: "boolean",
           description: "html",
           partner_name: "char",
           contact_name: "char",
@@ -1570,6 +1600,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
       if (body.domain?.[0]?.[1] === "!=") return Response.json([
         {
           id: 69,
+          active: true,
           name: "J-current",
           tag_ids: [3],
           x_helmonic_external_id: payloads[0].matchValue,
@@ -1580,6 +1611,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
         },
         {
           id: 70,
+          active: true,
           type: "opportunity",
           name: "J-1256",
           street: "Unit 4 Greenacres Shopping Centre, Dundalk, Co. Louth",
@@ -1600,6 +1632,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
         },
         {
           id: 71,
+          active: false,
           type: "opportunity",
           name: "[BI] J-buildinginfo-rfi",
           tag_ids: [4, 7],
@@ -1621,6 +1654,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
         },
         {
           id: 72,
+          active: true,
           type: "opportunity",
           name: "Part E residential scheme",
           tag_ids: [3],
@@ -1644,6 +1678,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
         },
         {
           id: 73,
+          active: true,
           type: "lead",
           name: "Expired managed acoustic RFI",
           tag_ids: [6],
@@ -1716,6 +1751,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(buildingInfoHistorical.vals.name, "J-buildinginfo-rfi");
   assert.equal(buildingInfoHistorical.vals.type, "lead");
   assert.equal(buildingInfoHistorical.vals.priority, "3");
+  assert.equal(buildingInfoHistorical.vals.active, true);
   assert.match(
     buildingInfoHistorical.vals.x_pipeline_priority_reason,
     /^Active acoustic RFI due in \d+ days; response deadline takes precedence; RFI received\/published date unavailable; human-reviewed BuildingInfo source; verified acoustic consultant email relationship$/,
@@ -1728,7 +1764,9 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.ok(expiredHistorical.vals.x_pipeline_priority_rank < 0);
   assert.match(expiredHistorical.vals.x_pipeline_priority_reason, /competitive follow-up/i);
   assert.equal(expiredHistorical.vals.priority, "0");
-  assert.ok(!Object.hasOwn(expiredHistorical.vals, "active"));
+  assert.equal(expiredHistorical.vals.active, false);
+  assert.equal(result.managedRfisArchived, 1);
+  assert.equal(result.managedRfisReactivated, 1);
 });
 
 test("Odoo never assigns a consultant when only historical email evidence exists", () => {
@@ -1784,6 +1822,7 @@ test("Odoo refreshes enrich source evidence without overwriting human CRM decisi
       return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
         type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
           name: "char",
+          active: "boolean",
           description: "html",
           partner_name: "char",
           contact_name: "char",

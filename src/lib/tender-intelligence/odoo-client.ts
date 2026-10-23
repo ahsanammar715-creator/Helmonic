@@ -43,6 +43,8 @@ export type OdooSyncResult = {
   sourceTagsLinked: number;
   historicalRecordsNormalized: number;
   managedRecordsMovedToLeads: number;
+  managedRfisArchived: number;
+  managedRfisReactivated: number;
   failures: Array<{ externalId: string; error: string }>;
 };
 
@@ -110,6 +112,7 @@ type OdooFieldInfo = {
 };
 
 const ODOO_STANDARD_LEAD_FIELD_TYPES: Record<string, string> = {
+  active: "boolean",
   partner_name: "char",
   contact_name: "char",
   email_from: "char",
@@ -604,6 +607,7 @@ function valuesForOdoo(
 
 type ExistingLeadValues = {
   id?: number;
+  active?: boolean;
   type?: "lead" | "opportunity" | false;
   name?: string | false;
   priority?: string | false;
@@ -741,6 +745,14 @@ function historicalRecentRfi(record: ExistingLeadValues, now: Date) {
   return [record.x_rfi_received_at, record.x_rfi_published_at, record.x_source_major_updated_at, record.x_first_seen_at]
     .map((value) => historicalDaysRemaining(value, now))
     .some((age) => age !== false && age <= 0 && age >= -42);
+}
+
+function historicalActiveRfiQueueStatus(record: ExistingLeadValues, now: Date): boolean | undefined {
+  if (record.x_classification !== "noise-related-rfi") return undefined;
+  if (record.x_rfi_response_received_at) return false;
+  const daysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
+  if (daysRemaining !== false) return daysRemaining >= 0;
+  return historicalRecentRfi(record, now);
 }
 
 function historicalCommercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {
@@ -921,13 +933,13 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   };
   if (fulfilledRfi) return {
     rank: -200_000_000 + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch),
-    reason: `Further-information response was received ${record.x_rfi_response_received_at}; retained for relationship and competitive follow-up, never treated as an open RFI${buildingInfo ? "; human-reviewed BuildingInfo provenance retained" : ""}`,
+    reason: `Further-information response was received ${record.x_rfi_response_received_at}; archived from active Leads and retained for audit, relationship history and competitive follow-up, never treated as an open RFI${buildingInfo ? "; human-reviewed BuildingInfo provenance retained" : ""}`,
   };
   if (expiredRfi) {
     const daysPastDue = Math.abs(rfiDaysRemaining);
     return {
       rank: historicalExpiredRfiPriority(daysPastDue, buildingInfo, verifiedEmailMatch),
-      reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; retained for consultant-reviewed competitive follow-up and ordered by expiry date${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
+      reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; archived from active Leads and retained for audit, deduplication and consultant-reviewed competitive follow-up${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
     };
   }
   if (currentGrantedConditions) return {
@@ -996,11 +1008,13 @@ async function normalizeHistoricalOdooRecords(
   canonicalNamesByExternalId: ReadonlyMap<string, string>,
   fetcher: typeof fetch,
 ) {
-  if (!config.normalizeHistoricalRecords) return { normalized: 0, movedToLeads: 0 };
+  if (!config.normalizeHistoricalRecords) {
+    return { normalized: 0, movedToLeads: 0, archivedRfis: 0, reactivatedRfis: 0 };
+  }
   const records = await json2Call(config, config.model, "search_read", {
     domain: [[config.externalIdField, "!=", false]],
     fields: [
-      "id", "type", "name", "priority", "tag_ids", "street", "x_applicant", config.externalIdField, "x_source_systems", "x_project_reference",
+      "id", "active", "type", "name", "priority", "tag_ids", "street", "x_applicant", config.externalIdField, "x_source_systems", "x_project_reference",
       // x_studio_reference is read only to recognise legacy source values.
       // It is Odoo's sequential A-number and is never written by Helmonic.
       "x_studio_reference", "x_source_reference", "x_warm_connection_verified", "x_assigned_person",
@@ -1013,9 +1027,12 @@ async function normalizeHistoricalOdooRecords(
       "x_source_major_updated_at", "x_first_seen_at", "x_project_stage", "x_project_value", "x_residential_scale",
     ],
     limit: 5_000,
+    context: { active_test: false },
   }, fetcher) as ExistingLeadValues[];
   let normalized = 0;
   let movedToLeads = 0;
+  let archivedRfis = 0;
+  let reactivatedRfis = 0;
   const normalizationNow = new Date();
   for (const record of records) {
     if (!Number.isInteger(record.id)) continue;
@@ -1062,6 +1079,12 @@ async function normalizeHistoricalOdooRecords(
       }
     }
     const priority = historicalPipelinePriority(record, normalizationNow);
+    const activeRfiStatus = historicalActiveRfiQueueStatus(record, normalizationNow);
+    if (activeRfiStatus !== undefined && record.active !== activeRfiStatus) {
+      values.active = activeRfiStatus;
+      if (activeRfiStatus) reactivatedRfis += 1;
+      else archivedRfis += 1;
+    }
     const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
     const nativeOwnerId = Array.isArray(record.user_id)
       ? Number(record.user_id[0])
@@ -1099,7 +1122,7 @@ async function normalizeHistoricalOdooRecords(
     await json2Call(config, config.model, "write", { ids: [record.id], vals: values }, fetcher);
     normalized += 1;
   }
-  return { normalized, movedToLeads };
+  return { normalized, movedToLeads, archivedRfis, reactivatedRfis };
 }
 
 function mergedValues(left: unknown, right: unknown, separator: string) {
@@ -1303,6 +1326,8 @@ export async function syncOdooLeads(
       sourceTagsLinked: 0,
       historicalRecordsNormalized: 0,
       managedRecordsMovedToLeads: 0,
+      managedRfisArchived: 0,
+      managedRfisReactivated: 0,
       failures: [],
     };
   }
@@ -1328,6 +1353,8 @@ export async function syncOdooLeads(
     sourceTagsLinked: 0,
     historicalRecordsNormalized: 0,
     managedRecordsMovedToLeads: 0,
+    managedRfisArchived: 0,
+    managedRfisReactivated: 0,
     failures: [],
   };
   for (const payload of payloads) {
@@ -1336,6 +1363,7 @@ export async function syncOdooLeads(
         domain: [[config.externalIdField, "=", payload.matchValue]],
         fields: [
           "id",
+          "active",
           "type",
           "tag_ids",
           "partner_name",
@@ -1373,6 +1401,7 @@ export async function syncOdooLeads(
           "x_outreach_key",
         ],
         limit: 2,
+        context: { active_test: false },
       }, odooFetch) as ExistingLeadValues[];
       if (!Array.isArray(matches)) throw new Error("Odoo search_read returned an invalid response.");
       if (matches.length > 1) throw new Error("More than one Odoo lead has the same Helmonic external ID.");
@@ -1404,12 +1433,15 @@ export async function syncOdooLeads(
       if (matches.length === 1 && Number.isFinite(matches[0]?.id)) {
         await json2Call(config, config.model, "write", { ids: [matches[0].id], vals: values }, odooFetch);
         result.updated += 1;
+        if (values.active === false && matches[0]?.active !== false) result.managedRfisArchived += 1;
+        if (values.active === true && matches[0]?.active === false) result.managedRfisReactivated += 1;
         if (matches[0]?.type === "opportunity" && values.type === "lead") {
           result.managedRecordsMovedToLeads += 1;
         }
       } else {
         await json2Call(config, config.model, "create", { vals_list: [values] }, odooFetch);
         result.created += 1;
+        if (values.active === false) result.managedRfisArchived += 1;
       }
     } catch (error) {
       result.failures.push({
@@ -1432,5 +1464,7 @@ export async function syncOdooLeads(
   );
   result.historicalRecordsNormalized = historicalNormalization.normalized;
   result.managedRecordsMovedToLeads += historicalNormalization.movedToLeads;
+  result.managedRfisArchived += historicalNormalization.archivedRfis;
+  result.managedRfisReactivated += historicalNormalization.reactivatedRfis;
   return result;
 }

@@ -18,6 +18,12 @@ export type OdooLeadDryRun = {
   sourceTagNames: string[];
   statusTagNames: string[];
   values: {
+    /**
+     * Odoo's native archive flag. It is supplied only for acoustic RFIs so
+     * Helmonic does not interfere with a person's archive decision on other
+     * CRM records.
+     */
+    active?: boolean;
     name: string;
     description: string;
     partner_name: string;
@@ -889,6 +895,19 @@ function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
     .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
+function activeRfiQueueStatus(record: TenderOpportunity, now: Date): boolean | undefined {
+  if (record.classification !== "noise-related-rfi") return undefined;
+  if (record.rfiResponseReceivedAt) return false;
+  const daysRemaining = calendarDaysRemaining(record.responseDeadline ?? "", now);
+  if (daysRemaining !== false) return daysRemaining >= 0;
+
+  // An official Further Information Request with no supplied response due
+  // date remains actionable only while its received/published evidence is
+  // recent. Older undated RFIs stay in the source ledger but do not overload
+  // the active Tender Desk queue.
+  return recentRfiWithoutDueDate(record, now);
+}
+
 function commercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {
   return buildingInfo && verifiedEmailMatch ? 30
     : verifiedEmailMatch ? 20
@@ -1042,14 +1061,14 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
   if (fulfilledRfi) {
     return {
       rank: -200_000_000 + commercialRfiTieBreaker(buildingInfo, verifiedEmailMatch),
-      reason: `Further-information response was received ${record.rfiResponseReceivedAt}; retained for relationship and competitive follow-up, never treated as an open RFI${buildingInfo ? "; human-reviewed BuildingInfo provenance retained" : ""}`,
+      reason: `Further-information response was received ${record.rfiResponseReceivedAt}; archived from active Leads and retained for audit, relationship history and competitive follow-up, never treated as an open RFI${buildingInfo ? "; human-reviewed BuildingInfo provenance retained" : ""}`,
     };
   }
   if (expiredRfi) {
     const daysPastDue = Math.abs(rfiDaysRemaining);
     return {
       rank: expiredRfiPriority(daysPastDue, buildingInfo, verifiedEmailMatch),
-      reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; retained for consultant-reviewed competitive follow-up and ordered by expiry date${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
+      reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; archived from active Leads and retained for audit, deduplication and consultant-reviewed competitive follow-up${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
     };
   }
   if (currentGrantedConditions) {
@@ -1228,6 +1247,9 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
       sourceTagNames: sources.codes.split("+").filter(Boolean),
       statusTagNames: appointmentTagNames(record),
       values: {
+        ...(activeRfiQueueStatus(record, now) === undefined
+          ? {}
+          : { active: activeRfiQueueStatus(record, now) }),
         name: projectTitle(record),
         description: description(record, now),
         partner_name: organisation,
