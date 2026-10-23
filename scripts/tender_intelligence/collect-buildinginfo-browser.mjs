@@ -144,7 +144,16 @@ async function runSearch(page, term) {
   if (!await input.isVisible().catch(() => false)) throw new Error("BuildingInfo keyword search field was not found.");
   await input.fill(term);
   const exact = page.getByLabel(/Exact Match/i).first();
-  if (await exact.isVisible().catch(() => false) && await exact.isChecked().catch(() => false)) await exact.uncheck();
+  if (await exact.isChecked().catch(() => false)) {
+    await exact.evaluate((element) => {
+      if (!(element instanceof HTMLInputElement) || element.type !== "checkbox") {
+        throw new Error("BuildingInfo Exact Match control is not a checkbox.");
+      }
+      element.checked = false;
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
   const stageFilter = await applyOptionalStageFilters(page);
   const searchButton = page.getByRole("button", { name: /^Search$/i }).first();
   if (!await searchButton.isVisible().catch(() => false)) throw new Error("BuildingInfo Search button was not found.");
