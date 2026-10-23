@@ -109,7 +109,10 @@ jq \
       if .identity == null then null
       else {
         type: .identity.type,
-        userAssignedIdentities: (.identity.userAssignedIdentities // {})
+        userAssignedIdentities: (
+          (.identity.userAssignedIdentities // {})
+          | with_entries(.value = {})
+        )
       }
       end
     ),
