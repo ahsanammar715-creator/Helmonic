@@ -32,6 +32,7 @@ source_secrets="$work_dir/source-secrets.json"
 target_secrets="$work_dir/target-secrets.json"
 merged_secrets="$work_dir/merged-secrets.json"
 target_body="$work_dir/target-job.json"
+smoke_body="$work_dir/smoke-execution.json"
 
 az containerapp job show \
   --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -247,12 +248,20 @@ if [[ "$actual_trigger" != "Schedule" || "$actual_cron" != "$cron_expression" ]]
 fi
 
 if [[ "$run_smoke_test" == "true" ]]; then
-  execution_name="$(az containerapp job start \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --name "$AZURE_BUILDINGINFO_JOB_NAME" \
+  jq '
+    .properties.template
+    | .containers[0].env = (
+        ((.containers[0].env // []) | map(select(.name != "HELMONIC_SCHEDULE_GUARD_ENABLED")))
+        + [{name: "HELMONIC_SCHEDULE_GUARD_ENABLED", value: "false"}]
+      )
+  ' "$target_body" >"$smoke_body"
+
+  execution_name="$(az rest \
+    --method post \
+    --uri "https://management.azure.com${target_id}/start?api-version=2025-07-01" \
+    --body "@$smoke_body" \
     --query name \
-    --output tsv \
-    --env-vars HELMONIC_SCHEDULE_GUARD_ENABLED=false)"
+    --output tsv)"
   if [[ -z "$execution_name" ]]; then
     echo "Azure did not return an execution name for the BuildingInfo smoke test." >&2
     exit 1
