@@ -22,7 +22,6 @@ const outputDirectory = path.join(automationRoot, runId);
 const summaryPath = path.join(outputDirectory, "summary.json");
 const summarizeOnly = process.argv.includes("--summarize-only");
 const buildingInfoRun = process.argv.includes("--buildinginfo-run");
-const manualBuildingInfoRun = buildingInfoRun && process.argv.includes("--manual-run");
 
 if (process.env.HELMONIC_ODOO_PREFLIGHT_ONLY === "true") {
   await import("./preflight-odoo.mjs");
@@ -37,7 +36,7 @@ function localHour(date, timeZone) {
   }).format(date), 10);
 }
 
-if (process.env.HELMONIC_SCHEDULE_GUARD_ENABLED === "true" && !manualBuildingInfoRun) {
+if (process.env.HELMONIC_SCHEDULE_GUARD_ENABLED === "true") {
   const timeZone = process.env.HELMONIC_SCHEDULE_TIMEZONE || "Europe/Dublin";
   const targetHour = Number.parseInt(
     buildingInfoRun

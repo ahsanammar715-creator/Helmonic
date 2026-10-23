@@ -252,10 +252,7 @@ if [[ "$run_smoke_test" == "true" ]]; then
     --name "$AZURE_BUILDINGINFO_JOB_NAME" \
     --query name \
     --output tsv \
-    --args \
-      "scripts/tender_intelligence/run-daily-automation.mjs" \
-      "--buildinginfo-run" \
-      "--manual-run")"
+    --env-vars HELMONIC_SCHEDULE_GUARD_ENABLED=false)"
   if [[ -z "$execution_name" ]]; then
     echo "Azure did not return an execution name for the BuildingInfo smoke test." >&2
     exit 1
