@@ -43,6 +43,8 @@ export type OdooSyncResult = {
   sourceTagsLinked: number;
   historicalRecordsNormalized: number;
   managedRecordsMovedToLeads: number;
+  managedLeadsArchived: number;
+  managedLeadsReactivated: number;
   managedRfisArchived: number;
   managedRfisReactivated: number;
   failures: Array<{ externalId: string; error: string }>;
@@ -649,6 +651,7 @@ type ExistingLeadValues = {
   x_rfi_received_at?: string | false;
   x_rfi_response_due_at?: string | false;
   x_rfi_response_received_at?: string | false;
+  x_deadline?: string | false;
   x_planning_received_at?: string | false;
   x_planning_validated_at?: string | false;
   x_decision_due_at?: string | false;
@@ -747,12 +750,28 @@ function historicalRecentRfi(record: ExistingLeadValues, now: Date) {
     .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
-function historicalActiveRfiQueueStatus(record: ExistingLeadValues, now: Date): boolean | undefined {
-  if (record.x_classification !== "noise-related-rfi") return undefined;
-  if (record.x_rfi_response_received_at) return false;
-  const daysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
-  if (daysRemaining !== false) return daysRemaining >= 0;
-  return historicalRecentRfi(record, now);
+function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date): boolean | undefined {
+  if (record.x_classification === "granted-with-noise-conditions"
+    && historicalConfirmedAcousticEvidence(record)) return true;
+
+  if (record.x_classification === "noise-related-rfi") {
+    if (record.x_rfi_response_received_at) return false;
+    const daysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
+    if (daysRemaining !== false) return daysRemaining >= 0;
+    return historicalRecentRfi(record, now);
+  }
+
+  if (record.x_opportunity_type === "formal-public-tender") {
+    const daysRemaining = historicalDaysRemaining(record.x_deadline, now);
+    return daysRemaining === false ? undefined : daysRemaining >= 0;
+  }
+
+  if (record.x_opportunity_type === "planning-pipeline-lead") {
+    const daysRemaining = historicalDaysRemaining(record.x_decision_due_at, now);
+    if (daysRemaining !== false) return daysRemaining >= 0;
+    if (historicalPostDecisionStage(record.x_project_stage)) return false;
+  }
+  return undefined;
 }
 
 function historicalCommercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {
@@ -880,9 +899,7 @@ function historicalLeadReviewPanel(record: ExistingLeadValues, now: Date) {
   const grantedConditionsAge = historicalGrantedConditionsActivityAge(record, now);
   if (record.x_classification === "granted-with-noise-conditions"
     && routeable
-    && confirmedAcoustic
-    && grantedConditionsAge !== false
-    && grantedConditionsAge <= 120) {
+    && confirmedAcoustic) {
     return "Granted with Acoustic Conditions";
   }
   if (routeable && historicalPostDecisionStage(record.x_project_stage)) return "Competitive / Re-engagement";
@@ -908,9 +925,6 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const rfiDaysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
   const activityFreshness = historicalRfiActivityFreshness(record, now);
   const grantedConditionsAge = historicalGrantedConditionsActivityAge(record, now);
-  const currentGrantedConditions = grantedAcousticConditions
-    && grantedConditionsAge !== false
-    && grantedConditionsAge <= 120;
   const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
   const recentUndatedRfi = rfi && rfiDaysRemaining === false && historicalRecentRfi(record, now);
   const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
@@ -942,13 +956,9 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
       reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; archived from active Leads and retained for audit, deduplication and consultant-reviewed competitive follow-up${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
     };
   }
-  if (currentGrantedConditions) return {
-    rank: historicalGrantedAcousticConditionsPriority(grantedConditionsAge || 0, buildingInfo, retainedRelationship),
-    reason: `Recent permission granted with confirmed acoustic/noise conditions; second priority after current Further Information Requests; newest grant evidence first${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${retainedRelationship ? "; verified historical relationship" : ""}`,
-  };
   if (grantedAcousticConditions) return {
-    rank: 100 + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship),
-    reason: "Permission was granted with an acoustic/noise condition, but the latest dated evidence is older than 120 days or unavailable; retained for later follow-up and excluded from the current primary queue",
+    rank: historicalGrantedAcousticConditionsPriority(grantedConditionsAge === false ? 120 : grantedConditionsAge, buildingInfo, retainedRelationship),
+    reason: `Permission granted with confirmed acoustic/noise conditions; second primary category after current Further Information Requests; newest grant evidence first${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${retainedRelationship ? "; verified historical relationship" : ""}`,
   };
   if (postDecisionStage) return {
     rank: 100 + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship),
@@ -1009,7 +1019,14 @@ async function normalizeHistoricalOdooRecords(
   fetcher: typeof fetch,
 ) {
   if (!config.normalizeHistoricalRecords) {
-    return { normalized: 0, movedToLeads: 0, archivedRfis: 0, reactivatedRfis: 0 };
+    return {
+      normalized: 0,
+      movedToLeads: 0,
+      archivedLeads: 0,
+      reactivatedLeads: 0,
+      archivedRfis: 0,
+      reactivatedRfis: 0,
+    };
   }
   const records = await json2Call(config, config.model, "search_read", {
     domain: [[config.externalIdField, "!=", false]],
@@ -1022,7 +1039,7 @@ async function normalizeHistoricalOdooRecords(
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
       "x_lead_panel", "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
       "x_evidence_status", "x_evidence_excerpt", "x_matched_terms", "x_cpv_codes", "x_opportunity_type",
-      "x_rfi_published_at", "x_rfi_received_at", "x_rfi_response_due_at", "x_rfi_response_received_at",
+      "x_deadline", "x_rfi_published_at", "x_rfi_received_at", "x_rfi_response_due_at", "x_rfi_response_received_at",
       "x_planning_received_at", "x_planning_validated_at", "x_decision_due_at",
       "x_source_major_updated_at", "x_first_seen_at", "x_project_stage", "x_project_value", "x_residential_scale",
     ],
@@ -1031,6 +1048,8 @@ async function normalizeHistoricalOdooRecords(
   }, fetcher) as ExistingLeadValues[];
   let normalized = 0;
   let movedToLeads = 0;
+  let archivedLeads = 0;
+  let reactivatedLeads = 0;
   let archivedRfis = 0;
   let reactivatedRfis = 0;
   const normalizationNow = new Date();
@@ -1079,11 +1098,15 @@ async function normalizeHistoricalOdooRecords(
       }
     }
     const priority = historicalPipelinePriority(record, normalizationNow);
-    const activeRfiStatus = historicalActiveRfiQueueStatus(record, normalizationNow);
-    if (activeRfiStatus !== undefined && record.active !== activeRfiStatus) {
-      values.active = activeRfiStatus;
-      if (activeRfiStatus) reactivatedRfis += 1;
-      else archivedRfis += 1;
+    const activeLeadStatus = historicalActiveLeadQueueStatus(record, normalizationNow);
+    if (activeLeadStatus !== undefined && record.active !== activeLeadStatus) {
+      values.active = activeLeadStatus;
+      if (activeLeadStatus) reactivatedLeads += 1;
+      else archivedLeads += 1;
+      if (record.x_classification === "noise-related-rfi") {
+        if (activeLeadStatus) reactivatedRfis += 1;
+        else archivedRfis += 1;
+      }
     }
     const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
     const nativeOwnerId = Array.isArray(record.user_id)
@@ -1122,7 +1145,14 @@ async function normalizeHistoricalOdooRecords(
     await json2Call(config, config.model, "write", { ids: [record.id], vals: values }, fetcher);
     normalized += 1;
   }
-  return { normalized, movedToLeads, archivedRfis, reactivatedRfis };
+  return {
+    normalized,
+    movedToLeads,
+    archivedLeads,
+    reactivatedLeads,
+    archivedRfis,
+    reactivatedRfis,
+  };
 }
 
 function mergedValues(left: unknown, right: unknown, separator: string) {
@@ -1326,6 +1356,8 @@ export async function syncOdooLeads(
       sourceTagsLinked: 0,
       historicalRecordsNormalized: 0,
       managedRecordsMovedToLeads: 0,
+      managedLeadsArchived: 0,
+      managedLeadsReactivated: 0,
       managedRfisArchived: 0,
       managedRfisReactivated: 0,
       failures: [],
@@ -1353,6 +1385,8 @@ export async function syncOdooLeads(
     sourceTagsLinked: 0,
     historicalRecordsNormalized: 0,
     managedRecordsMovedToLeads: 0,
+    managedLeadsArchived: 0,
+    managedLeadsReactivated: 0,
     managedRfisArchived: 0,
     managedRfisReactivated: 0,
     failures: [],
@@ -1433,15 +1467,24 @@ export async function syncOdooLeads(
       if (matches.length === 1 && Number.isFinite(matches[0]?.id)) {
         await json2Call(config, config.model, "write", { ids: [matches[0].id], vals: values }, odooFetch);
         result.updated += 1;
-        if (values.active === false && matches[0]?.active !== false) result.managedRfisArchived += 1;
-        if (values.active === true && matches[0]?.active === false) result.managedRfisReactivated += 1;
+        if (values.active === false && matches[0]?.active !== false) {
+          result.managedLeadsArchived += 1;
+          if (values.x_classification === "noise-related-rfi") result.managedRfisArchived += 1;
+        }
+        if (values.active === true && matches[0]?.active === false) {
+          result.managedLeadsReactivated += 1;
+          if (values.x_classification === "noise-related-rfi") result.managedRfisReactivated += 1;
+        }
         if (matches[0]?.type === "opportunity" && values.type === "lead") {
           result.managedRecordsMovedToLeads += 1;
         }
       } else {
         await json2Call(config, config.model, "create", { vals_list: [values] }, odooFetch);
         result.created += 1;
-        if (values.active === false) result.managedRfisArchived += 1;
+        if (values.active === false) {
+          result.managedLeadsArchived += 1;
+          if (values.x_classification === "noise-related-rfi") result.managedRfisArchived += 1;
+        }
       }
     } catch (error) {
       result.failures.push({
@@ -1464,6 +1507,8 @@ export async function syncOdooLeads(
   );
   result.historicalRecordsNormalized = historicalNormalization.normalized;
   result.managedRecordsMovedToLeads += historicalNormalization.movedToLeads;
+  result.managedLeadsArchived += historicalNormalization.archivedLeads;
+  result.managedLeadsReactivated += historicalNormalization.reactivatedLeads;
   result.managedRfisArchived += historicalNormalization.archivedRfis;
   result.managedRfisReactivated += historicalNormalization.reactivatedRfis;
   return result;

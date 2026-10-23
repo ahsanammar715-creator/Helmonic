@@ -1028,7 +1028,7 @@ test("Odoo makes current acoustic RFIs primary, granted acoustic conditions seco
     > values["helmonic-lead:planning-potential-secondary"].x_pipeline_priority_rank);
 });
 
-test("Odoo keeps only recent granted acoustic conditions in the primary queue and orders them newest first", () => {
+test("Odoo keeps every confirmed granted acoustic condition in the second primary category and orders them newest first", () => {
   const payloads = buildOdooDryRun([
     planningLead({
       id: "newest-granted-acoustic-condition",
@@ -1066,8 +1066,9 @@ test("Odoo keeps only recent granted acoustic conditions in the primary queue an
   assert.equal(values["helmonic-lead:older-current-granted-acoustic-condition"].x_lead_panel, "Granted with Acoustic Conditions");
   assert.ok(values["helmonic-lead:newest-granted-acoustic-condition"].x_pipeline_priority_rank
     > values["helmonic-lead:older-current-granted-acoustic-condition"].x_pipeline_priority_rank);
-  assert.equal(values["helmonic-lead:stale-granted-acoustic-condition"].x_lead_panel, "Competitive / Re-engagement");
-  assert.match(values["helmonic-lead:stale-granted-acoustic-condition"].x_pipeline_priority_reason, /older than 120 days/i);
+  assert.equal(values["helmonic-lead:stale-granted-acoustic-condition"].x_lead_panel, "Granted with Acoustic Conditions");
+  assert.ok(values["helmonic-lead:stale-granted-acoustic-condition"].x_pipeline_priority_rank > 1_000_000_000);
+  assert.equal(values["helmonic-lead:stale-granted-acoustic-condition"].active, true);
 });
 
 test("Odoo keeps all potential acoustic fits together while Part E leads retain commercial priority", () => {
@@ -1199,6 +1200,18 @@ test("Odoo archives expired RFIs out of active Leads while retaining their audit
       leadDisposition: "active",
       crmExternalId: "helmonic-lead:granted-post-decision",
     }),
+    planningLead({
+      id: "expired-formal-tender",
+      type: "formal-public-tender",
+      deadline: "2026-10-01",
+      crmExternalId: "helmonic-lead:expired-formal-tender",
+    }),
+    planningLead({
+      id: "live-formal-tender",
+      type: "formal-public-tender",
+      deadline: "2026-10-20",
+      crmExternalId: "helmonic-lead:live-formal-tender",
+    }),
   ];
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
@@ -1221,11 +1234,13 @@ test("Odoo archives expired RFIs out of active Leads while retaining their audit
   assert.equal(values["helmonic-lead:recently-expired-unmatched-rfi"].x_rfi_response_due_at, "2026-10-10 00:00:00");
   assert.equal(values["helmonic-lead:expired-matched-rfi"].x_rfi_response_due_at, "2026-09-15 00:00:00");
   assert.match(values["helmonic-lead:expired-matched-rfi"].x_pipeline_priority_reason, /archived from active Leads/i);
-  assert.equal(Object.hasOwn(values["helmonic-lead:expired-planning-decision"], "active"), false);
+  assert.equal(values["helmonic-lead:expired-planning-decision"].active, false);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_rank, 180);
   assert.match(values["helmonic-lead:expired-planning-decision"].x_pipeline_priority_reason, /refresh required/i);
   assert.equal(values["helmonic-lead:granted-post-decision"].x_pipeline_priority_rank, 100);
   assert.equal(values["helmonic-lead:granted-post-decision"].x_lead_panel, "Competitive / Re-engagement");
+  assert.equal(values["helmonic-lead:expired-formal-tender"].active, false);
+  assert.equal(values["helmonic-lead:live-formal-tender"].active, true);
   assert.equal(values["helmonic-lead:expired-planning-decision"].date_deadline, false);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_deadline, false);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_action_days_remaining, false);
@@ -1269,6 +1284,7 @@ test("Odoo orders only live planning decisions by date and demotes decided or ex
   assert.ok(values["helmonic-lead:live-planning-later"].x_pipeline_priority_rank
     > values["helmonic-lead:expired-conditional-planning"].x_pipeline_priority_rank);
   assert.equal(values["helmonic-lead:expired-conditional-planning"].x_lead_panel, "Competitive / Re-engagement");
+  assert.equal(values["helmonic-lead:expired-conditional-planning"].active, false);
   assert.match(values["helmonic-lead:expired-conditional-planning"].x_pipeline_priority_reason, /demoted below live work/i);
 });
 
@@ -1767,6 +1783,8 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(expiredHistorical.vals.active, false);
   assert.equal(result.managedRfisArchived, 1);
   assert.equal(result.managedRfisReactivated, 1);
+  assert.equal(result.managedLeadsArchived, 1);
+  assert.equal(result.managedLeadsReactivated, 1);
 });
 
 test("Odoo never assigns a consultant when only historical email evidence exists", () => {

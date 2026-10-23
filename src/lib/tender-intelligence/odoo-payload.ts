@@ -18,11 +18,7 @@ export type OdooLeadDryRun = {
   sourceTagNames: string[];
   statusTagNames: string[];
   values: {
-    /**
-     * Odoo's native archive flag. It is supplied only for acoustic RFIs so
-     * Helmonic does not interfere with a person's archive decision on other
-     * CRM records.
-     */
+    /** Odoo's native archive flag for automation-managed lead lifecycles. */
     active?: boolean;
     name: string;
     description: string;
@@ -637,8 +633,7 @@ function leadReviewPanel(record: TenderOpportunity, now: Date) {
     return "Urgent Acoustic RFI";
   }
   if (record.classification === "granted-with-noise-conditions"
-    && hasConfirmedCurrentAcousticEvidence(record)
-    && currentGrantedAcousticConditions(record, now)) {
+    && hasConfirmedCurrentAcousticEvidence(record)) {
     return "Granted with Acoustic Conditions";
   }
   if (isPostDecisionStage(record)) return "Competitive / Re-engagement";
@@ -895,17 +890,36 @@ function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
     .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
-function activeRfiQueueStatus(record: TenderOpportunity, now: Date): boolean | undefined {
-  if (record.classification !== "noise-related-rfi") return undefined;
-  if (record.rfiResponseReceivedAt) return false;
-  const daysRemaining = calendarDaysRemaining(record.responseDeadline ?? "", now);
-  if (daysRemaining !== false) return daysRemaining >= 0;
+function activeLeadQueueStatus(record: TenderOpportunity, now: Date): boolean | undefined {
+  // Permission granted with a confirmed acoustic/noise condition is the
+  // second primary target after live acoustic RFIs. A past planning-decision
+  // date is expected for a grant and must never archive this category.
+  if (record.classification === "granted-with-noise-conditions"
+    && hasConfirmedCurrentAcousticEvidence(record)) return true;
 
-  // An official Further Information Request with no supplied response due
-  // date remains actionable only while its received/published evidence is
-  // recent. Older undated RFIs stay in the source ledger but do not overload
-  // the active Tender Desk queue.
-  return recentRfiWithoutDueDate(record, now);
+  if (record.classification === "noise-related-rfi") {
+    if (record.rfiResponseReceivedAt) return false;
+    const daysRemaining = calendarDaysRemaining(record.responseDeadline ?? "", now);
+    if (daysRemaining !== false) return daysRemaining >= 0;
+
+    // An official Further Information Request with no supplied response due
+    // date remains actionable only while its received/published evidence is
+    // recent. Older undated RFIs stay in the source ledger but do not overload
+    // the active Tender Desk queue.
+    return recentRfiWithoutDueDate(record, now);
+  }
+
+  if (record.type === "formal-public-tender") {
+    const daysRemaining = calendarDaysRemaining(record.deadline ?? "", now);
+    return daysRemaining === false ? undefined : daysRemaining >= 0;
+  }
+
+  if (record.type === "planning-pipeline-lead") {
+    const daysRemaining = calendarDaysRemaining(planningDecisionDueAt(record), now);
+    if (daysRemaining !== false) return daysRemaining >= 0;
+    if (isPostDecisionStage(record)) return false;
+  }
+  return undefined;
 }
 
 function commercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {
@@ -940,11 +954,6 @@ function grantedConditionsActivityAge(record: TenderOpportunity, now: Date) {
     .filter((days): days is number => days !== false && days <= 0)
     .map((days) => Math.abs(days));
   return ages.length ? Math.min(...ages) : false;
-}
-
-function currentGrantedAcousticConditions(record: TenderOpportunity, now: Date) {
-  const age = grantedConditionsActivityAge(record, now);
-  return age !== false && age <= 120;
 }
 
 function liveRfiPriority(
@@ -1028,8 +1037,6 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
   const rfiDaysRemaining = calendarDaysRemaining(record.responseDeadline ?? "", now);
   const activityFreshness = rfiActivityFreshness(record, now);
   const grantedConditionsAge = grantedConditionsActivityAge(record, now);
-  const currentGrantedConditions = grantedAcousticConditions
-    && currentGrantedAcousticConditions(record, now);
   const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
   const recentUndatedRfi = rfi && rfiDaysRemaining === false && recentRfiWithoutDueDate(record, now);
   const expiredRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining < 0;
@@ -1071,16 +1078,10 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
       reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; archived from active Leads and retained for audit, deduplication and consultant-reviewed competitive follow-up${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
     };
   }
-  if (currentGrantedConditions) {
-    return {
-      rank: grantedAcousticConditionsPriority(grantedConditionsAge || 0, buildingInfo, retainedRelationship),
-      reason: `Recent permission granted with confirmed acoustic/noise conditions; second priority after current Further Information Requests; newest grant evidence first${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${retainedRelationship ? "; verified historical relationship" : ""}`,
-    };
-  }
   if (grantedAcousticConditions) {
     return {
-      rank: 100 + commercialRfiTieBreaker(buildingInfo, retainedRelationship),
-      reason: "Permission was granted with an acoustic/noise condition, but the latest dated evidence is older than 120 days or unavailable; retained for later follow-up and excluded from the current primary queue",
+      rank: grantedAcousticConditionsPriority(grantedConditionsAge === false ? 120 : grantedConditionsAge, buildingInfo, retainedRelationship),
+      reason: `Permission granted with confirmed acoustic/noise conditions; second primary category after current Further Information Requests; newest grant evidence first${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${retainedRelationship ? "; verified historical relationship" : ""}`,
     };
   }
   if (postDecisionStage) {
@@ -1247,9 +1248,9 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
       sourceTagNames: sources.codes.split("+").filter(Boolean),
       statusTagNames: appointmentTagNames(record),
       values: {
-        ...(activeRfiQueueStatus(record, now) === undefined
+        ...(activeLeadQueueStatus(record, now) === undefined
           ? {}
-          : { active: activeRfiQueueStatus(record, now) }),
+          : { active: activeLeadQueueStatus(record, now) }),
         name: projectTitle(record),
         description: description(record, now),
         partner_name: organisation,
