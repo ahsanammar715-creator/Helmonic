@@ -1,6 +1,6 @@
 export const BUILDINGINFO_NATIVE_SEARCH_PROFILE = {
   name: "iAcoustics acoustic opportunity watch",
-  operatingBoundary: "Saved searches, alerts and user-authorised CSV/XLSX exports only; no automated website scraping.",
+  operatingBoundary: "User-authorised API or CSV/XLSX export, plus authenticated browser collection only with written provider consent, bounded searches, conservative pacing, no challenge bypass and no unbounded scraping.",
   geography: {
     includedCounties: [
       "Carlow", "Dublin", "Kildare", "Kilkenny", "Laois", "Longford", "Louth",

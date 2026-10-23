@@ -88,6 +88,15 @@ import { xlsxFirstSheetToCsv } from "../../src/lib/tender-intelligence/xlsx.ts";
 import { applyAppointmentSafeguards } from "../../src/lib/tender-intelligence/appointment-classification.ts";
 import { BUILDINGINFO_NATIVE_SEARCH_PROFILE } from "../../src/lib/tender-intelligence/building-info-search-profile.ts";
 import {
+  assertBuildingInfoUrl,
+  buildingInfoBrowserRowsToCsv,
+  buildingInfoProjectCategory,
+  extractBuildingInfoBrowserRow,
+  isCurrentBuildingInfoBrowserTarget,
+  normalizeBuildingInfoDate,
+  parseBuildingInfoResultCount,
+} from "../../src/lib/tender-intelligence/building-info-browser.ts";
+import {
   genericPlanningPortalUrl,
   nationalPlanningProjectUrl,
 } from "../../src/lib/tender-intelligence/project-links.ts";
@@ -216,8 +225,10 @@ test("strict cross-source duplicates share one outreach guard and strongest appo
   assert.ok(guarded.every((record) => record.outreachEligibility === "suppressed-already-won" || record.outreachEligibility === "suppressed-duplicate"));
 });
 
-test("the native BuildingInfo profile is an export boundary rather than a scraper", () => {
-  assert.match(BUILDINGINFO_NATIVE_SEARCH_PROFILE.operatingBoundary, /no automated website scraping/i);
+test("the native BuildingInfo profile requires a bounded, consent-backed operating boundary", () => {
+  assert.match(BUILDINGINFO_NATIVE_SEARCH_PROFILE.operatingBoundary, /bounded searches/i);
+  assert.match(BUILDINGINFO_NATIVE_SEARCH_PROFILE.operatingBoundary, /no challenge bypass/i);
+  assert.match(BUILDINGINFO_NATIVE_SEARCH_PROFILE.operatingBoundary, /written provider consent/i);
   assert.ok(BUILDINGINFO_NATIVE_SEARCH_PROFILE.geography.includedCounties.includes("Wicklow"));
   assert.equal(BUILDINGINFO_NATIVE_SEARCH_PROFILE.geography.excludedRegion, "Northern Ireland");
   assert.ok(BUILDINGINFO_NATIVE_SEARCH_PROFILE.preferredExportFields.includes("appointed_acoustician"));
@@ -2059,6 +2070,80 @@ test("BuildingInfo agriculture stays excluded and self-build housing remains ret
   const qualified = qualifyLead(selfBuild, new Date("2026-09-30T12:00:00.000Z"));
   assert.equal(qualified.leadQuality, "poor");
   assert.equal(qualified.leadDisposition, "background");
+});
+
+test("BuildingInfo authenticated browser extraction preserves exact project, RFI and contact evidence", () => {
+  const snapshot = {
+    projectUrl: "https://app.buildinginfo.com/p-example-token",
+    pageTitle: "€3.2m Industrial Unit Development in Arklow | BuildingInfo",
+    bodyText: [
+      "Project ID 424562",
+      "Stage: Further Information Requested",
+      "Sector: Industrial",
+      "Planning Reference: 2660722",
+      "Planning Authority: Wicklow County Council",
+      "Site Address: Kish Business Park, Arklow, Co. Wicklow",
+      "RFI Published: 20/10/2026",
+      "RFI Received: 21/10/2026",
+      "RFI Response Due: 12/11/2026",
+      "Planning Decision Due: 30/11/2026",
+      "Applicant",
+      "Armstrong Timber Engineering Ltd.",
+      "Alan Armstrong",
+      "0402 33477",
+      "sales@ate.ie",
+      "Architect",
+      "Conor McCarthy & Associates Ltd.",
+      "Conor McCarthy",
+      "040 224660",
+      "cmcagroup@gmail.com",
+      "The applicant is requested to submit a noise impact assessment prepared by a suitably qualified acoustic consultant.",
+    ].join("\n"),
+    links: [{ text: "Noise assessment request", href: "https://app.buildinginfo.com/doc/noise-424562.pdf" }],
+    observedAt: "2026-10-23T07:00:00.000Z",
+  };
+  assert.equal(buildingInfoProjectCategory(snapshot), "acoustic-rfi");
+  const row = extractBuildingInfoBrowserRow(snapshot);
+  assert.ok(row);
+  assert.equal(row.building_info_project_id, "424562");
+  assert.equal(row.county, "Wicklow");
+  assert.equal(row.rfi_published_date, "2026-10-20");
+  assert.equal(row.rfi_received_date, "2026-10-21");
+  assert.equal(row.rfi_response_due_date, "2026-11-12");
+  assert.equal(row.planning_decision_due_date, "2026-11-30");
+  assert.equal(row.applicant_email, "sales@ate.ie");
+  assert.equal(row.architect_email, "cmcagroup@gmail.com");
+  assert.match(row.evidence_document_url, /noise-424562\.pdf/);
+  assert.equal(isCurrentBuildingInfoBrowserTarget(row, "acoustic-rfi", new Date("2026-10-23T07:00:00Z")), true);
+  const [parsed] = parseBuildingInfoCsv(buildingInfoBrowserRowsToCsv([row]), "buildinginfo-browser-latest.csv");
+  assert.equal(parsed.classification, "noise-related-rfi");
+  assert.equal(parsed.responseDeadline, "2026-11-12");
+  assert.ok(parsed.parties.some((party) => party.email === "sales@ate.ie"));
+});
+
+test("BuildingInfo browser guard rejects expired or fulfilled RFIs and accepts acoustic grants", () => {
+  const base = {
+    projectUrl: "https://app.buildinginfo.com/p-example",
+    pageTitle: "Housing Development in Co. Dublin (429657) | BuildingInfo",
+    bodyText: "Project ID: 429657\nStage: Further Information Requested\nRFI Response Due: 01/10/2026\nSubmit an acoustic report and noise impact assessment.",
+  };
+  const expiredRow = extractBuildingInfoBrowserRow(base);
+  assert.ok(expiredRow);
+  assert.equal(isCurrentBuildingInfoBrowserTarget(expiredRow, buildingInfoProjectCategory(base), new Date("2026-10-23T07:00:00Z")), false);
+  const fulfilled = { ...base, bodyText: `${base.bodyText}\nFurther Information Received: 10/10/2026` };
+  assert.equal(buildingInfoProjectCategory(fulfilled), "fulfilled-rfi");
+  const granted = { ...base, bodyText: "Project ID: 429657\nStage: Plans Granted\nPermission granted subject to an acoustic condition requiring a noise assessment." };
+  const grantedRow = extractBuildingInfoBrowserRow(granted);
+  assert.ok(grantedRow);
+  assert.equal(buildingInfoProjectCategory(granted), "acoustic-grant");
+  assert.equal(isCurrentBuildingInfoBrowserTarget(grantedRow, "acoustic-grant", new Date("2026-10-23T07:00:00Z")), true);
+});
+
+test("BuildingInfo browser utilities enforce the host and parse local dates and bounded result counts", () => {
+  assert.equal(normalizeBuildingInfoDate("6/10/2026"), "2026-10-06");
+  assert.deepEqual(parseBuildingInfoResultCount("50 of 70,389 Projects"), { loaded: 50, total: 70_389 });
+  assert.match(assertBuildingInfoUrl("https://app.buildinginfo.com/p-example"), /^https:\/\/app\.buildinginfo\.com/);
+  assert.throws(() => assertBuildingInfoUrl("https://example.test/phishing"), /Refusing non-BuildingInfo/i);
 });
 
 test("BuildingInfo emailed CSV retains exact RFI evidence and project-team contacts", () => {

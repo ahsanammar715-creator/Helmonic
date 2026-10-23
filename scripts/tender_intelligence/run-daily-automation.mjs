@@ -78,7 +78,7 @@ async function acquireLock() {
 function runScript(script, args = []) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [
-      ...(script.endsWith(".ts") || script.includes("run-document-proven-pipeline") || script.includes("odoo")
+      ...(script.endsWith(".ts") || script.includes("run-document-proven-pipeline") || script.includes("collect-buildinginfo-browser") || script.includes("odoo")
         ? ["--experimental-strip-types"] : []),
       path.join(repoRoot, script),
       ...args,
@@ -96,6 +96,9 @@ const optionalSteps = process.env.ODOO_CRM_UI_CONFIG_ENABLED === "true"
   ? [{ script: "scripts/tender_intelligence/configure-odoo-crm-ui.mjs", args: [] }]
   : [];
 const steps = [
+  ...(process.env.HELMONIC_BUILDINGINFO_BROWSER_ENABLED === "true"
+    ? [{ script: "scripts/tender_intelligence/collect-buildinginfo-browser.mjs", args: [] }]
+    : []),
   { script: "scripts/tender_intelligence/run-document-proven-pipeline.mjs", args: summarizeOnly ? ["--summarize-only"] : [] },
   { script: "scripts/tender_intelligence/export-review-artifacts.mjs", args: [] },
   { script: "scripts/tender_intelligence/generate-review-digest.mjs", args: [] },
@@ -111,6 +114,7 @@ const summary = {
   odooSyncEnabled: process.env.HELMONIC_ODOO_SYNC_ENABLED === "true",
   buildingInfoEnabled: process.env.HELMONIC_BUILDINGINFO_ENABLED === "true",
   buildingInfoCsvEnabled: process.env.HELMONIC_BUILDINGINFO_CSV_ENABLED === "true",
+  buildingInfoBrowserEnabled: process.env.HELMONIC_BUILDINGINFO_BROWSER_ENABLED === "true",
   summarizeOnly,
   optionalSteps: [],
   completedSteps: [],

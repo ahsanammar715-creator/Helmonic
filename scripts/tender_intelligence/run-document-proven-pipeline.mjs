@@ -196,7 +196,8 @@ if (!state) {
       maxPages: Number.parseInt(value("HELMONIC_BUILDINGINFO_MAX_PAGES") || "50", 10),
     },
     buildingInfoCsv: {
-      enabled: value("HELMONIC_BUILDINGINFO_CSV_ENABLED") === "true",
+      enabled: value("HELMONIC_BUILDINGINFO_CSV_ENABLED") === "true"
+        || value("HELMONIC_BUILDINGINFO_BROWSER_ENABLED") === "true",
       directory: value("HELMONIC_BUILDINGINFO_CSV_DIRECTORY")
         || path.join(artifactRoot, "incoming", "buildinginfo"),
       maxFiles: Number.parseInt(value("HELMONIC_BUILDINGINFO_CSV_MAX_FILES") || "1000", 10),
@@ -205,7 +206,8 @@ if (!state) {
     documentEvidence: { formal: true, nationalPlanningLimit: 0 },
   });
   const buildingInfoRequested = value("HELMONIC_BUILDINGINFO_ENABLED") === "true"
-    || value("HELMONIC_BUILDINGINFO_CSV_ENABLED") === "true";
+    || value("HELMONIC_BUILDINGINFO_CSV_ENABLED") === "true"
+    || value("HELMONIC_BUILDINGINFO_BROWSER_ENABLED") === "true";
   const buildingInfoFailure = snapshot.sources.find((source) =>
     source.name === "BuildingInfo" && source.status === "failed");
   if (buildingInfoRequested && buildingInfoFailure) {

@@ -419,6 +419,7 @@ export async function collectBuildingInfoCsvProjects(config: BuildingInfoCsvConf
     const text = file.toLowerCase().endsWith(".xlsx")
       ? xlsxFirstSheetToCsv(content)
       : content.toString("utf8");
+    if (/^buildinginfo-browser-.*\.csv$/i.test(file) && parseCsvStrict(text).length === 0) continue;
     rows.push(...parseBuildingInfoCsv(text, file));
   }
   const records = mergeBuildingInfoCsvRecords(rows);
