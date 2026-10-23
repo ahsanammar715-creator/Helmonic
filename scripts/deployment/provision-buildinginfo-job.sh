@@ -67,8 +67,10 @@ fi
 # later idempotent updates, while filling all other secret names from the 07:00
 # source job. No value is printed.
 jq -s '
-  reduce (.[0][]?) as $secret ({}; .[$secret.name] = $secret)
-  | reduce (.[1][]?) as $secret (.; .[$secret.name] = $secret)
+  .[0] as $source
+  | .[1] as $target
+  | reduce ($source[]?) as $secret ({}; .[$secret.name] = $secret)
+  | reduce ($target[]?) as $secret (.; .[$secret.name] = $secret)
   | [.[]]
 ' "$source_secrets" "$target_secrets" >"$merged_secrets"
 
