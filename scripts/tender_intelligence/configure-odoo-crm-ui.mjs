@@ -415,7 +415,7 @@ const leadSearchValues = {
       <filter name="helmonic_granted_acoustic_conditions" string="Granted — Acoustic Conditions" domain="[('x_lead_panel', '=', 'Granted with Acoustic Conditions')]"/>
       <filter name="helmonic_secondary_potential" string="Secondary / Potential" domain="[('x_lead_panel', 'in', ['Confirmed Acoustic Opportunity', 'Potential Acoustic Fit'])]"/>
       <filter name="helmonic_reengagement" string="Expired / Re-engagement" domain="[('x_lead_panel', '=', 'Competitive / Re-engagement')]"/>
-      <group expand="0" string="Helmonic Group By">
+      <group>
         <filter name="helmonic_group_by_review_panel" string="Lead Review Panel" context="{'group_by': 'x_lead_panel'}"/>
         <filter name="helmonic_group_by_classification" string="Classification" context="{'group_by': 'x_classification'}"/>
       </group>
@@ -445,9 +445,10 @@ const targetLeadActions = leadActions.filter((action) => String(action.domain ??
   || String(action.domain ?? "").includes("type") && String(action.domain ?? "").includes("lead"));
 const defaultFilterActions = [];
 for (const action of targetLeadActions) {
-  const filterName = "Helmonic Primary Acoustic Targets";
+  const filterName = "Helmonic Active Lead Queue";
+  const legacyFilterName = "Helmonic Primary Acoustic Targets";
   const existingFilters = await call("ir.filters", "search_read", {
-    domain: [["name", "=", filterName], ["model_id", "=", "crm.lead"], ["action_id", "=", action.id]],
+    domain: ["|", ["name", "=", filterName], ["name", "=", legacyFilterName], ["model_id", "=", "crm.lead"], ["action_id", "=", action.id]],
     fields: ["id", "name", "domain", "context", "sort", "is_default", "action_id"],
     limit: 2,
   });
@@ -455,7 +456,7 @@ for (const action of targetLeadActions) {
     name: filterName,
     model_id: "crm.lead",
     user_id: false,
-    domain: JSON.stringify([["active", "=", true], ["x_project_link", "!=", false], ["x_lead_panel", "in", ["Urgent Acoustic RFI", "Granted with Acoustic Conditions"]]]),
+    domain: JSON.stringify([["active", "=", true]]),
     context: JSON.stringify({}),
     sort: JSON.stringify(["x_pipeline_priority_rank desc", "x_rfi_response_due_at asc"]),
     is_default: true,

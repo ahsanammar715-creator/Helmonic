@@ -8,6 +8,11 @@ on:
         required: true
         default: false
         type: boolean
+      configure_odoo_ui_only:
+        description: Repair or refresh only the inherited Odoo CRM fields and views; do not rerun the lead migration
+        required: true
+        default: false
+        type: boolean
       diagnose_azure_jobs_only:
         description: Read-only inventory of Azure Container Apps Jobs; skip build and deployment
         required: true
@@ -133,6 +138,102 @@ jobs:
           BUILDINGINFO_CONSENT_REFERENCE: account-owner-confirmed-provider-agreement-2026-10-23
           BUILDINGINFO_RUN_SMOKE_TEST: ${{ inputs.start_buildinginfo_test_run }}
         run: bash scripts/deployment/provision-buildinginfo-job.sh
+
+      - name: Repair inherited Odoo CRM fields and views only
+        if: github.event_name == 'workflow_dispatch' && inputs.configure_odoo_ui_only
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          restore_safe_recurring_mode() {
+            az containerapp job update \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --set-env-vars \
+                ODOO_MIGRATE_MANAGED_RECORDS_TO_LEADS=false \
+                ODOO_NORMALIZE_HISTORICAL_RECORDS=false \
+                ODOO_ARCHIVE_UNMANAGED_TEST_FIXTURES=false \
+                ODOO_CRM_UI_CONFIG_ENABLED=false \
+                ODOO_CRM_UI_CONFIG_REQUIRED=false \
+                HELMONIC_ODOO_PREFLIGHT_ONLY=false \
+                HELMONIC_SCHEDULE_GUARD_ENABLED=true \
+                NODE_OPTIONS=--experimental-strip-types \
+              --command node \
+              --args scripts/tender_intelligence/run-daily-automation.mjs \
+              --only-show-errors >/dev/null
+          }
+
+          wait_for_execution() {
+            local execution_name="$1"
+            if [[ -z "$execution_name" ]]; then
+              echo "Azure did not return a job execution name for the Odoo UI repair." >&2
+              return 1
+            fi
+
+            echo "Started approved Odoo UI repair: $execution_name"
+            for attempt in {1..40}; do
+              status="$(az containerapp job execution show \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --name "$AZURE_JOB_NAME" \
+                --job-execution-name "$execution_name" \
+                --query properties.status \
+                --output tsv 2>/dev/null || true)"
+
+              case "$status" in
+                Succeeded)
+                  echo "Approved Odoo UI repair succeeded."
+                  return 0
+                  ;;
+                Failed)
+                  echo "Approved Odoo UI repair failed: $execution_name" >&2
+                  container_name="$(az containerapp job show \
+                    --resource-group "$AZURE_RESOURCE_GROUP" \
+                    --name "$AZURE_JOB_NAME" \
+                    --query 'properties.template.containers[0].name' \
+                    --output tsv 2>/dev/null || true)"
+                  if [[ -n "$container_name" ]]; then
+                    az containerapp job logs show \
+                      --resource-group "$AZURE_RESOURCE_GROUP" \
+                      --name "$AZURE_JOB_NAME" \
+                      --execution "$execution_name" \
+                      --container "$container_name" \
+                      --format text \
+                      --tail 200 2>&1 || true
+                  fi
+                  return 1
+                  ;;
+                *)
+                  echo "Odoo UI repair status: ${status:-starting} (check $attempt/40)"
+                  sleep 15
+                  ;;
+              esac
+            done
+
+            echo "Approved Odoo UI repair did not finish within 10 minutes." >&2
+            return 1
+          }
+
+          trap restore_safe_recurring_mode EXIT
+
+          az containerapp job update \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --image "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:${{ github.sha }}" \
+            --set-env-vars \
+              ODOO_CRM_UI_CONFIG_ENABLED=true \
+              ODOO_CRM_UI_CONFIG_REQUIRED=true \
+              HELMONIC_SCHEDULE_GUARD_ENABLED=false \
+              NODE_OPTIONS=--experimental-strip-types \
+            --command node \
+            --args scripts/tender_intelligence/configure-odoo-crm-ui.mjs \
+            --only-show-errors >/dev/null
+
+          execution_name="$(az containerapp job start \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query name \
+            --output tsv)"
+          wait_for_execution "$execution_name"
 
       - name: Migrate managed Tender Desk records to the Odoo Leads review queue
         if: >-
