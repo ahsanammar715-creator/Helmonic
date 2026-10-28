@@ -804,10 +804,9 @@ function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date):
 
   // The historical classification was produced by the acoustic-condition
   // classifier even when older records did not persist the full evidence
-  // excerpt/term bundle. Keep only recently actionable grants active.
-  if (record.x_classification === "granted-with-noise-conditions") {
-    return !historicalExpiredGrantedCondition(record, now);
-  }
+  // excerpt/term bundle. Older grants remain visible but are demoted below
+  // live work by historicalPipelinePriority.
+  if (record.x_classification === "granted-with-noise-conditions") return true;
 
   if (record.x_classification === "noise-related-rfi") {
     if (record.x_rfi_response_received_at) return false;
@@ -956,7 +955,7 @@ function historicalLeadReviewPanel(record: ExistingLeadValues, now: Date) {
   if (record.x_classification === "granted-with-noise-conditions"
     && routeable
     && confirmedAcoustic) {
-    if (historicalExpiredGrantedCondition(record, now)) return "Competitive / Re-engagement";
+    if (historicalExpiredGrantedCondition(record, now)) return "Granted / Follow-up";
     return "Granted with Acoustic Conditions";
   }
   if (routeable && historicalPostDecisionStage(record.x_project_stage)) return "Competitive / Re-engagement";
@@ -1016,7 +1015,7 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   }
   if (expiredGrant) return {
     rank: 90 + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship),
-    reason: `Acoustic-condition grant is more than ${HISTORICAL_GRANTED_CONDITION_ACTIVE_DAYS} days past its decision date; archived from active Leads and retained for audit and later competitive review`,
+    reason: `Acoustic-condition grant is more than ${HISTORICAL_GRANTED_CONDITION_ACTIVE_DAYS} days past its decision date; retained as a low-priority granted follow-up below live RFIs and current applications`,
   };
   if (grantedAcousticConditions) return {
     rank: historicalGrantedAcousticConditionsPriority(grantedConditionsAge === false ? 120 : grantedConditionsAge, buildingInfo, retainedRelationship),
