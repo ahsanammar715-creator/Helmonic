@@ -753,34 +753,8 @@ function historicalRecentRfi(record: ExistingLeadValues, now: Date) {
     .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
-function historicalRecentSecondaryLead(record: ExistingLeadValues, now: Date) {
-  return [
-    record.x_source_major_updated_at,
-    record.x_last_seen_at,
-    record.x_first_seen_at,
-    record.x_planning_received_at,
-  ]
-    .map((value) => historicalDaysRemaining(value, now))
-    .some((age) => age !== false && age <= 0 && age >= -42);
-}
-
-function historicalSecondaryLeadQueueStatus(record: ExistingLeadValues, now: Date) {
-  const quality = String(record.x_lead_quality ?? "");
-  if (!["excellent", "good"].includes(quality)) return false;
-  if (["background", "already-won"].includes(String(record.x_pipeline_bucket ?? ""))) return false;
-  if (historicalPostDecisionStage(record.x_project_stage)) return false;
-
-  if (record.x_opportunity_type === "formal-public-tender") {
-    const daysRemaining = historicalDaysRemaining(record.x_deadline, now);
-    return daysRemaining !== false ? daysRemaining >= 0 : historicalRecentSecondaryLead(record, now);
-  }
-
-  if (record.x_opportunity_type === "planning-pipeline-lead") {
-    const daysRemaining = historicalDaysRemaining(record.x_decision_due_at, now);
-    return daysRemaining !== false ? daysRemaining >= 0 : historicalRecentSecondaryLead(record, now);
-  }
-
-  return historicalRecentSecondaryLead(record, now);
+function historicalClosedLeadStage(value: unknown) {
+  return /refus(?:e|ed|al)|withdrawn|invalid(?:ated)?|cancelled|completed|awarded/i.test(String(value ?? ""));
 }
 
 function historicalUrlCandidates(value: unknown) {
@@ -815,8 +789,9 @@ function historicalProjectLink(record: ExistingLeadValues) {
 }
 
 function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date): boolean | undefined {
-  const projectLink = String(record.x_project_link ?? "").trim();
-  if (!projectLink || genericPlanningPortalUrl(projectLink)) return false;
+  if (record.x_acoustic_appointment_status === "iacoustics-appointed"
+    || record.x_lead_quality === "existing-project"
+    || record.x_pipeline_bucket === "already-won") return false;
 
   // The historical classification was produced by the acoustic-condition
   // classifier even when older records did not persist the full evidence
@@ -831,7 +806,19 @@ function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date):
     return historicalRecentRfi(record, now);
   }
 
-  return historicalSecondaryLeadQueueStatus(record, now);
+  if (historicalClosedLeadStage(record.x_project_stage)) return false;
+
+  if (record.x_opportunity_type === "formal-public-tender") {
+    const daysRemaining = historicalDaysRemaining(record.x_deadline, now);
+    return daysRemaining === false || daysRemaining >= 0;
+  }
+
+  if (record.x_opportunity_type === "planning-pipeline-lead") {
+    const daysRemaining = historicalDaysRemaining(record.x_decision_due_at, now);
+    return daysRemaining === false || daysRemaining >= 0;
+  }
+
+  return true;
 }
 
 function historicalCommercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {

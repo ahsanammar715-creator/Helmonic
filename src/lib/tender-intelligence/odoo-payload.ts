@@ -890,43 +890,19 @@ function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
     .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
-function recentSecondaryLead(record: TenderOpportunity, now: Date) {
-  return [
-    record.sourceMajorUpdatedAt,
-    record.sourceUpdatedAt,
-    record.firstSeenAt,
-    record.publishedAt,
-    record.planningReceivedAt,
-  ]
-    .map((value) => calendarDaysRemaining(value ?? "", now))
-    .some((age) => age !== false && age <= 0 && age >= -42);
-}
-
-function secondaryLeadQueueStatus(record: TenderOpportunity, now: Date) {
-  if (!["excellent", "good"].includes(record.leadQuality ?? "")) return false;
-  if (["background", "already-won"].includes(record.leadDisposition ?? "")) return false;
-  if (isPostDecisionStage(record)) return false;
-
-  if (record.type === "formal-public-tender") {
-    const daysRemaining = calendarDaysRemaining(record.deadline ?? "", now);
-    return daysRemaining !== false ? daysRemaining >= 0 : recentSecondaryLead(record, now);
-  }
-
-  if (record.type === "planning-pipeline-lead") {
-    const daysRemaining = calendarDaysRemaining(planningDecisionDueAt(record), now);
-    return daysRemaining !== false ? daysRemaining >= 0 : recentSecondaryLead(record, now);
-  }
-
-  return recentSecondaryLead(record, now);
+function isClosedLeadStage(record: TenderOpportunity) {
+  const stage = `${record.projectStage ?? ""} ${record.sourceStatus ?? ""}`;
+  return /refus(?:e|ed|al)|withdrawn|invalid(?:ated)?|cancelled|completed|awarded/i.test(stage);
 }
 
 function activeLeadQueueStatus(record: TenderOpportunity, now: Date): boolean | undefined {
-  // The working Leads queue is intentionally narrow. Every source record is
-  // retained in the durable ledger. The two evidence-proven primary target
-  // categories stay first, while only fresh good/excellent potential records
-  // remain active as a smaller secondary review queue. A record-specific
-  // project link is required so a consultant can verify it in one click.
-  if (!projectLink(record)) return false;
+  // Every legitimate project remains in the working Leads queue unless an
+  // explicit date or outcome proves that it is no longer actionable. Missing
+  // links, evidence or freshness metadata lower review confidence; they must
+  // never make a valid project disappear from Odoo.
+  if (record.acousticAppointmentStatus === "iacoustics-appointed"
+    || record.leadQuality === "existing-project"
+    || record.leadDisposition === "already-won") return false;
 
   // Permission granted with a confirmed acoustic/noise condition is the
   // second primary target after live acoustic RFIs. A past planning-decision
@@ -946,7 +922,19 @@ function activeLeadQueueStatus(record: TenderOpportunity, now: Date): boolean | 
     return recentRfiWithoutDueDate(record, now);
   }
 
-  return secondaryLeadQueueStatus(record, now);
+  if (isClosedLeadStage(record)) return false;
+
+  if (record.type === "formal-public-tender") {
+    const daysRemaining = calendarDaysRemaining(record.deadline ?? "", now);
+    return daysRemaining === false || daysRemaining >= 0;
+  }
+
+  if (record.type === "planning-pipeline-lead") {
+    const daysRemaining = calendarDaysRemaining(planningDecisionDueAt(record), now);
+    return daysRemaining === false || daysRemaining >= 0;
+  }
+
+  return true;
 }
 
 function commercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {

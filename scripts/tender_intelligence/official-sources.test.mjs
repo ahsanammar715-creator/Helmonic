@@ -1128,6 +1128,7 @@ test("Odoo keeps all potential acoustic fits together while Part E leads retain 
   for (const payload of payloads) {
     assert.equal(payload.values.x_lead_panel, "Potential Acoustic Fit");
     assert.equal(payload.values.x_lead_quality, "potential");
+    assert.equal(payload.values.active, true);
   }
   for (const payload of payloads.filter((payload) => payload.matchValue.includes("part-e"))) {
     assert.equal(payload.values.x_pipeline_priority_rank, 500);
@@ -1255,7 +1256,7 @@ test("Odoo archives expired RFIs out of active Leads while retaining their audit
   assert.equal(values["helmonic-lead:granted-post-decision"].x_pipeline_priority_rank, 100);
   assert.equal(values["helmonic-lead:granted-post-decision"].x_lead_panel, "Competitive / Re-engagement");
   assert.equal(values["helmonic-lead:expired-formal-tender"].active, false);
-  assert.equal(values["helmonic-lead:live-formal-tender"].active, false);
+  assert.equal(values["helmonic-lead:live-formal-tender"].active, true);
   assert.equal(values["helmonic-lead:expired-planning-decision"].date_deadline, false);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_deadline, false);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_action_days_remaining, false);
@@ -1802,7 +1803,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(partEHistorical.vals.x_pipeline_priority_rank, 500);
   assert.match(partEHistorical.vals.x_pipeline_priority_reason, /ordered by project value/i);
   assert.equal(partEHistorical.vals.type, "lead");
-  assert.equal(partEHistorical.vals.active, false);
+  assert.equal(Object.hasOwn(partEHistorical.vals, "active"), false);
   assert.equal(expiredHistorical.vals.x_lead_panel, "Competitive / Re-engagement");
   assert.ok(expiredHistorical.vals.x_pipeline_priority_rank < 0);
   assert.match(expiredHistorical.vals.x_pipeline_priority_reason, /competitive follow-up/i);
@@ -1812,7 +1813,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(result.unmanagedTestFixturesArchived, 1);
   assert.equal(result.managedRfisArchived, 1);
   assert.equal(result.managedRfisReactivated, 1);
-  assert.ok(result.managedLeadsArchived >= 2);
+  assert.ok(result.managedLeadsArchived >= 1);
   assert.equal(result.managedLeadsReactivated, 2);
 });
 
