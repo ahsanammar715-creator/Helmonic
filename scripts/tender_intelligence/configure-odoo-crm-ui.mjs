@@ -368,7 +368,6 @@ const leadListOrderValues = {
       <field name="x_warm_connection_verified" string="Verified Email Match" optional="show"/>
       <field name="x_project_value" string="Project Value" optional="show"/>
       <field name="x_project_link" string="Project Link" widget="url" optional="show"/>
-      <field name="x_first_seen_at" string="Lead Discovered" optional="show"/>
       <field name="x_rfi_published_at" string="RFI Published" optional="hide"/>
       <field name="x_rfi_response_received_at" string="FI Response Received" optional="hide"/>
       <field name="x_planning_received_at" string="Planning Received" optional="hide"/>
