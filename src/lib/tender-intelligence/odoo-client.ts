@@ -24,6 +24,7 @@ export type OdooJson2Config = {
   createMissingSourceTags?: boolean;
   normalizeHistoricalRecords?: boolean;
   migrateManagedRecordsToLeads?: boolean;
+  archiveUnmanagedTestFixtures?: boolean;
   requestIntervalMs?: number;
   timeoutMs?: number;
 };
@@ -47,6 +48,7 @@ export type OdooSyncResult = {
   managedLeadsReactivated: number;
   managedRfisArchived: number;
   managedRfisReactivated: number;
+  unmanagedTestFixturesArchived: number;
   failures: Array<{ externalId: string; error: string }>;
 };
 
@@ -90,6 +92,7 @@ function requiredConfig(config: OdooJson2Config) {
     createMissingSourceTags: config.createMissingSourceTags === true,
     normalizeHistoricalRecords: config.normalizeHistoricalRecords === true,
     migrateManagedRecordsToLeads: config.migrateManagedRecordsToLeads === true,
+    archiveUnmanagedTestFixtures: config.archiveUnmanagedTestFixtures === true,
     requestIntervalMs: Math.max(0, config.requestIntervalMs ?? 0),
     timeoutMs: Math.max(1_000, config.timeoutMs || 30_000),
   };
@@ -751,6 +754,9 @@ function historicalRecentRfi(record: ExistingLeadValues, now: Date) {
 }
 
 function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date): boolean | undefined {
+  const projectLink = String(record.x_project_link ?? "").trim();
+  if (!projectLink || genericPlanningPortalUrl(projectLink)) return false;
+
   if (record.x_classification === "granted-with-noise-conditions"
     && historicalConfirmedAcousticEvidence(record)) return true;
 
@@ -761,17 +767,7 @@ function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date):
     return historicalRecentRfi(record, now);
   }
 
-  if (record.x_opportunity_type === "formal-public-tender") {
-    const daysRemaining = historicalDaysRemaining(record.x_deadline, now);
-    return daysRemaining === false ? undefined : daysRemaining >= 0;
-  }
-
-  if (record.x_opportunity_type === "planning-pipeline-lead") {
-    const daysRemaining = historicalDaysRemaining(record.x_decision_due_at, now);
-    if (daysRemaining !== false) return daysRemaining >= 0;
-    if (historicalPostDecisionStage(record.x_project_stage)) return false;
-  }
-  return undefined;
+  return false;
 }
 
 function historicalCommercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {
@@ -1034,7 +1030,7 @@ async function normalizeHistoricalOdooRecords(
       "id", "active", "type", "name", "priority", "tag_ids", "street", "x_applicant", config.externalIdField, "x_source_systems", "x_project_reference",
       // x_studio_reference is read only to recognise legacy source values.
       // It is Odoo's sequential A-number and is never written by Helmonic.
-      "x_studio_reference", "x_source_reference", "x_warm_connection_verified", "x_assigned_person",
+      "x_studio_reference", "x_source_reference", "x_project_link", "x_warm_connection_verified", "x_assigned_person",
       "user_id", "x_routing_reason",
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
       "x_lead_panel", "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
@@ -1153,6 +1149,37 @@ async function normalizeHistoricalOdooRecords(
     archivedRfis,
     reactivatedRfis,
   };
+}
+
+const UNMANAGED_TEST_FIXTURE_NAMES = [
+  "New Residential Project, Dublin 12",
+  "New Hotel Project, Dublin 2",
+  "Noise testing",
+  "Tender 123",
+  "RFI Lead 1",
+  "RFI Lead 2",
+  "ABC building project",
+] as const;
+
+async function archiveUnmanagedTestFixtures(
+  config: ReturnType<typeof requiredConfig>,
+  fetcher: typeof fetch,
+) {
+  if (!config.archiveUnmanagedTestFixtures) return 0;
+  const fixtures = await json2Call(config, config.model, "search_read", {
+    domain: [
+      [config.externalIdField, "=", false],
+      ["type", "=", "lead"],
+      ["active", "=", true],
+      ["name", "in", [...UNMANAGED_TEST_FIXTURE_NAMES]],
+    ],
+    fields: ["id", "name"],
+    limit: 100,
+  }, fetcher) as Array<{ id?: number; name?: string }>;
+  const ids = fixtures.map((record) => record.id).filter((id): id is number => Number.isInteger(id));
+  if (ids.length === 0) return 0;
+  await json2Call(config, config.model, "write", { ids, vals: { active: false } }, fetcher);
+  return ids.length;
 }
 
 function mergedValues(left: unknown, right: unknown, separator: string) {
@@ -1360,6 +1387,7 @@ export async function syncOdooLeads(
       managedLeadsReactivated: 0,
       managedRfisArchived: 0,
       managedRfisReactivated: 0,
+      unmanagedTestFixturesArchived: 0,
       failures: [],
     };
   }
@@ -1389,6 +1417,7 @@ export async function syncOdooLeads(
     managedLeadsReactivated: 0,
     managedRfisArchived: 0,
     managedRfisReactivated: 0,
+    unmanagedTestFixturesArchived: 0,
     failures: [],
   };
   for (const payload of payloads) {
@@ -1511,5 +1540,6 @@ export async function syncOdooLeads(
   result.managedLeadsReactivated += historicalNormalization.reactivatedLeads;
   result.managedRfisArchived += historicalNormalization.archivedRfis;
   result.managedRfisReactivated += historicalNormalization.reactivatedRfis;
+  result.unmanagedTestFixturesArchived = await archiveUnmanagedTestFixtures(config, odooFetch);
   return result;
 }

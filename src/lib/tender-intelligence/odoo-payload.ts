@@ -891,6 +891,12 @@ function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
 }
 
 function activeLeadQueueStatus(record: TenderOpportunity, now: Date): boolean | undefined {
+  // The working Leads queue is intentionally narrow. Every source record is
+  // retained in the durable ledger, but only the two agreed, evidence-proven
+  // target categories are active in Odoo. A record-specific project link is
+  // required so a consultant can verify the opportunity in one click.
+  if (!projectLink(record)) return false;
+
   // Permission granted with a confirmed acoustic/noise condition is the
   // second primary target after live acoustic RFIs. A past planning-decision
   // date is expected for a grant and must never archive this category.
@@ -909,17 +915,7 @@ function activeLeadQueueStatus(record: TenderOpportunity, now: Date): boolean | 
     return recentRfiWithoutDueDate(record, now);
   }
 
-  if (record.type === "formal-public-tender") {
-    const daysRemaining = calendarDaysRemaining(record.deadline ?? "", now);
-    return daysRemaining === false ? undefined : daysRemaining >= 0;
-  }
-
-  if (record.type === "planning-pipeline-lead") {
-    const daysRemaining = calendarDaysRemaining(planningDecisionDueAt(record), now);
-    if (daysRemaining !== false) return daysRemaining >= 0;
-    if (isPostDecisionStage(record)) return false;
-  }
-  return undefined;
+  return false;
 }
 
 function commercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {

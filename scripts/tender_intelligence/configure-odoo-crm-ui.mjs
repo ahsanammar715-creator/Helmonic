@@ -368,6 +368,7 @@ const leadListOrderValues = {
       <field name="x_warm_connection_verified" string="Verified Email Match" optional="show"/>
       <field name="x_project_value" string="Project Value" optional="show"/>
       <field name="x_project_link" string="Project Link" widget="url" optional="show"/>
+      <field name="x_first_seen_at" string="Lead Discovered" optional="show"/>
       <field name="x_rfi_published_at" string="RFI Published" optional="hide"/>
       <field name="x_rfi_response_received_at" string="FI Response Received" optional="hide"/>
       <field name="x_planning_received_at" string="Planning Received" optional="hide"/>
@@ -406,7 +407,7 @@ const leadSearchValues = {
   arch_db: `<data>
     <xpath expr="//search" position="inside">
       <separator/>
-      <filter name="helmonic_primary_targets" string="Primary Acoustic Targets" domain="[('x_lead_panel', 'in', ['Urgent Acoustic RFI', 'Granted with Acoustic Conditions'])]"/>
+      <filter name="helmonic_primary_targets" string="Primary Acoustic Targets" domain="[('active', '=', True), ('x_project_link', '!=', False), ('x_lead_panel', 'in', ['Urgent Acoustic RFI', 'Granted with Acoustic Conditions'])]"/>
       <filter name="helmonic_live_acoustic_rfis" string="Live Further Information Requests" domain="[('x_lead_panel', '=', 'Urgent Acoustic RFI')]"/>
       <filter name="helmonic_granted_acoustic_conditions" string="Granted — Acoustic Conditions" domain="[('x_lead_panel', '=', 'Granted with Acoustic Conditions')]"/>
       <filter name="helmonic_secondary_potential" string="Secondary / Potential" domain="[('x_lead_panel', 'in', ['Confirmed Acoustic Opportunity', 'Potential Acoustic Fit'])]"/>
@@ -451,7 +452,7 @@ for (const action of targetLeadActions) {
     name: filterName,
     model_id: "crm.lead",
     user_id: false,
-    domain: JSON.stringify([["x_lead_panel", "in", ["Urgent Acoustic RFI", "Granted with Acoustic Conditions"]]]),
+    domain: JSON.stringify([["active", "=", true], ["x_project_link", "!=", false], ["x_lead_panel", "in", ["Urgent Acoustic RFI", "Granted with Acoustic Conditions"]]]),
     context: JSON.stringify({}),
     sort: JSON.stringify(["x_pipeline_priority_rank desc", "x_rfi_response_due_at asc"]),
     is_default: true,

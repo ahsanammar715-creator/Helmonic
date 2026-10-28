@@ -149,6 +149,7 @@ jobs:
               --set-env-vars \
                 ODOO_MIGRATE_MANAGED_RECORDS_TO_LEADS=false \
                 ODOO_NORMALIZE_HISTORICAL_RECORDS=false \
+                ODOO_ARCHIVE_UNMANAGED_TEST_FIXTURES=false \
                 ODOO_CRM_UI_CONFIG_ENABLED=false \
                 ODOO_CRM_UI_CONFIG_REQUIRED=false \
                 HELMONIC_ODOO_PREFLIGHT_ONLY=false \
@@ -262,6 +263,7 @@ jobs:
               HELMONIC_ODOO_PREFLIGHT_ONLY=true \
               ODOO_MIGRATE_MANAGED_RECORDS_TO_LEADS=false \
               ODOO_NORMALIZE_HISTORICAL_RECORDS=false \
+              ODOO_ARCHIVE_UNMANAGED_TEST_FIXTURES=false \
               ODOO_CRM_UI_CONFIG_ENABLED=false \
               ODOO_CRM_UI_CONFIG_REQUIRED=false \
               HELMONIC_SCHEDULE_GUARD_ENABLED=false \
@@ -284,6 +286,7 @@ jobs:
             --set-env-vars \
               ODOO_MIGRATE_MANAGED_RECORDS_TO_LEADS=true \
               ODOO_NORMALIZE_HISTORICAL_RECORDS=true \
+              ODOO_ARCHIVE_UNMANAGED_TEST_FIXTURES=true \
               ODOO_CRM_UI_CONFIG_ENABLED="$ui_config_enabled" \
               ODOO_CRM_UI_CONFIG_REQUIRED="$ui_config_enabled" \
               HELMONIC_ODOO_PREFLIGHT_ONLY=false \

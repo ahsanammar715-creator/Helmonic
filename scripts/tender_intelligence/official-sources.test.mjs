@@ -1251,7 +1251,7 @@ test("Odoo archives expired RFIs out of active Leads while retaining their audit
   assert.equal(values["helmonic-lead:granted-post-decision"].x_pipeline_priority_rank, 100);
   assert.equal(values["helmonic-lead:granted-post-decision"].x_lead_panel, "Competitive / Re-engagement");
   assert.equal(values["helmonic-lead:expired-formal-tender"].active, false);
-  assert.equal(values["helmonic-lead:live-formal-tender"].active, true);
+  assert.equal(values["helmonic-lead:live-formal-tender"].active, false);
   assert.equal(values["helmonic-lead:expired-planning-decision"].date_deadline, false);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_deadline, false);
   assert.equal(values["helmonic-lead:expired-planning-decision"].x_action_days_remaining, false);
@@ -1666,6 +1666,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_helmonic_external_id: "helmonic-lead:buildinginfo-rfi-history",
           x_source_systems: "BuildingInfo",
           x_project_reference: "424562",
+          x_project_link: "https://app.buildinginfo.com/p-OTNsZQ==-",
           x_studio_reference: "BI-424562",
           x_warm_connection_verified: true,
           x_lead_quality: "excellent",
@@ -1724,6 +1725,9 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_rfi_response_due_at: "2026-01-15 00:00:00",
         },
       ]);
+      if (body.domain?.[0]?.[2] === false) {
+        return Response.json([{ id: 74, name: "New Hotel Project, Dublin 2" }]);
+      }
       return Response.json([{ id: 69, tag_ids: [3] }]);
     }
     if (url.endsWith("/crm.lead/write")) {
@@ -1746,6 +1750,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
     createMissingSourceTags: true,
     normalizeHistoricalRecords: true,
     migrateManagedRecordsToLeads: true,
+    archiveUnmanagedTestFixtures: true,
     requestIntervalMs: 0,
   }, fetcher);
   const historical = writes.find((write) => write.ids[0] === 70);
@@ -1762,6 +1767,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(historical.vals.x_lead_panel, "Potential Acoustic Fit");
   assert.equal(historical.vals.x_lead_quality, "potential");
   assert.equal(historical.vals.priority, "0");
+  assert.equal(historical.vals.active, false);
   assert.equal(historical.vals.x_assigned_person, "");
   assert.equal(historical.vals.user_id, false);
   assert.equal(historical.vals.type, "lead");
@@ -1787,14 +1793,17 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(partEHistorical.vals.x_pipeline_priority_rank, 500);
   assert.match(partEHistorical.vals.x_pipeline_priority_reason, /ordered by project value/i);
   assert.equal(partEHistorical.vals.type, "lead");
+  assert.equal(partEHistorical.vals.active, false);
   assert.equal(expiredHistorical.vals.x_lead_panel, "Competitive / Re-engagement");
   assert.ok(expiredHistorical.vals.x_pipeline_priority_rank < 0);
   assert.match(expiredHistorical.vals.x_pipeline_priority_reason, /competitive follow-up/i);
   assert.equal(expiredHistorical.vals.priority, "0");
   assert.equal(expiredHistorical.vals.active, false);
+  assert.equal(writes.find((write) => write.ids[0] === 74).vals.active, false);
+  assert.equal(result.unmanagedTestFixturesArchived, 1);
   assert.equal(result.managedRfisArchived, 1);
   assert.equal(result.managedRfisReactivated, 1);
-  assert.equal(result.managedLeadsArchived, 1);
+  assert.ok(result.managedLeadsArchived >= 3);
   assert.equal(result.managedLeadsReactivated, 1);
 });
 
