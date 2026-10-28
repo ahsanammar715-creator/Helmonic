@@ -74,6 +74,20 @@ jobs:
           az containerapp job list \
             --query '[].{resourceGroup:resourceGroup,name:name,triggerType:properties.configuration.triggerType,image:properties.template.containers[0].image}' \
             --output json
+          for job_name in "$AZURE_JOB_NAME" "$AZURE_BUILDINGINFO_JOB_NAME"; do
+            echo "::group::${job_name} schedule and recent executions"
+            az containerapp job show \
+              --name "$job_name" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --query '{name:name,triggerType:properties.configuration.triggerType,cron:properties.configuration.scheduleTriggerConfig.cronExpression,replicaTimeout:properties.configuration.replicaTimeout,replicaRetryLimit:properties.configuration.replicaRetryLimit,image:properties.template.containers[0].image}' \
+              --output json
+            az containerapp job execution list \
+              --name "$job_name" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --query '[:10].{name:name,status:properties.status,startTime:properties.startTime,endTime:properties.endTime}' \
+              --output json
+            echo "::endgroup::"
+          done
 
   build-and-push:
     name: Build and publish immutable worker image
