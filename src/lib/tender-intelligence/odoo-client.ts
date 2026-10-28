@@ -753,6 +753,15 @@ function historicalRecentRfi(record: ExistingLeadValues, now: Date) {
     .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
+const HISTORICAL_GRANTED_CONDITION_ACTIVE_DAYS = 30;
+
+function historicalExpiredGrantedCondition(record: ExistingLeadValues, now: Date) {
+  if (record.x_classification !== "granted-with-noise-conditions") return false;
+  const decisionDaysRemaining = historicalDaysRemaining(record.x_decision_due_at, now);
+  return decisionDaysRemaining !== false
+    && decisionDaysRemaining < -HISTORICAL_GRANTED_CONDITION_ACTIVE_DAYS;
+}
+
 function historicalClosedLeadStage(value: unknown) {
   return /refus(?:e|ed|al)|withdrawn|invalid(?:ated)?|cancelled|completed|awarded/i.test(String(value ?? ""));
 }
@@ -795,9 +804,10 @@ function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date):
 
   // The historical classification was produced by the acoustic-condition
   // classifier even when older records did not persist the full evidence
-  // excerpt/term bundle. Keep the grant in the primary queue and retain the
-  // evidence-status warning for human verification rather than hiding it.
-  if (record.x_classification === "granted-with-noise-conditions") return true;
+  // excerpt/term bundle. Keep only recently actionable grants active.
+  if (record.x_classification === "granted-with-noise-conditions") {
+    return !historicalExpiredGrantedCondition(record, now);
+  }
 
   if (record.x_classification === "noise-related-rfi") {
     if (record.x_rfi_response_received_at) return false;
@@ -943,10 +953,10 @@ function historicalLeadReviewPanel(record: ExistingLeadValues, now: Date) {
     if (daysRemaining !== false && daysRemaining < 0) return "Competitive / Re-engagement";
     return "Urgent Acoustic RFI";
   }
-  const grantedConditionsAge = historicalGrantedConditionsActivityAge(record, now);
   if (record.x_classification === "granted-with-noise-conditions"
     && routeable
     && confirmedAcoustic) {
+    if (historicalExpiredGrantedCondition(record, now)) return "Competitive / Re-engagement";
     return "Granted with Acoustic Conditions";
   }
   if (routeable && historicalPostDecisionStage(record.x_project_stage)) return "Competitive / Re-engagement";
@@ -984,6 +994,7 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
     && decisionDaysRemaining >= 0
     && !postDecisionStage;
   const stalePendingPlanningDecision = !rfi && decisionDaysRemaining !== false && decisionDaysRemaining < 0 && !postDecisionStage;
+  const expiredGrant = grantedAcousticConditions && historicalExpiredGrantedCondition(record, now);
   if (liveDatedRfi && !fulfilledRfi) return {
     rank: historicalLiveRfiPriority(rfiDaysRemaining, activityFreshness, buildingInfo, verifiedEmailMatch),
     reason: historicalLiveRfiPriorityReason(rfiDaysRemaining, activityFreshness > 0, buildingInfo, verifiedEmailMatch),
@@ -1003,6 +1014,10 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
       reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; archived from active Leads and retained for audit, deduplication and consultant-reviewed competitive follow-up${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
     };
   }
+  if (expiredGrant) return {
+    rank: 90 + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship),
+    reason: `Acoustic-condition grant is more than ${HISTORICAL_GRANTED_CONDITION_ACTIVE_DAYS} days past its decision date; archived from active Leads and retained for audit and later competitive review`,
+  };
   if (grantedAcousticConditions) return {
     rank: historicalGrantedAcousticConditionsPriority(grantedConditionsAge === false ? 120 : grantedConditionsAge, buildingInfo, retainedRelationship),
     reason: `Permission granted with confirmed acoustic/noise conditions; second primary category after current Further Information Requests; newest grant evidence first${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${retainedRelationship ? "; verified historical relationship" : ""}`,

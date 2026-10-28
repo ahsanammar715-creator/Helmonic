@@ -634,6 +634,7 @@ function leadReviewPanel(record: TenderOpportunity, now: Date) {
   }
   if (record.classification === "granted-with-noise-conditions"
     && hasConfirmedCurrentAcousticEvidence(record)) {
+    if (expiredGrantedCondition(record, now)) return "Competitive / Re-engagement";
     return "Granted with Acoustic Conditions";
   }
   if (isPostDecisionStage(record)) return "Competitive / Re-engagement";
@@ -890,6 +891,15 @@ function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
     .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
+const GRANTED_CONDITION_ACTIVE_DAYS = 30;
+
+function expiredGrantedCondition(record: TenderOpportunity, now: Date) {
+  if (record.classification !== "granted-with-noise-conditions") return false;
+  const decisionDaysRemaining = calendarDaysRemaining(planningDecisionDueAt(record), now);
+  return decisionDaysRemaining !== false
+    && decisionDaysRemaining < -GRANTED_CONDITION_ACTIVE_DAYS;
+}
+
 function isClosedLeadStage(record: TenderOpportunity) {
   const stage = `${record.projectStage ?? ""} ${record.sourceStatus ?? ""}`;
   return /refus(?:e|ed|al)|withdrawn|invalid(?:ated)?|cancelled|completed|awarded/i.test(stage);
@@ -905,10 +915,12 @@ function activeLeadQueueStatus(record: TenderOpportunity, now: Date): boolean | 
     || record.leadDisposition === "already-won") return false;
 
   // Permission granted with a confirmed acoustic/noise condition is the
-  // second primary target after live acoustic RFIs. A past planning-decision
-  // date is expected for a grant and must never archive this category.
+  // second primary target after live acoustic RFIs, but only during the
+  // agreed recent-action window after the decision date.
   if (record.classification === "granted-with-noise-conditions"
-    && hasConfirmedCurrentAcousticEvidence(record)) return true;
+    && hasConfirmedCurrentAcousticEvidence(record)) {
+    return !expiredGrantedCondition(record, now);
+  }
 
   if (record.classification === "noise-related-rfi") {
     if (record.rfiResponseReceivedAt) return false;
@@ -1069,6 +1081,7 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
     && decisionDaysRemaining !== false
     && decisionDaysRemaining < 0
     && !postDecisionStage;
+  const expiredGrant = grantedAcousticConditions && expiredGrantedCondition(record, now);
 
   if (liveDatedRfi && !fulfilledRfi) {
     return {
@@ -1091,6 +1104,12 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
     return {
       rank: expiredRfiPriority(daysPastDue, buildingInfo, verifiedEmailMatch),
       reason: `RFI response date passed ${daysPastDue} day${daysPastDue === 1 ? "" : "s"} ago; archived from active Leads and retained for audit, deduplication and consultant-reviewed competitive follow-up${verifiedEmailMatch ? "; verified relationship retained for context" : ""}`,
+    };
+  }
+  if (expiredGrant) {
+    return {
+      rank: 90 + commercialRfiTieBreaker(buildingInfo, retainedRelationship),
+      reason: `Acoustic-condition grant is more than ${GRANTED_CONDITION_ACTIVE_DAYS} days past its decision date; archived from active Leads and retained for audit and later competitive review`,
     };
   }
   if (grantedAcousticConditions) {

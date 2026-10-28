@@ -1049,6 +1049,7 @@ test("Odoo keeps every confirmed granted acoustic condition in the second primar
       id: "newest-granted-acoustic-condition",
       classification: "granted-with-noise-conditions",
       projectStage: "GRANT PERMISSION WITH CONDITIONS",
+      deadline: "2026-10-20",
       sourceMajorUpdatedAt: "2026-10-20",
       evidenceStatus: "official-text",
       evidenceExcerpt: "Permission granted with a condition requiring an acoustic report.",
@@ -1059,6 +1060,7 @@ test("Odoo keeps every confirmed granted acoustic condition in the second primar
       id: "older-current-granted-acoustic-condition",
       classification: "granted-with-noise-conditions",
       projectStage: "GRANT PERMISSION WITH CONDITIONS",
+      deadline: "2026-10-01",
       sourceMajorUpdatedAt: "2026-09-20",
       evidenceStatus: "official-text",
       evidenceExcerpt: "Permission granted with a condition requiring a noise impact assessment.",
@@ -1069,6 +1071,7 @@ test("Odoo keeps every confirmed granted acoustic condition in the second primar
       id: "stale-granted-acoustic-condition",
       classification: "granted-with-noise-conditions",
       projectStage: "GRANT PERMISSION WITH CONDITIONS",
+      deadline: "2026-09-15",
       sourceMajorUpdatedAt: "2026-01-10",
       evidenceStatus: "official-text",
       evidenceExcerpt: "Permission granted with a condition requiring an acoustic report.",
@@ -1081,9 +1084,9 @@ test("Odoo keeps every confirmed granted acoustic condition in the second primar
   assert.equal(values["helmonic-lead:older-current-granted-acoustic-condition"].x_lead_panel, "Granted with Acoustic Conditions");
   assert.ok(values["helmonic-lead:newest-granted-acoustic-condition"].x_pipeline_priority_rank
     > values["helmonic-lead:older-current-granted-acoustic-condition"].x_pipeline_priority_rank);
-  assert.equal(values["helmonic-lead:stale-granted-acoustic-condition"].x_lead_panel, "Granted with Acoustic Conditions");
-  assert.ok(values["helmonic-lead:stale-granted-acoustic-condition"].x_pipeline_priority_rank > 1_000_000_000);
-  assert.equal(values["helmonic-lead:stale-granted-acoustic-condition"].active, true);
+  assert.equal(values["helmonic-lead:stale-granted-acoustic-condition"].x_lead_panel, "Competitive / Re-engagement");
+  assert.ok(values["helmonic-lead:stale-granted-acoustic-condition"].x_pipeline_priority_rank < 1_000);
+  assert.equal(values["helmonic-lead:stale-granted-acoustic-condition"].active, false);
 });
 
 test("Odoo keeps all potential acoustic fits together while Part E leads retain commercial priority", () => {
