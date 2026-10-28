@@ -455,7 +455,6 @@ for (const action of targetLeadActions) {
   const filterValues = {
     name: filterName,
     model_id: "crm.lead",
-    user_id: false,
     domain: JSON.stringify([["active", "=", true]]),
     context: JSON.stringify({}),
     sort: JSON.stringify(["x_pipeline_priority_rank desc", "x_rfi_response_due_at asc"]),
