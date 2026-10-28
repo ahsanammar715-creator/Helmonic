@@ -215,6 +215,13 @@ jobs:
 
           trap restore_safe_recurring_mode EXIT
 
+          # The integration account is intentionally allowed to keep syncing
+          # lead data even when an Odoo administrator has not granted it the
+          # separate technical permission needed to manage models/views. The
+          # strict zero-write preflight below still has to prove that every
+          # required field already exists before the controlled sync can run.
+          ui_config_enabled=false
+
           # This migration path is deliberately invoked only by an approved
           # workflow dispatch or an audited release commit marker.
           # Provision the explicitly approved custom fields and inherited views
@@ -239,7 +246,11 @@ jobs:
             --name "$AZURE_JOB_NAME" \
             --query name \
             --output tsv)"
-          wait_for_execution "$schema_execution" "approved Odoo test schema bootstrap"
+          if wait_for_execution "$schema_execution" "approved Odoo test schema bootstrap"; then
+            ui_config_enabled=true
+          else
+            echo "::warning::Odoo denied the admin-only schema/view refresh. Continuing with the existing field contract; the zero-write preflight must still pass before any lead data is changed."
+          fi
 
           # Validate the exact Odoo test endpoint, field contract, Tender Desk
           # team/stage and consultant users before permitting any write.
@@ -273,8 +284,8 @@ jobs:
             --set-env-vars \
               ODOO_MIGRATE_MANAGED_RECORDS_TO_LEADS=true \
               ODOO_NORMALIZE_HISTORICAL_RECORDS=true \
-              ODOO_CRM_UI_CONFIG_ENABLED=true \
-              ODOO_CRM_UI_CONFIG_REQUIRED=true \
+              ODOO_CRM_UI_CONFIG_ENABLED="$ui_config_enabled" \
+              ODOO_CRM_UI_CONFIG_REQUIRED="$ui_config_enabled" \
               HELMONIC_ODOO_PREFLIGHT_ONLY=false \
               HELMONIC_SCHEDULE_GUARD_ENABLED=false \
               NODE_OPTIONS=--experimental-strip-types \
