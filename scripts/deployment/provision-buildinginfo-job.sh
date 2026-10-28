@@ -171,6 +171,7 @@ jq \
   | set_value_env("BUILDINGINFO_BROWSER_BASE_URL"; "https://app.buildinginfo.com/")
   | set_value_env("BUILDINGINFO_BROWSER_SEARCH_URL"; "https://app.buildinginfo.com/page.u.newsearch")
   | set_value_env("BUILDINGINFO_BROWSER_KEYWORDS"; "noise,acoustic,vibration,sound insulation,noise impact assessment")
+  | set_value_env("BUILDINGINFO_BROWSER_SECTORS"; "Residential,Commercial,Education,Healthcare,Hotel,Industrial,Data Centre,Mixed Use,Infrastructure,Public Building")
   | set_value_env("BUILDINGINFO_BROWSER_STAGES"; "Plans Applied,Plans Granted,Pre-commencement,Commencement")
   | set_value_env("BUILDINGINFO_BROWSER_MAX_PROJECTS"; "150")
   | set_value_env("BUILDINGINFO_BROWSER_MAX_RESULTS_PER_SEARCH"; "2000")

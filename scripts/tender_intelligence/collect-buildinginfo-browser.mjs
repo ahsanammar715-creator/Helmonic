@@ -39,6 +39,9 @@ const searchTerms = (process.env.BUILDINGINFO_BROWSER_KEYWORDS
 const searchStages = (process.env.BUILDINGINFO_BROWSER_STAGES
   || "Plans Applied,Plans Granted,Pre-commencement,Commencement")
   .split(",").map((value) => value.trim()).filter(Boolean);
+const searchSectors = (process.env.BUILDINGINFO_BROWSER_SECTORS
+  || "Residential,Commercial,Education,Healthcare,Hotel,Industrial,Data Centre,Mixed Use,Infrastructure,Public Building")
+  .split(",").map((value) => value.trim()).filter(Boolean);
 const maximumProjects = Math.max(1, Number.parseInt(process.env.BUILDINGINFO_BROWSER_MAX_PROJECTS || "150", 10));
 const maximumResultsPerSearch = Math.max(1, Number.parseInt(process.env.BUILDINGINFO_BROWSER_MAX_RESULTS_PER_SEARCH || "2000", 10));
 const maximumLoadMoreClicks = Math.max(0, Number.parseInt(process.env.BUILDINGINFO_BROWSER_MAX_LOAD_MORE_CLICKS || "4", 10));
@@ -137,6 +140,31 @@ async function applyOptionalStageFilters(page) {
   return { applied, unavailable };
 }
 
+async function applyOptionalSectorFilters(page) {
+  const sectorsControl = page.getByText(/^Sectors\s*$/i).first();
+  if (!await sectorsControl.isVisible().catch(() => false)) return { applied: [], unavailable: searchSectors };
+  await sectorsControl.click();
+  const applied = [];
+  const unavailable = [];
+  for (const sector of searchSectors) {
+    const pattern = new RegExp(sector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const matches = page.getByText(pattern);
+    let selected;
+    for (let index = await matches.count() - 1; index >= 0; index -= 1) {
+      const candidate = matches.nth(index);
+      if (await candidate.isVisible().catch(() => false)) {
+        selected = candidate;
+        break;
+      }
+    }
+    if (selected) {
+      await selected.click();
+      applied.push(sector);
+    } else unavailable.push(sector);
+  }
+  return { applied, unavailable };
+}
+
 async function runSearch(page, term) {
   await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: navigationTimeoutMs });
   await assertNoAccessChallenge(page, `search setup for ${term}`);
@@ -154,6 +182,7 @@ async function runSearch(page, term) {
       element.dispatchEvent(new Event("change", { bubbles: true }));
     });
   }
+  const sectorFilter = await applyOptionalSectorFilters(page);
   const stageFilter = await applyOptionalStageFilters(page);
   // BuildingInfo's responsive search page has used both native buttons and
   // styled div/span controls. Locate the visible exact-text control, then
@@ -214,7 +243,7 @@ async function runSearch(page, term) {
       // Ignore off-site and malformed links rather than following them.
     }
   }
-  return { projectUrls: [...new Set(projectUrls)], count, stageFilter };
+  return { projectUrls: [...new Set(projectUrls)], count, sectorFilter, stageFilter };
 }
 
 async function projectSnapshot(page, projectUrl) {
@@ -272,6 +301,7 @@ try {
       term,
       resultCount: result.count,
       discoveredLinks: result.projectUrls.length,
+      sectorFilter: result.sectorFilter,
       stageFilter: result.stageFilter,
     });
     for (const url of result.projectUrls) {
