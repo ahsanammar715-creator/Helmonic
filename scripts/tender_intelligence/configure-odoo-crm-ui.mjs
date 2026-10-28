@@ -361,7 +361,13 @@ const leadListOrderValues = {
       <field name="x_source_reference" string="Source Reference" optional="show"/>
       <field name="x_lead_panel" string="Lead Review Panel" optional="show"/>
       <field name="x_lead_quality" string="Lead Quality" optional="show"/>
-      <field name="x_project_stage" string="Project Stage" optional="show"/>
+      <field name="x_project_stage" string="Project Stage" widget="badge" optional="show"
+        decoration-info="x_project_stage in ['Plans Applied', 'PLANS APPLIED', 'New Application', 'NEW APPLICATION', 'Validated', 'VALIDATED']"
+        decoration-primary="x_project_stage in ['Tender', 'TENDER', 'Quotation', 'QUOTATION']"
+        decoration-success="x_project_stage in ['Plans Granted', 'PLANS GRANTED', 'Permission Granted', 'PERMISSION GRANTED', 'Grant Permission with Conditions', 'GRANT PERMISSION WITH CONDITIONS', 'Conditional', 'CONDITIONAL']"
+        decoration-warning="x_project_stage in ['Commencement', 'COMMENCEMENT', 'Construction', 'CONSTRUCTION', 'On Site', 'ON SITE']"
+        decoration-danger="x_project_stage in ['Refused', 'REFUSED', 'Withdrawn', 'WITHDRAWN', 'Invalidated', 'INVALIDATED']"
+        decoration-muted="x_project_stage in ['Completed', 'COMPLETED', 'Closed', 'CLOSED']"/>
       <field name="x_rfi_response_due_at" string="RFI Response Due" optional="show"/>
       <field name="x_rfi_received_at" string="RFI Received / Detected" optional="show"/>
       <field name="x_decision_due_at" string="Planning Decision Due" optional="show"/>
