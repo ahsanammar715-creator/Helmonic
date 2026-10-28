@@ -890,11 +890,42 @@ function recentRfiWithoutDueDate(record: TenderOpportunity, now: Date) {
     .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
+function recentSecondaryLead(record: TenderOpportunity, now: Date) {
+  return [
+    record.sourceMajorUpdatedAt,
+    record.sourceUpdatedAt,
+    record.firstSeenAt,
+    record.publishedAt,
+    record.planningReceivedAt,
+  ]
+    .map((value) => calendarDaysRemaining(value ?? "", now))
+    .some((age) => age !== false && age <= 0 && age >= -42);
+}
+
+function secondaryLeadQueueStatus(record: TenderOpportunity, now: Date) {
+  if (!["excellent", "good"].includes(record.leadQuality ?? "")) return false;
+  if (["background", "already-won"].includes(record.leadDisposition ?? "")) return false;
+  if (isPostDecisionStage(record)) return false;
+
+  if (record.type === "formal-public-tender") {
+    const daysRemaining = calendarDaysRemaining(record.deadline ?? "", now);
+    return daysRemaining !== false ? daysRemaining >= 0 : recentSecondaryLead(record, now);
+  }
+
+  if (record.type === "planning-pipeline-lead") {
+    const daysRemaining = calendarDaysRemaining(planningDecisionDueAt(record), now);
+    return daysRemaining !== false ? daysRemaining >= 0 : recentSecondaryLead(record, now);
+  }
+
+  return recentSecondaryLead(record, now);
+}
+
 function activeLeadQueueStatus(record: TenderOpportunity, now: Date): boolean | undefined {
   // The working Leads queue is intentionally narrow. Every source record is
-  // retained in the durable ledger, but only the two agreed, evidence-proven
-  // target categories are active in Odoo. A record-specific project link is
-  // required so a consultant can verify the opportunity in one click.
+  // retained in the durable ledger. The two evidence-proven primary target
+  // categories stay first, while only fresh good/excellent potential records
+  // remain active as a smaller secondary review queue. A record-specific
+  // project link is required so a consultant can verify it in one click.
   if (!projectLink(record)) return false;
 
   // Permission granted with a confirmed acoustic/noise condition is the
@@ -915,7 +946,7 @@ function activeLeadQueueStatus(record: TenderOpportunity, now: Date): boolean | 
     return recentRfiWithoutDueDate(record, now);
   }
 
-  return false;
+  return secondaryLeadQueueStatus(record, now);
 }
 
 function commercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {

@@ -1,7 +1,7 @@
 import type { OdooLeadDryRun } from "./odoo-payload.ts";
 import { ODOO_TENDER_FIELD_TYPES } from "./odoo-field-contract.ts";
 import { acousticCpvCodes, relevantTenderText } from "./policy.ts";
-import { genericPlanningPortalUrl } from "./project-links.ts";
+import { genericPlanningPortalUrl, nationalPlanningProjectUrl } from "./project-links.ts";
 
 export type OdooJson2Config = {
   enabled: boolean;
@@ -753,12 +753,76 @@ function historicalRecentRfi(record: ExistingLeadValues, now: Date) {
     .some((age) => age !== false && age <= 0 && age >= -42);
 }
 
+function historicalRecentSecondaryLead(record: ExistingLeadValues, now: Date) {
+  return [
+    record.x_source_major_updated_at,
+    record.x_last_seen_at,
+    record.x_first_seen_at,
+    record.x_planning_received_at,
+  ]
+    .map((value) => historicalDaysRemaining(value, now))
+    .some((age) => age !== false && age <= 0 && age >= -42);
+}
+
+function historicalSecondaryLeadQueueStatus(record: ExistingLeadValues, now: Date) {
+  const quality = String(record.x_lead_quality ?? "");
+  if (!["excellent", "good"].includes(quality)) return false;
+  if (["background", "already-won"].includes(String(record.x_pipeline_bucket ?? ""))) return false;
+  if (historicalPostDecisionStage(record.x_project_stage)) return false;
+
+  if (record.x_opportunity_type === "formal-public-tender") {
+    const daysRemaining = historicalDaysRemaining(record.x_deadline, now);
+    return daysRemaining !== false ? daysRemaining >= 0 : historicalRecentSecondaryLead(record, now);
+  }
+
+  if (record.x_opportunity_type === "planning-pipeline-lead") {
+    const daysRemaining = historicalDaysRemaining(record.x_decision_due_at, now);
+    return daysRemaining !== false ? daysRemaining >= 0 : historicalRecentSecondaryLead(record, now);
+  }
+
+  return historicalRecentSecondaryLead(record, now);
+}
+
+function historicalUrlCandidates(value: unknown) {
+  return String(value ?? "")
+    .split(/[\r\n;]+/)
+    .map((candidate) => candidate.trim().replace(/^http:/i, "https:"))
+    .filter((candidate) => /^https:\/\//i.test(candidate) && !genericPlanningPortalUrl(candidate));
+}
+
+function historicalProjectLink(record: ExistingLeadValues) {
+  const existing = String(record.x_project_link ?? "").trim().replace(/^http:/i, "https:");
+  if (existing && !genericPlanningPortalUrl(existing)) return existing;
+
+  const reference = String(record.x_project_reference ?? "").trim();
+  const supplied = historicalUrlCandidates(record.x_source_urls);
+  const referenceMatch = reference
+    ? supplied.find((candidate) => candidate.toLowerCase().includes(reference.toLowerCase()))
+    : undefined;
+  if (referenceMatch) return referenceMatch;
+  if (supplied[0]) return supplied[0];
+  if (!reference) return "";
+
+  const systems = String(record.x_source_systems ?? "").toLowerCase();
+  if (systems.includes("dcc")) {
+    const query = new URLSearchParams({ FileSystemId: "PL", Folder1_Ref: reference });
+    return `https://webapps.dublincity.ie/PublicAccess_Live/SearchResult/RunThirdPartySearch?${query}`;
+  }
+  if (/(?:national planning register|planningleads|planning)/i.test(systems)) {
+    return nationalPlanningProjectUrl("", reference);
+  }
+  return "";
+}
+
 function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date): boolean | undefined {
   const projectLink = String(record.x_project_link ?? "").trim();
   if (!projectLink || genericPlanningPortalUrl(projectLink)) return false;
 
-  if (record.x_classification === "granted-with-noise-conditions"
-    && historicalConfirmedAcousticEvidence(record)) return true;
+  // The historical classification was produced by the acoustic-condition
+  // classifier even when older records did not persist the full evidence
+  // excerpt/term bundle. Keep the grant in the primary queue and retain the
+  // evidence-status warning for human verification rather than hiding it.
+  if (record.x_classification === "granted-with-noise-conditions") return true;
 
   if (record.x_classification === "noise-related-rfi") {
     if (record.x_rfi_response_received_at) return false;
@@ -767,7 +831,7 @@ function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date):
     return historicalRecentRfi(record, now);
   }
 
-  return false;
+  return historicalSecondaryLeadQueueStatus(record, now);
 }
 
 function historicalCommercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailMatch: boolean) {
@@ -1030,14 +1094,14 @@ async function normalizeHistoricalOdooRecords(
       "id", "active", "type", "name", "priority", "tag_ids", "street", "x_applicant", config.externalIdField, "x_source_systems", "x_project_reference",
       // x_studio_reference is read only to recognise legacy source values.
       // It is Odoo's sequential A-number and is never written by Helmonic.
-      "x_studio_reference", "x_source_reference", "x_project_link", "x_warm_connection_verified", "x_assigned_person",
+      "x_studio_reference", "x_source_reference", "x_source_urls", "x_project_link", "x_warm_connection_verified", "x_assigned_person",
       "user_id", "x_routing_reason",
       "x_acoustic_appointment_status", "x_lead_quality", "x_pipeline_bucket",
       "x_lead_panel", "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
       "x_evidence_status", "x_evidence_excerpt", "x_matched_terms", "x_cpv_codes", "x_opportunity_type",
       "x_deadline", "x_rfi_published_at", "x_rfi_received_at", "x_rfi_response_due_at", "x_rfi_response_received_at",
       "x_planning_received_at", "x_planning_validated_at", "x_decision_due_at",
-      "x_source_major_updated_at", "x_first_seen_at", "x_project_stage", "x_project_value", "x_residential_scale",
+      "x_source_major_updated_at", "x_first_seen_at", "x_last_seen_at", "x_project_stage", "x_project_value", "x_residential_scale",
     ],
     limit: 5_000,
     context: { active_test: false },
@@ -1093,8 +1157,15 @@ async function normalizeHistoricalOdooRecords(
         values.x_studio_reference = false;
       }
     }
-    const priority = historicalPipelinePriority(record, normalizationNow);
-    const activeLeadStatus = historicalActiveLeadQueueStatus(record, normalizationNow);
+    const resolvedProjectLink = historicalProjectLink(record);
+    if (resolvedProjectLink && resolvedProjectLink !== record.x_project_link) {
+      values.x_project_link = resolvedProjectLink;
+    }
+    const normalizedRecord = resolvedProjectLink
+      ? { ...record, x_project_link: resolvedProjectLink }
+      : record;
+    const priority = historicalPipelinePriority(normalizedRecord, normalizationNow);
+    const activeLeadStatus = historicalActiveLeadQueueStatus(normalizedRecord, normalizationNow);
     if (activeLeadStatus !== undefined && record.active !== activeLeadStatus) {
       values.active = activeLeadStatus;
       if (activeLeadStatus) reactivatedLeads += 1;

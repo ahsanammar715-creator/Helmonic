@@ -1026,6 +1026,9 @@ test("Odoo makes current acoustic RFIs primary, granted acoustic conditions seco
       evidenceStatus: "discovery-only",
       deadline: "2026-10-23",
       projectStage: "NEW APPLICATION",
+      sourceMajorUpdatedAt: "2026-10-20",
+      leadQuality: "good",
+      leadDisposition: "nurture",
       crmExternalId: "helmonic-lead:planning-potential-secondary",
     }),
   ], new Date("2026-10-21T12:00:00.000Z"));
@@ -1033,6 +1036,7 @@ test("Odoo makes current acoustic RFIs primary, granted acoustic conditions seco
   assert.equal(values["helmonic-lead:live-current-acoustic-rfi"].x_lead_panel, "Urgent Acoustic RFI");
   assert.equal(values["helmonic-lead:granted-acoustic-condition"].x_lead_panel, "Granted with Acoustic Conditions");
   assert.equal(values["helmonic-lead:planning-potential-secondary"].x_lead_panel, "Potential Acoustic Fit");
+  assert.equal(values["helmonic-lead:planning-potential-secondary"].active, true);
   assert.ok(values["helmonic-lead:live-current-acoustic-rfi"].x_pipeline_priority_rank
     > values["helmonic-lead:granted-acoustic-condition"].x_pipeline_priority_rank);
   assert.ok(values["helmonic-lead:granted-acoustic-condition"].x_pipeline_priority_rank
@@ -1638,7 +1642,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
         },
         {
           id: 70,
-          active: true,
+          active: false,
           type: "opportunity",
           name: "J-1256",
           street: "Unit 4 Greenacres Shopping Centre, Dundalk, Co. Louth",
@@ -1646,6 +1650,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_helmonic_external_id: "helmonic-lead:retained-history",
           x_source_systems: "National Planning Register",
           x_project_reference: "WEB1999/26",
+          x_source_urls: "https://planning.localgov.ie/",
           x_studio_reference: "WEB1999/26",
           x_warm_connection_verified: true,
           x_lead_quality: "good",
@@ -1653,6 +1658,9 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_pipeline_priority_rank: 0,
           x_pipeline_priority_reason: false,
           x_classification: "needs-council-evidence",
+          x_opportunity_type: "planning-pipeline-lead",
+          x_decision_due_at: "2099-10-20 00:00:00",
+          x_first_seen_at: new Date().toISOString(),
           x_assigned_person: false,
           user_id: [7, "Glen Plunkett"],
           x_routing_reason: "exact-party-match-supported-by-glen-email-evidence",
@@ -1763,19 +1771,20 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(historical.vals.name, "Unit 4 Greenacres Shopping Centre, Dundalk, Co. Louth");
   assert.equal(historical.vals.x_source_reference, "NPR-WEB1999/26");
   assert.equal(historical.vals.x_studio_reference, false);
-  assert.equal(historical.vals.x_pipeline_priority_rank, 320);
+  assert.equal(historical.vals.x_pipeline_priority_rank, 20_020);
   assert.equal(historical.vals.x_lead_panel, "Potential Acoustic Fit");
   assert.equal(historical.vals.x_lead_quality, "potential");
-  assert.equal(historical.vals.priority, "0");
-  assert.equal(historical.vals.active, false);
+  assert.equal(historical.vals.priority, "2");
+  assert.equal(historical.vals.active, true);
+  assert.match(historical.vals.x_project_link, /planning\.localgov\.ie\/search\/application\?/);
   assert.equal(historical.vals.x_assigned_person, "");
   assert.equal(historical.vals.user_id, false);
   assert.equal(historical.vals.type, "lead");
   assert.match(historical.vals.x_routing_reason, /historical email relationship retained for context/i);
   assert.match(historical.vals.x_routing_reason, /Prior route: exact-party-match-supported-by-glen-email-evidence/);
-  assert.equal(
+  assert.match(
     historical.vals.x_pipeline_priority_reason,
-    "Potential acoustic fit only; current-project acoustic evidence is unconfirmed. Verified historical relationship retained for context, not opportunity proof",
+    /Secondary planning monitor: decision due in \d+ days;.*verified historical relationship retained/i,
   );
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
@@ -1803,8 +1812,8 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(result.unmanagedTestFixturesArchived, 1);
   assert.equal(result.managedRfisArchived, 1);
   assert.equal(result.managedRfisReactivated, 1);
-  assert.ok(result.managedLeadsArchived >= 3);
-  assert.equal(result.managedLeadsReactivated, 1);
+  assert.ok(result.managedLeadsArchived >= 2);
+  assert.equal(result.managedLeadsReactivated, 2);
 });
 
 test("Odoo never assigns a consultant when only historical email evidence exists", () => {
