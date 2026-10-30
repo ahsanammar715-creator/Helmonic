@@ -33,6 +33,11 @@ on:
         required: true
         default: false
         type: boolean
+      automate_education_lookup_job:
+        description: Schedule the Education / BIM collector daily at 8am Dublin time; BuildingInfo and outreach remain disabled
+        required: true
+        default: false
+        type: boolean
       start_buildinginfo_test_run:
         description: Start one controlled BuildingInfo dev/test execution after provisioning (credentials must already exist)
         required: true
@@ -202,6 +207,7 @@ jobs:
         env:
           AZURE_SOURCE_JOB_NAME: ${{ env.AZURE_JOB_NAME }}
           EDUCATION_LOOKUP_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+          EDUCATION_LOOKUP_AUTOMATED: ${{ inputs.automate_education_lookup_job }}
         run: bash scripts/deployment/provision-education-lookup-job.sh
 
       - name: Repair inherited Odoo CRM fields and views only
