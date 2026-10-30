@@ -1020,6 +1020,7 @@ test("Odoo makes current acoustic RFIs primary, granted acoustic conditions seco
       id: "granted-acoustic-condition",
       classification: "granted-with-noise-conditions",
       projectStage: "GRANT PERMISSION WITH CONDITIONS",
+      deadline: "2026-10-20",
       sourceMajorUpdatedAt: "2026-10-20",
       evidenceStatus: "official-text",
       evidenceExcerpt: "Permission granted subject to a condition requiring an acoustic report and plant noise limits.",
@@ -1049,7 +1050,7 @@ test("Odoo makes current acoustic RFIs primary, granted acoustic conditions seco
     > values["helmonic-lead:planning-potential-secondary"].x_pipeline_priority_rank);
 });
 
-test("Odoo keeps every confirmed granted acoustic condition in the second primary category and orders them newest first", () => {
+test("Odoo keeps only current dated acoustic-condition grants in the primary category", () => {
   const payloads = buildOdooDryRun([
     planningLead({
       id: "newest-granted-acoustic-condition",
@@ -1084,6 +1085,16 @@ test("Odoo keeps every confirmed granted acoustic condition in the second primar
       matchedTerms: ["acoustic report"],
       crmExternalId: "helmonic-lead:stale-granted-acoustic-condition",
     }),
+    planningLead({
+      id: "undated-granted-acoustic-condition",
+      classification: "granted-with-noise-conditions",
+      projectStage: "GRANT PERMISSION WITH CONDITIONS",
+      sourceMajorUpdatedAt: "2026-10-20",
+      evidenceStatus: "official-text",
+      evidenceExcerpt: "Permission granted with a condition requiring an acoustic report.",
+      matchedTerms: ["acoustic report"],
+      crmExternalId: "helmonic-lead:undated-granted-acoustic-condition",
+    }),
   ], new Date("2026-10-21T12:00:00.000Z"));
   const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
   assert.equal(values["helmonic-lead:newest-granted-acoustic-condition"].x_lead_panel, "Granted with Acoustic Conditions");
@@ -1092,7 +1103,10 @@ test("Odoo keeps every confirmed granted acoustic condition in the second primar
     > values["helmonic-lead:older-current-granted-acoustic-condition"].x_pipeline_priority_rank);
   assert.equal(values["helmonic-lead:stale-granted-acoustic-condition"].x_lead_panel, "Granted / Follow-up");
   assert.ok(values["helmonic-lead:stale-granted-acoustic-condition"].x_pipeline_priority_rank < 1_000);
-  assert.equal(values["helmonic-lead:stale-granted-acoustic-condition"].active, true);
+  assert.equal(values["helmonic-lead:stale-granted-acoustic-condition"].active, false);
+  assert.equal(values["helmonic-lead:undated-granted-acoustic-condition"].x_lead_panel, "Needs Date Validation");
+  assert.ok(values["helmonic-lead:undated-granted-acoustic-condition"].x_pipeline_priority_rank < 1_000);
+  assert.equal(values["helmonic-lead:undated-granted-acoustic-condition"].active, true);
 });
 
 test("Odoo keeps all potential acoustic fits together while Part E leads retain commercial priority", () => {
@@ -1661,6 +1675,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_source_systems: "National Planning Register",
           x_project_reference: "WEB1999/26",
           x_source_urls: "https://planning.localgov.ie/",
+          x_project_link: false,
           x_studio_reference: "WEB1999/26",
           x_warm_connection_verified: true,
           x_lead_quality: "good",
@@ -1742,6 +1757,50 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_opportunity_type: "planning-pipeline-lead",
           x_rfi_response_due_at: "2026-01-15 00:00:00",
         },
+        {
+          id: 75,
+          active: true,
+          type: "lead",
+          name: "Expired granted acoustic condition",
+          tag_ids: [7],
+          x_helmonic_external_id: "helmonic-lead:expired-granted-condition",
+          x_source_systems: "BuildingInfo",
+          x_project_reference: "EXPIRED-GRANT-26",
+          x_source_urls: "https://app.buildinginfo.com/p-expired-grant",
+          x_project_link: false,
+          x_studio_reference: "A-0075",
+          x_warm_connection_verified: false,
+          x_lead_quality: "good",
+          x_pipeline_bucket: "active",
+          x_classification: "granted-with-noise-conditions",
+          x_evidence_status: "official-text",
+          x_evidence_excerpt: "Permission granted with a condition requiring an acoustic report.",
+          x_matched_terms: "acoustic report",
+          x_opportunity_type: "planning-pipeline-lead",
+          x_decision_due_at: "2026-01-15 00:00:00",
+        },
+        {
+          id: 76,
+          active: true,
+          type: "lead",
+          name: "Undated granted acoustic condition",
+          tag_ids: [7],
+          x_helmonic_external_id: "helmonic-lead:undated-granted-condition",
+          x_source_systems: "BuildingInfo",
+          x_project_reference: "UNDATED-GRANT-26",
+          x_source_urls: "https://app.buildinginfo.com/p-undated-grant",
+          x_project_link: false,
+          x_studio_reference: "A-0076",
+          x_warm_connection_verified: false,
+          x_lead_quality: "good",
+          x_pipeline_bucket: "active",
+          x_classification: "granted-with-noise-conditions",
+          x_evidence_status: "official-text",
+          x_evidence_excerpt: "Permission granted with a condition requiring an acoustic report.",
+          x_matched_terms: "acoustic report",
+          x_opportunity_type: "planning-pipeline-lead",
+          x_decision_due_at: false,
+        },
       ]);
       if (body.domain?.[0]?.[2] === false) {
         return Response.json([{ id: 74, name: "New Hotel Project, Dublin 2" }]);
@@ -1775,7 +1834,9 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   const buildingInfoHistorical = writes.find((write) => write.ids[0] === 71);
   const partEHistorical = writes.find((write) => write.ids[0] === 72);
   const expiredHistorical = writes.find((write) => write.ids[0] === 73);
-  assert.equal(result.historicalRecordsNormalized, 5);
+  const expiredGrantHistorical = writes.find((write) => write.ids[0] === 75);
+  const undatedGrantHistorical = writes.find((write) => write.ids[0] === 76);
+  assert.equal(result.historicalRecordsNormalized, 7);
   assert.equal(result.managedRecordsMovedToLeads, 3);
   assert.equal(writes.some((write) => write.ids[0] === 69 && Object.hasOwn(write.vals, "name")), false);
   assert.equal(historical.vals.name, "Unit 4 Greenacres Shopping Centre, Dundalk, Co. Louth");
@@ -1818,6 +1879,14 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.match(expiredHistorical.vals.x_pipeline_priority_reason, /competitive follow-up/i);
   assert.equal(expiredHistorical.vals.priority, "0");
   assert.equal(expiredHistorical.vals.active, false);
+  assert.equal(expiredGrantHistorical.vals.active, false);
+  assert.equal(expiredGrantHistorical.vals.x_lead_panel, "Granted / Follow-up");
+  assert.ok(expiredGrantHistorical.vals.x_pipeline_priority_rank < 1_000);
+  assert.equal(expiredGrantHistorical.vals.x_project_link, "https://app.buildinginfo.com/p-expired-grant");
+  assert.equal(Object.hasOwn(undatedGrantHistorical.vals, "active"), false);
+  assert.equal(undatedGrantHistorical.vals.x_lead_panel, "Needs Date Validation");
+  assert.ok(undatedGrantHistorical.vals.x_pipeline_priority_rank < 1_000);
+  assert.equal(undatedGrantHistorical.vals.x_project_link, "https://app.buildinginfo.com/p-undated-grant");
   assert.equal(writes.find((write) => write.ids[0] === 74).vals.active, false);
   assert.equal(result.unmanagedTestFixturesArchived, 1);
   assert.equal(result.managedRfisArchived, 1);
@@ -1918,6 +1987,7 @@ test("Odoo refreshes enrich source evidence without overwriting human CRM decisi
       x_source_record_ids: "BuildingInfo:424562",
       x_source_urls: "https://app.buildinginfo.com/p-OTNsZQ==-\nhttps://planning.localgov.ie/",
       x_project_link: "https://planning.localgov.ie/",
+      x_decision_due_at: "2026-09-25 00:00:00",
       x_evidence_document_urls: "https://buildinginfo.example/evidence.pdf",
       x_assigned_person: "Glen Plunkett",
       x_warm_connection_verified: true,
@@ -1964,6 +2034,7 @@ test("Odoo refreshes enrich source evidence without overwriting human CRM decisi
   assert.match(writtenValues.x_source_urls, /app\.buildinginfo\.com/);
   assert.doesNotMatch(writtenValues.x_source_urls, /planning\.localgov\.ie\/$/);
   assert.notEqual(writtenValues.x_project_link, "https://planning.localgov.ie/");
+  assert.equal(writtenValues.x_decision_due_at, "2026-09-25 00:00:00");
   assert.ok(writtenValues.x_relationship_summary.length <= 1_600);
   assert.match(writtenValues.x_relationship_summary, /Glen previously corresponded with Alan Armstrong/);
   assert.doesNotMatch(writtenValues.x_relationship_summary, /Evidence source:|Source message URI:|Evidence reference\(s\):/);

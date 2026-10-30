@@ -774,8 +774,10 @@ function historicalUrlCandidates(value: unknown) {
 }
 
 function historicalProjectLink(record: ExistingLeadValues) {
-  const existing = String(record.x_project_link ?? "").trim().replace(/^http:/i, "https:");
-  if (existing && !genericPlanningPortalUrl(existing)) return existing;
+  const existing = typeof record.x_project_link === "string"
+    ? record.x_project_link.trim().replace(/^http:/i, "https:")
+    : "";
+  if (/^https:\/\//i.test(existing) && !genericPlanningPortalUrl(existing)) return existing;
 
   const reference = String(record.x_project_reference ?? "").trim();
   const supplied = historicalUrlCandidates(record.x_source_urls);
@@ -804,9 +806,14 @@ function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date):
 
   // The historical classification was produced by the acoustic-condition
   // classifier even when older records did not persist the full evidence
-  // excerpt/term bundle. Older grants remain visible but are demoted below
-  // live work by historicalPipelinePriority.
-  if (record.x_classification === "granted-with-noise-conditions") return true;
+  // excerpt/term bundle. Expired grants leave the active queue; undated grants
+  // remain visible only in the date-validation panel.
+  if (record.x_classification === "granted-with-noise-conditions") {
+    if (historicalExpiredGrantedCondition(record, now)) return false;
+    // Keep undated grants available for validation, but their panel and rank
+    // below ensure that they cannot lead the primary queue.
+    return true;
+  }
 
   if (record.x_classification === "noise-related-rfi") {
     if (record.x_rfi_response_received_at) return false;
@@ -955,6 +962,7 @@ function historicalLeadReviewPanel(record: ExistingLeadValues, now: Date) {
   if (record.x_classification === "granted-with-noise-conditions"
     && routeable
     && confirmedAcoustic) {
+    if (!record.x_decision_due_at) return "Needs Date Validation";
     if (historicalExpiredGrantedCondition(record, now)) return "Granted / Follow-up";
     return "Granted with Acoustic Conditions";
   }
@@ -994,6 +1002,7 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
     && !postDecisionStage;
   const stalePendingPlanningDecision = !rfi && decisionDaysRemaining !== false && decisionDaysRemaining < 0 && !postDecisionStage;
   const expiredGrant = grantedAcousticConditions && historicalExpiredGrantedCondition(record, now);
+  const grantNeedsDateValidation = grantedAcousticConditions && !record.x_decision_due_at;
   if (liveDatedRfi && !fulfilledRfi) return {
     rank: historicalLiveRfiPriority(rfiDaysRemaining, activityFreshness, buildingInfo, verifiedEmailMatch),
     reason: historicalLiveRfiPriorityReason(rfiDaysRemaining, activityFreshness > 0, buildingInfo, verifiedEmailMatch),
@@ -1016,6 +1025,10 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   if (expiredGrant) return {
     rank: 90 + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship),
     reason: `Acoustic-condition grant is more than ${HISTORICAL_GRANTED_CONDITION_ACTIVE_DAYS} days past its decision date; retained as a low-priority granted follow-up below live RFIs and current applications`,
+  };
+  if (grantNeedsDateValidation) return {
+    rank: 160 + historicalCommercialRfiTieBreaker(buildingInfo, retainedRelationship),
+    reason: "Permission grant has confirmed acoustic/noise evidence but no planning decision date; retained for date validation and excluded from the primary target ordering",
   };
   if (grantedAcousticConditions) return {
     rank: historicalGrantedAcousticConditionsPriority(grantedConditionsAge === false ? 120 : grantedConditionsAge, buildingInfo, retainedRelationship),
@@ -1328,7 +1341,10 @@ function payloadWithExistingEvidence(
 ): OdooLeadDryRun {
   if (!existing) return payload;
   const sourceSystems = mergedValues(existing.x_source_systems, payload.values.x_source_systems, "; ");
-  const preserveWhenMissing = (incoming: string, prior: unknown) => incoming || (typeof prior === "string" ? prior : "");
+  const preserveWhenMissing = (incoming: unknown, prior: unknown) =>
+    typeof incoming === "string" && incoming.trim()
+      ? incoming
+      : typeof prior === "string" ? prior : "";
   const preserveHumanValue = (prior: unknown, incoming: string) =>
     typeof prior === "string" && prior.trim() ? prior : incoming;
   const preserveVerifiedRelationship = existing.x_warm_connection_verified === true
@@ -1343,19 +1359,11 @@ function payloadWithExistingEvidence(
     ? String(existing.x_acoustic_appointment_status)
     : payload.values.x_acoustic_appointment_status;
   const preservedStatusTag = appointmentTagName(preservedAppointmentStatus);
-  return {
-    ...payload,
-    emailMatchTagName: preserveVerifiedRelationship ? preservedEmailMatchTag : payload.emailMatchTagName,
-    statusTagNames: preservedStatusTag ? [preservedStatusTag] : [],
-    attribution: {
-      ...payload.attribution,
-      sourceName: sourceSystems.includes(";") ? "Helmonic Tender Intelligence" : payload.attribution.sourceName,
-    },
-    values: {
-      ...payload.values,
+  const values = {
+    ...payload.values,
       // Existing native contact values may have been corrected by a person.
       // Keep them; only fill fields that are still blank.
-      partner_name: preserveHumanValue(existing.partner_name, payload.values.partner_name),
+    partner_name: preserveHumanValue(existing.partner_name, payload.values.partner_name),
       contact_name: preserveHumanValue(existing.contact_name, payload.values.contact_name),
       email_from: preserveHumanValue(existing.email_from, payload.values.email_from),
       phone: preserveHumanValue(existing.phone, payload.values.phone),
@@ -1369,6 +1377,10 @@ function payloadWithExistingEvidence(
         genericPlanningPortalUrl(String(payload.values.x_project_link ?? "")) ? "" : payload.values.x_project_link,
         genericPlanningPortalUrl(String(existing.x_project_link ?? "")) ? "" : existing.x_project_link,
       ),
+      // A later source refresh may omit a date that was already verified and
+      // backfilled in Odoo. Never erase that date, because it controls expiry
+      // and prevents an old grant from returning to the primary queue.
+      x_decision_due_at: preserveWhenMissing(payload.values.x_decision_due_at, existing.x_decision_due_at),
       x_source_urls: mergedProjectUrls(existing.x_source_urls, payload.values.x_source_urls),
       x_evidence_document_urls: mergedValues(
         existing.x_evidence_document_urls,
@@ -1430,7 +1442,24 @@ function payloadWithExistingEvidence(
       x_pipeline_bucket: preserveAppointment && preservedAppointmentStatus === "iacoustics-appointed"
         ? "already-won"
         : payload.values.x_pipeline_bucket,
+  };
+  const normalizedRecord = { ...existing, ...values } as ExistingLeadValues;
+  const normalizationNow = new Date();
+  const normalizedPriority = historicalPipelinePriority(normalizedRecord, normalizationNow);
+  const normalizedActive = historicalActiveLeadQueueStatus(normalizedRecord, normalizationNow);
+  values.x_pipeline_priority_rank = normalizedPriority.rank;
+  values.x_pipeline_priority_reason = normalizedPriority.reason;
+  values.x_lead_panel = historicalLeadReviewPanel(normalizedRecord, normalizationNow);
+  if (normalizedActive !== undefined) values.active = normalizedActive;
+  return {
+    ...payload,
+    emailMatchTagName: preserveVerifiedRelationship ? preservedEmailMatchTag : payload.emailMatchTagName,
+    statusTagNames: preservedStatusTag ? [preservedStatusTag] : [],
+    attribution: {
+      ...payload.attribution,
+      sourceName: sourceSystems.includes(";") ? "Helmonic Tender Intelligence" : payload.attribution.sourceName,
     },
+    values,
   };
 }
 

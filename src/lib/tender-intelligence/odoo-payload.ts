@@ -635,6 +635,7 @@ function leadReviewPanel(record: TenderOpportunity, now: Date) {
   }
   if (record.classification === "granted-with-noise-conditions"
     && hasConfirmedCurrentAcousticEvidence(record)) {
+    if (!planningDecisionDueAt(record)) return "Needs Date Validation";
     if (expiredGrantedCondition(record, now)) return "Granted / Follow-up";
     return "Granted with Acoustic Conditions";
   }
@@ -926,7 +927,12 @@ function activeLeadQueueStatus(record: TenderOpportunity, now: Date): boolean | 
   // agreed recent-action window after the decision date. Older grants stay
   // visible in the follow-up panel and are demoted by pipelinePriority.
   if (record.classification === "granted-with-noise-conditions"
-    && hasConfirmedCurrentAcousticEvidence(record)) return true;
+    && hasConfirmedCurrentAcousticEvidence(record)) {
+    if (expiredGrantedCondition(record, now)) return false;
+    // A confirmed grant without its decision date is retained for review, but
+    // it must never enter the primary queue until the date is recovered.
+    return true;
+  }
 
   if (record.classification === "noise-related-rfi") {
     if (record.rfiResponseReceivedAt) return false;
@@ -1088,6 +1094,7 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
     && decisionDaysRemaining < 0
     && !postDecisionStage;
   const expiredGrant = grantedAcousticConditions && expiredGrantedCondition(record, now);
+  const grantNeedsDateValidation = grantedAcousticConditions && !planningDecisionDueAt(record);
 
   if (liveDatedRfi && !fulfilledRfi) {
     return {
@@ -1116,6 +1123,12 @@ function pipelinePriority(record: TenderOpportunity, now: Date) {
     return {
       rank: 90 + commercialRfiTieBreaker(buildingInfo, retainedRelationship),
       reason: `Acoustic-condition grant is more than ${GRANTED_CONDITION_ACTIVE_DAYS} days past its decision date; retained as a low-priority granted follow-up below live RFIs and current applications`,
+    };
+  }
+  if (grantNeedsDateValidation) {
+    return {
+      rank: 160 + commercialRfiTieBreaker(buildingInfo, retainedRelationship),
+      reason: "Permission grant has confirmed acoustic/noise evidence but no planning decision date; retained for date validation and excluded from the primary target ordering",
     };
   }
   if (grantedAcousticConditions) {
