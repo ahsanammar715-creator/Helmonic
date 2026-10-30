@@ -13,6 +13,11 @@ on:
         required: true
         default: false
         type: boolean
+      suspend_buildinginfo_job:
+        description: Suspend the automatic BuildingInfo schedule while keeping manual runs available
+        required: true
+        default: false
+        type: boolean
       diagnose_azure_jobs_only:
         description: Read-only inventory of Azure Container Apps Jobs; skip build and deployment
         required: true
@@ -94,9 +99,47 @@ jobs:
             echo "::endgroup::"
           done
 
+  suspend-buildinginfo-job:
+    name: Switch the BuildingInfo job to manual-only
+    if: github.event_name == 'workflow_dispatch' && inputs.suspend_buildinginfo_job
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sign in to Azure with GitHub OIDC
+        uses: azure/login@v2
+        with:
+          client-id: d265e55d-f8b6-421a-9a82-064183cab7e6
+          tenant-id: 360eacb5-68c3-400c-a366-0382ec3a7b4a
+          subscription-id: 14f94f77-4e71-4b80-b6c9-e09b192fcf42
+
+      - name: Disable the schedule but keep manual runs available
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          az containerapp job update \
+            --name "$AZURE_BUILDINGINFO_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --trigger-type Manual \
+            --only-show-errors >/dev/null
+
+          trigger_type="$(az containerapp job show \
+            --name "$AZURE_BUILDINGINFO_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query properties.configuration.triggerType \
+            --output tsv)"
+
+          if [[ "$trigger_type" != "Manual" ]]; then
+            echo "BuildingInfo job trigger is $trigger_type, not Manual." >&2
+            exit 1
+          fi
+
+          echo "BuildingInfo automated schedule is suspended; manual execution remains available."
+
   build-and-push:
     name: Build and publish immutable worker image
-    if: github.event_name != 'workflow_dispatch' || !inputs.diagnose_azure_jobs_only
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      (!inputs.diagnose_azure_jobs_only && !inputs.suspend_buildinginfo_job)
     runs-on: ubuntu-latest
     steps:
       - name: Check out the selected commit
