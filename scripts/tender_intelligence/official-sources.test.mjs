@@ -1109,6 +1109,24 @@ test("Odoo keeps only current dated acoustic-condition grants in the primary cat
   assert.equal(values["helmonic-lead:undated-granted-acoustic-condition"].active, true);
 });
 
+test("Odoo keeps integration canaries and no-relevant records out of the active Leads queue", () => {
+  const payloads = buildOdooDryRun([
+    planningLead({
+      id: "integration-canary-terminal",
+      classification: "integration-canary",
+      crmExternalId: "helmonic-lead:integration-canary-terminal",
+    }),
+    planningLead({
+      id: "no-relevant-terminal",
+      classification: "no-relevant-opportunity",
+      crmExternalId: "helmonic-lead:no-relevant-terminal",
+    }),
+  ], new Date("2026-10-21T12:00:00.000Z"));
+  const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
+  assert.equal(values["helmonic-lead:integration-canary-terminal"].active, false);
+  assert.equal(values["helmonic-lead:no-relevant-terminal"].active, false);
+});
+
 test("Odoo keeps all potential acoustic fits together while Part E leads retain commercial priority", () => {
   const records = [
     planningLead({
@@ -1801,6 +1819,40 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_opportunity_type: "planning-pipeline-lead",
           x_decision_due_at: false,
         },
+        {
+          id: 77,
+          active: true,
+          type: "lead",
+          name: "Tender integration canary",
+          tag_ids: [6],
+          x_helmonic_external_id: "helmonic-lead:integration-canary-history",
+          x_source_systems: "DCC",
+          x_project_reference: "CANARY-26",
+          x_studio_reference: "A-0077",
+          x_warm_connection_verified: false,
+          x_lead_quality: "potential",
+          x_pipeline_bucket: "nurture",
+          x_classification: "integration-canary",
+          x_evidence_status: "discovery-only",
+          x_opportunity_type: "planning-pipeline-lead",
+        },
+        {
+          id: 78,
+          active: true,
+          type: "lead",
+          name: "No relevant acoustic opportunity",
+          tag_ids: [6],
+          x_helmonic_external_id: "helmonic-lead:no-relevant-history",
+          x_source_systems: "DCC",
+          x_project_reference: "NO-RELEVANT-26",
+          x_studio_reference: "A-0078",
+          x_warm_connection_verified: false,
+          x_lead_quality: "potential",
+          x_pipeline_bucket: "nurture",
+          x_classification: "no-relevant-opportunity",
+          x_evidence_status: "discovery-only",
+          x_opportunity_type: "planning-pipeline-lead",
+        },
       ]);
       if (body.domain?.[0]?.[2] === false) {
         return Response.json([{ id: 74, name: "New Hotel Project, Dublin 2" }]);
@@ -1836,7 +1888,9 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   const expiredHistorical = writes.find((write) => write.ids[0] === 73);
   const expiredGrantHistorical = writes.find((write) => write.ids[0] === 75);
   const undatedGrantHistorical = writes.find((write) => write.ids[0] === 76);
-  assert.equal(result.historicalRecordsNormalized, 7);
+  const canaryHistorical = writes.find((write) => write.ids[0] === 77);
+  const noRelevantHistorical = writes.find((write) => write.ids[0] === 78);
+  assert.equal(result.historicalRecordsNormalized, 9);
   assert.equal(result.managedRecordsMovedToLeads, 3);
   assert.equal(writes.some((write) => write.ids[0] === 69 && Object.hasOwn(write.vals, "name")), false);
   assert.equal(historical.vals.name, "Unit 4 Greenacres Shopping Centre, Dundalk, Co. Louth");
@@ -1887,6 +1941,8 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   assert.equal(undatedGrantHistorical.vals.x_lead_panel, "Needs Date Validation");
   assert.ok(undatedGrantHistorical.vals.x_pipeline_priority_rank < 1_000);
   assert.equal(undatedGrantHistorical.vals.x_project_link, "https://app.buildinginfo.com/p-undated-grant");
+  assert.equal(canaryHistorical.vals.active, false);
+  assert.equal(noRelevantHistorical.vals.active, false);
   assert.equal(writes.find((write) => write.ids[0] === 74).vals.active, false);
   assert.equal(result.unmanagedTestFixturesArchived, 1);
   assert.equal(result.managedRfisArchived, 1);

@@ -918,6 +918,10 @@ function activeLeadQueueStatus(record: TenderOpportunity, now: Date): boolean | 
     || record.leadQuality === "existing-project"
     || record.leadDisposition === "already-won") return false;
 
+  if (["integration-canary", "no-relevant-opportunity"].includes(record.classification ?? "")) {
+    return false;
+  }
+
   if (record.lookupCampaign === EDUCATION_LOOKUP_CAMPAIGN) {
     return isCurrentEducationLookupOpportunity(record, now);
   }

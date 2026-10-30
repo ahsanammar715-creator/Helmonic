@@ -804,6 +804,10 @@ function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date):
     || record.x_lead_quality === "existing-project"
     || record.x_pipeline_bucket === "already-won") return false;
 
+  if (["integration-canary", "no-relevant-opportunity"].includes(String(record.x_classification ?? ""))) {
+    return false;
+  }
+
   // The historical classification was produced by the acoustic-condition
   // classifier even when older records did not persist the full evidence
   // excerpt/term bundle. Expired grants leave the active queue; undated grants
