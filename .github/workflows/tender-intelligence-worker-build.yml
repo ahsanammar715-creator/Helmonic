@@ -116,11 +116,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          az containerapp job update \
+          job_id="$(az containerapp job show \
             --name "$AZURE_BUILDINGINFO_JOB_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --trigger-type Manual \
-            --only-show-errors >/dev/null
+            --query id \
+            --output tsv)"
+
+          az rest \
+            --method patch \
+            --uri "https://management.azure.com${job_id}?api-version=2025-07-01" \
+            --body '{"properties":{"configuration":{"triggerType":"Manual","manualTriggerConfig":{"parallelism":1,"replicaCompletionCount":1}}}}' \
+            --only-show-errors \
+            --output none
 
           trigger_type="$(az containerapp job show \
             --name "$AZURE_BUILDINGINFO_JOB_NAME" \
