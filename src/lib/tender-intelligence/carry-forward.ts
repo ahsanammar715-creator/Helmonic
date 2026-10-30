@@ -88,6 +88,7 @@ function preferPriorEvidence(current: TenderOpportunity, prior: TenderOpportunit
     outreachSuppressionReason: prior.outreachSuppressionReason,
     outreachKey: prior.outreachKey,
     buildingInfoSearchProfile: prior.buildingInfoSearchProfile,
+    lookupCampaign: prior.lookupCampaign,
   } satisfies TenderOpportunity;
 }
 
@@ -191,6 +192,7 @@ export function mergeCurrentSnapshotWithLedger(input: {
         appointmentEvidenceSourceUrl: currentMerged.appointmentEvidenceSourceUrl ?? prior.appointmentEvidenceSourceUrl,
         appointmentEvidenceDate: currentMerged.appointmentEvidenceDate ?? prior.appointmentEvidenceDate,
         buildingInfoSearchProfile: currentMerged.buildingInfoSearchProfile ?? prior.buildingInfoSearchProfile,
+        lookupCampaign: currentMerged.lookupCampaign ?? prior.lookupCampaign,
         projectHistoryStatus: currentMerged.projectHistoryStatus ?? prior.projectHistoryStatus,
         historicalProjectMatches: currentMerged.historicalProjectMatches ?? prior.historicalProjectMatches,
         ...(preservePriorRoute ? {

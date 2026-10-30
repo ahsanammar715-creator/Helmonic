@@ -28,6 +28,11 @@ on:
         required: true
         default: false
         type: boolean
+      provision_education_lookup_job:
+        description: Create or update the manual Ireland-wide Education / BIM lookup job (BuildingInfo excluded)
+        required: true
+        default: false
+        type: boolean
       start_buildinginfo_test_run:
         description: Start one controlled BuildingInfo dev/test execution after provisioning (credentials must already exist)
         required: true
@@ -42,6 +47,7 @@ on:
       - package-lock.json
       - scripts/tender_intelligence/**
       - scripts/deployment/provision-buildinginfo-job.sh
+      - scripts/deployment/provision-education-lookup-job.sh
       - src/lib/tender-intelligence/**
       - .github/workflows/tender-intelligence-worker-build.yml
 
@@ -60,6 +66,7 @@ env:
   AZURE_RESOURCE_GROUP: RG-HELMONIC-DEV
   AZURE_JOB_NAME: ca-helmonic-ti-dev-001
   AZURE_BUILDINGINFO_JOB_NAME: ca-helmonic-ti-bi-dev-001
+  AZURE_EDUCATION_JOB_NAME: ca-helmonic-ti-education-dev-001
 
 jobs:
   diagnose-azure-jobs:
@@ -188,6 +195,14 @@ jobs:
           BUILDINGINFO_CONSENT_REFERENCE: account-owner-confirmed-provider-agreement-2026-10-23
           BUILDINGINFO_RUN_SMOKE_TEST: ${{ inputs.start_buildinginfo_test_run }}
         run: bash scripts/deployment/provision-buildinginfo-job.sh
+
+      - name: Create or update the manual Education / BIM lookup job
+        if: github.event_name == 'workflow_dispatch' && inputs.provision_education_lookup_job
+        shell: bash
+        env:
+          AZURE_SOURCE_JOB_NAME: ${{ env.AZURE_JOB_NAME }}
+          EDUCATION_LOOKUP_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+        run: bash scripts/deployment/provision-education-lookup-job.sh
 
       - name: Repair inherited Odoo CRM fields and views only
         if: github.event_name == 'workflow_dispatch' && inputs.configure_odoo_ui_only

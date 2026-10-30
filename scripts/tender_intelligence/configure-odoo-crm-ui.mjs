@@ -413,6 +413,7 @@ const leadSearchValues = {
       <filter name="helmonic_primary_targets" string="Primary Acoustic Targets" domain="[('active', '=', True), ('x_project_link', '!=', False), ('x_lead_panel', 'in', ['Urgent Acoustic RFI', 'Granted with Acoustic Conditions'])]"/>
       <filter name="helmonic_live_acoustic_rfis" string="Live Further Information Requests" domain="[('x_lead_panel', '=', 'Urgent Acoustic RFI')]"/>
       <filter name="helmonic_granted_acoustic_conditions" string="Granted — Acoustic Conditions" domain="[('x_lead_panel', '=', 'Granted with Acoustic Conditions')]"/>
+      <filter name="helmonic_education_bim" string="Education / BIM Opportunities" domain="[('tag_ids.name', '=', 'Education / BIM Opportunities')]"/>
       <filter name="helmonic_secondary_potential" string="Secondary / Potential" domain="[('x_lead_panel', 'in', ['Confirmed Acoustic Opportunity', 'Potential Acoustic Fit'])]"/>
       <filter name="helmonic_reengagement" string="Expired / Re-engagement" domain="[('x_lead_panel', '=', 'Competitive / Re-engagement')]"/>
       <group>

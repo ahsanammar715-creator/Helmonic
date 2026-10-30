@@ -4,6 +4,7 @@ import {
   hasConfirmedCurrentAcousticEvidence,
 } from "./acoustic-evidence-guard.ts";
 import { genericPlanningPortalUrl, nationalPlanningProjectUrl } from "./project-links.ts";
+import { EDUCATION_LOOKUP_CAMPAIGN, isCurrentEducationLookupOpportunity } from "./education-lookup.ts";
 
 export type OdooLeadDryRun = {
   operation: "upsert";
@@ -640,6 +641,7 @@ function leadReviewPanel(record: TenderOpportunity, now: Date) {
   if (isPostDecisionStage(record)) return "Competitive / Re-engagement";
   if (record.acousticAppointmentStatus === "competitor-appointed") return "Competitive / Re-engagement";
   if (hasConfirmedCurrentAcousticEvidence(record)) return "Confirmed Acoustic Opportunity";
+  if (record.lookupCampaign === EDUCATION_LOOKUP_CAMPAIGN) return EDUCATION_LOOKUP_CAMPAIGN;
   if (isPotentialAcousticFit(record)) return "Potential Acoustic Fit";
   return "General Potential / Background";
 }
@@ -833,6 +835,7 @@ function allPartyRows(record: TenderOpportunity) {
 
 function appointmentTagNames(record: TenderOpportunity) {
   const tags: string[] = [];
+  if (record.lookupCampaign) tags.push(record.lookupCampaign);
   if (isPartECommercialLead(record)) tags.push("Part E Commercial");
   if (record.acousticAppointmentStatus === "iacoustics-appointed") tags.push("Already Won: iAcoustics");
   if (record.acousticAppointmentStatus === "competitor-appointed") tags.push("Competitor Appointed");
@@ -913,6 +916,10 @@ function activeLeadQueueStatus(record: TenderOpportunity, now: Date): boolean | 
   if (record.acousticAppointmentStatus === "iacoustics-appointed"
     || record.leadQuality === "existing-project"
     || record.leadDisposition === "already-won") return false;
+
+  if (record.lookupCampaign === EDUCATION_LOOKUP_CAMPAIGN) {
+    return isCurrentEducationLookupOpportunity(record, now);
+  }
 
   // Permission granted with a confirmed acoustic/noise condition is the
   // second primary target after live acoustic RFIs, but only during the
@@ -1269,7 +1276,9 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
       matchField: "x_helmonic_external_id",
       matchValue: externalId,
       attribution: {
-        campaignName: record.type === "planning-pipeline-lead"
+        campaignName: record.lookupCampaign === EDUCATION_LOOKUP_CAMPAIGN
+          ? "Education / BIM Outreach"
+          : record.type === "planning-pipeline-lead"
           ? "Planning Outreach - Acoustics"
           : "Tender Outreach - Acoustics",
         mediumName: record.type === "planning-pipeline-lead"

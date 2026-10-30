@@ -30,6 +30,7 @@ import { enrichNationalPlanningOpportunities } from "./national-planning-evidenc
 import { routeOpportunitiesByRelationships } from "./relationship-routing.ts";
 import { nationalPlanningProjectUrl } from "./project-links.ts";
 import {
+  applyIrelandScope,
   applyTargetScope,
   leinsterPlanningAuthorities,
   withinTargetScope,
@@ -452,13 +453,14 @@ async function fetchWithBoundedRetry(
   throw lastError;
 }
 
-export function buildNationalPlanningWhere(now = Date.now()) {
+export function buildNationalPlanningWhere(now = Date.now(), region: "leinster" | "ireland" = "leinster") {
   const since = new Date(now - nationalPlanningLookbackDays * 86_400_000)
     .toISOString()
     .slice(0, 10);
   const activity = ["ReceivedDate", "DecisionDate", "FIRequestDate"]
     .map((field) => `${field} >= DATE '${since}'`)
     .join(" OR ");
+  if (region === "ireland") return `(${activity})`;
   const authorities = leinsterPlanningAuthorities.map((authority) => `'${authority.replaceAll("'", "''")}'`).join(",");
   return `(${activity}) AND PlanningAuthority IN (${authorities})`;
 }
@@ -467,9 +469,10 @@ export async function collectNationalPlanningFeatures(
   fetcher: typeof fetch = fetch,
   pageSize = nationalPlanningPageSize,
   now = Date.now(),
+  region: "leinster" | "ireland" = "leinster",
 ) {
   const features: ArcGisFeature[] = [];
-  const where = buildNationalPlanningWhere(now);
+  const where = buildNationalPlanningWhere(now, region);
   let pagesFetched = 0;
   for (let offset = 0; ; offset += pageSize) {
     const query = new URLSearchParams({
@@ -575,6 +578,7 @@ export type PlanningLeadsConnectorConfig = {
   apiKey?: string;
   pageSize?: number;
   cacheHours?: number;
+  searchTerms?: string[];
 };
 
 const planningLeadsSearchTerms = ["noise", "acoustic", "vibration"] as const;
@@ -697,7 +701,9 @@ export function parsePlanningLeads(payload: unknown): TenderOpportunity[] {
 export function buildPlanningLeadsSearchUrls(config: PlanningLeadsConnectorConfig) {
   const endpoint = (config.endpoint || officialSourceUrls.planningLeads).replace(/\/+$/, "");
   const pageSize = Math.min(100, Math.max(1, config.pageSize ?? 100));
-  return planningLeadsSearchTerms.map((term) => {
+  const terms = [...new Set((config.searchTerms?.length ? config.searchTerms : planningLeadsSearchTerms)
+    .map((term) => term.trim()).filter(Boolean))];
+  return terms.map((term) => {
     const query = new URLSearchParams({ q: term, page: "1", page_size: String(pageSize) });
     return `${endpoint}/leads?${query}`;
   });
@@ -749,6 +755,7 @@ async function collectPlanningLeads(config: PlanningLeadsConnectorConfig) {
 }
 
 export async function collectOfficialSourceSnapshot(options: {
+  region?: "leinster" | "ireland";
   planningLeads?: PlanningLeadsConnectorConfig;
   buildingInfo?: BuildingInfoConfig;
   buildingInfoCsv?: BuildingInfoCsvConfig;
@@ -759,11 +766,14 @@ export async function collectOfficialSourceSnapshot(options: {
 } = {}): Promise<OfficialSourceSnapshot> {
   const sources: OfficialSourceSnapshot["sources"] = [];
   const records: TenderOpportunity[] = [];
+  const scopedRecords = (items: TenderOpportunity[]) => options.region === "ireland"
+    ? items.map(applyIrelandScope).filter((record) => record.scopeStatus === "eligible")
+    : items.map(applyTargetScope).filter(withinTargetScope);
   const tasks: Array<Promise<void>> = [
     (async () => {
       try {
         const result = await collectTedOpportunities();
-        const scoped = result.records.map(applyTargetScope).filter(withinTargetScope);
+        const scoped = scopedRecords(result.records);
         records.push(...scoped);
         sources.push({
           name: "TED",
@@ -779,7 +789,7 @@ export async function collectOfficialSourceSnapshot(options: {
     (async () => {
       try {
         const csv = await fetchText(officialSourceUrls.etenders);
-        const parsed = parseEtendersCsv(csv).map(applyTargetScope).filter(withinTargetScope);
+        const parsed = scopedRecords(parseEtendersCsv(csv));
         records.push(...parsed);
         sources.push({ name: "eTenders", status: "ok", records: parsed.length, scannedRecords: parseCsv(csv).length, pagesFetched: 1 });
       } catch (error) {
@@ -788,8 +798,13 @@ export async function collectOfficialSourceSnapshot(options: {
     })(),
     (async () => {
       try {
-        const result = await collectNationalPlanningFeatures();
-        const parsed = parseNationalPlanningFeatures(result).map(applyTargetScope).filter(withinTargetScope);
+        const result = await collectNationalPlanningFeatures(
+          fetch,
+          nationalPlanningPageSize,
+          Date.now(),
+          options.region ?? "leinster",
+        );
+        const parsed = scopedRecords(parseNationalPlanningFeatures(result));
         records.push(...parsed);
         sources.push({
           name: "National Planning Register",
@@ -823,7 +838,7 @@ export async function collectOfficialSourceSnapshot(options: {
             }),
           )
         ).flat();
-        const scoped = parsed.map(applyTargetScope).filter(withinTargetScope);
+        const scoped = scopedRecords(parsed);
         records.push(...scoped);
         sources.push({
           name: "DCC",
@@ -851,7 +866,7 @@ export async function collectOfficialSourceSnapshot(options: {
   } else {
     tasks.push((async () => {
       try {
-        const parsed = (await collectPlanningLeads(planningLeads)).map(applyTargetScope).filter(withinTargetScope);
+        const parsed = scopedRecords(await collectPlanningLeads(planningLeads));
         records.push(...parsed);
         sources.push({ name: "PlanningLeads", status: "ok", records: parsed.length });
       } catch (error) {
@@ -899,7 +914,7 @@ export async function collectOfficialSourceSnapshot(options: {
         }
         const merged = mergeBuildingInfoCsvRecords(sourceRecords);
         duplicatesCollapsed += sourceRecords.length - merged.length;
-        const parsed = merged.map(applyTargetScope).filter(withinTargetScope);
+        const parsed = scopedRecords(merged);
         records.push(...parsed);
         sources.push({
           name: "BuildingInfo",

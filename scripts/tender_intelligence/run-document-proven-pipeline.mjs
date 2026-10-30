@@ -12,7 +12,12 @@ import { hasConfirmedCurrentAcousticEvidence } from "../../src/lib/tender-intell
 import { routeOpportunitiesByRelationships } from "../../src/lib/tender-intelligence/relationship-routing.ts";
 import { loadSearchRelationshipLookup } from "../../src/lib/tender-intelligence/search-relationship-index.ts";
 import { enrichWithHistoricalProjectMatches } from "../../src/lib/tender-intelligence/search-project-history.ts";
-import { applyTargetScope } from "../../src/lib/tender-intelligence/source-scope.ts";
+import { applyIrelandScope, applyTargetScope } from "../../src/lib/tender-intelligence/source-scope.ts";
+import {
+  EDUCATION_LOOKUP_CAMPAIGN_KEY,
+  educationLookupSearchTerms,
+  selectEducationLookupOpportunities,
+} from "../../src/lib/tender-intelligence/education-lookup.ts";
 import {
   applyEvidenceRefresh,
   confirmedLedgerRecords,
@@ -53,6 +58,7 @@ try {
   if (error?.code !== "ENOENT") throw error;
 }
 const value = (name) => process.env[name]?.trim() || localEnv[name]?.trim();
+const lookupCampaign = value("HELMONIC_LOOKUP_CAMPAIGN");
 
 await mkdir(artifactDirectory, { recursive: true });
 await mkdir(runHistoryDirectory, { recursive: true });
@@ -179,12 +185,16 @@ try {
 if (!state) {
   console.log("Discovering current records and proving DCC/TED/eTenders documents...");
   const snapshot = await collectOfficialSourceSnapshot({
+    region: lookupCampaign === EDUCATION_LOOKUP_CAMPAIGN_KEY ? "ireland" : "leinster",
     planningLeads: {
       enabled: value("HELMONIC_PLANNINGLEADS_ENABLED") === "true",
       endpoint: value("PLANNINGLEADS_API_ENDPOINT") || "https://planningleads.ie/api/v1",
       apiKey: value("PLANNINGLEADS_API_KEY"),
       pageSize: Number.parseInt(value("HELMONIC_PLANNINGLEADS_PAGE_SIZE") || "100", 10),
       cacheHours: 1,
+      searchTerms: lookupCampaign === EDUCATION_LOOKUP_CAMPAIGN_KEY
+        ? [...educationLookupSearchTerms]
+        : undefined,
     },
     buildingInfo: {
       enabled: value("HELMONIC_BUILDINGINFO_ENABLED") === "true",
@@ -205,6 +215,12 @@ if (!state) {
     },
     documentEvidence: { formal: true, nationalPlanningLimit: 0 },
   });
+  if (lookupCampaign === EDUCATION_LOOKUP_CAMPAIGN_KEY) {
+    snapshot.opportunities = selectEducationLookupOpportunities(snapshot.opportunities);
+    for (const source of snapshot.sources) {
+      source.records = snapshot.opportunities.filter((record) => record.sourceSystem === source.name).length;
+    }
+  }
   const buildingInfoRequested = value("HELMONIC_BUILDINGINFO_ENABLED") === "true"
     || value("HELMONIC_BUILDINGINFO_CSV_ENABLED") === "true"
     || value("HELMONIC_BUILDINGINFO_BROWSER_ENABLED") === "true";
@@ -219,7 +235,7 @@ if (!state) {
     ...(previousCompletedState?.opportunities ?? []).filter(isConfirmedOpportunity),
   ];
   const priorConfirmed = mergePriorConfirmedRecords(fullPriorRecords, await loadHistoricalConfirmedRecords())
-    .map(applyTargetScope);
+    .map(lookupCampaign === EDUCATION_LOOKUP_CAMPAIGN_KEY ? applyIrelandScope : applyTargetScope);
   const opportunities = mergeCurrentSnapshotWithLedger({
     current: snapshot.opportunities,
     priorConfirmed,

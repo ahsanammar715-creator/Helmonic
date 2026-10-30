@@ -224,6 +224,7 @@ export type TenderOpportunity = {
   outreachSuppressionReason?: string;
   outreachKey?: string;
   buildingInfoSearchProfile?: string;
+  lookupCampaign?: string;
   sourceObservationFiles?: string[];
 };
 

@@ -321,6 +321,7 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       appointmentEvidenceSourceUrl,
       appointmentEvidenceDate: optionalValue(row, ["appointment_evidence_date", "appointment evidence date", "appointment_date", "appointment date"]) || undefined,
       buildingInfoSearchProfile: optionalValue(row, ["source_search_name", "source search name", "saved_search", "saved search", "search_profile", "search profile"]) || undefined,
+      lookupCampaign: optionalValue(row, ["lookup_campaign", "lookup campaign", "target_campaign", "target campaign"]) || undefined,
       sourceObservationFiles: [`${sourceName} row ${rowNumber}`],
     };
     opportunity.fitScore = scoreOpportunity(opportunity);
@@ -390,6 +391,7 @@ export function mergeBuildingInfoCsvRecords(records: TenderOpportunity[]) {
       appointmentEvidenceSourceUrl: [...ordered].reverse().map((record) => record.appointmentEvidenceSourceUrl).find(Boolean),
       appointmentEvidenceDate: [...ordered].reverse().map((record) => record.appointmentEvidenceDate).find(Boolean),
       buildingInfoSearchProfile: [...ordered].reverse().map((record) => record.buildingInfoSearchProfile).find(Boolean),
+      lookupCampaign: [...ordered].reverse().map((record) => record.lookupCampaign).find(Boolean),
       sourceObservationFiles: [...new Set(ordered.flatMap((record) => record.sourceObservationFiles ?? []))],
     };
     merged.fitScore = scoreOpportunity(merged);

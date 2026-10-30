@@ -69,6 +69,17 @@ export function applyTargetScope(record: TenderOpportunity): TenderOpportunity {
   return { ...record, scopeStatus: "unknown", scopeExclusionReason: "leinster-location-not-established" };
 }
 
+export function applyIrelandScope(record: TenderOpportunity): TenderOpportunity {
+  if (record.type === "formal-public-tender" && !approvedTenderBuyer(record.buyer)) {
+    return {
+      ...record,
+      scopeStatus: "excluded",
+      scopeExclusionReason: "buyer-is-not-opw-or-a-local-authority",
+    };
+  }
+  return { ...record, scopeStatus: "eligible", scopeExclusionReason: undefined };
+}
+
 export function withinTargetScope(record: TenderOpportunity) {
   return applyTargetScope(record).scopeStatus === "eligible";
 }

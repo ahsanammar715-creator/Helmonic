@@ -149,6 +149,7 @@ function mergedCanonicalRecord(canonical: TenderOpportunity, group: TenderOpport
     rfiDateSource: uniqueStrings(group.map((record) => record.rfiDateSource)).join("; ") || undefined,
     rfiDateConfidence: dateConfidence,
     sourceObservationFiles: uniqueStrings(group.flatMap((record) => record.sourceObservationFiles ?? [])),
+    lookupCampaign: uniqueStrings(group.map((record) => record.lookupCampaign))[0],
   } satisfies TenderOpportunity;
 }
 

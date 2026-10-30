@@ -50,6 +50,7 @@ import {
   routingMetadataWithDurablePrecedence,
 } from "../../src/lib/tender-intelligence/carry-forward.ts";
 import {
+  applyIrelandScope,
   applyTargetScope,
   approvedTenderBuyer,
   targetRegionStatus,
@@ -100,6 +101,11 @@ import {
   genericPlanningPortalUrl,
   nationalPlanningProjectUrl,
 } from "../../src/lib/tender-intelligence/project-links.ts";
+import {
+  EDUCATION_LOOKUP_CAMPAIGN,
+  isCurrentEducationLookupOpportunity,
+  selectEducationLookupOpportunities,
+} from "../../src/lib/tender-intelligence/education-lookup.ts";
 
 function planningLead(overrides = {}) {
   return {
@@ -2494,6 +2500,13 @@ test("national register live query is bounded to current weekly discovery activi
   assert.doesNotMatch(where, /ETL_DATE/);
 });
 
+test("Education campaign national-register query covers all Irish planning authorities", () => {
+  const where = buildNationalPlanningWhere(Date.parse("2026-09-25T12:00:00Z"), "ireland");
+  assert.match(where, /ReceivedDate >= DATE '2026-08-21'/);
+  assert.match(where, /FIRequestDate >= DATE '2026-08-21'/);
+  assert.doesNotMatch(where, /PlanningAuthority IN/i);
+});
+
 test("target scope requires Leinster and the approved formal-tender buyer class", () => {
   const base = {
     id: "scope-test",
@@ -2514,6 +2527,20 @@ test("target scope requires Leinster and the approved formal-tender buyer class"
   assert.equal(applyTargetScope({ ...base, buyer: "Kildare County Council" }).scopeStatus, "eligible");
   assert.equal(applyTargetScope({ ...base, buyer: "University of Limerick" }).scopeExclusionReason, "buyer-is-not-opw-or-a-local-authority");
   assert.equal(targetRegionStatus({ ...base, buyer: "Limerick City and County Council", title: "Noise consultancy" }), "out-of-region");
+});
+
+test("Education campaign scope covers every Irish council while preserving the public-buyer guard", () => {
+  const galwayPlanning = applyIrelandScope(planningLead({
+    sourceSystem: "National Planning Register",
+    planningAuthority: "Galway County Council",
+    location: "Galway",
+  }));
+  assert.equal(galwayPlanning.scopeStatus, "eligible");
+  const privateTender = applyIrelandScope({
+    ...planningLead({ type: "formal-public-tender", sourceSystem: "TED" }),
+    buyer: "Private Developer Limited",
+  });
+  assert.equal(privateTender.scopeStatus, "excluded");
 });
 
 test("national register collector exhausts the ArcGIS transfer limit", async () => {
@@ -3023,6 +3050,96 @@ test("PlanningLeads free connector stays within the bounded search contract", ()
   assert.ok(urls.some((url) => url.includes("q=noise")));
   assert.ok(urls.some((url) => url.includes("q=acoustic")));
   assert.ok(urls.some((url) => url.includes("q=vibration")));
+});
+
+test("Education lookup queries PlanningLeads with the campaign terms", () => {
+  const urls = buildPlanningLeadsSearchUrls({
+    enabled: true,
+    endpoint: "https://planningleads.example/api/v1",
+    pageSize: 50,
+    searchTerms: ["school", "university", "school"],
+  });
+  assert.equal(urls.length, 2);
+  assert.match(urls[0], /q=school/);
+  assert.match(urls[1], /q=university/);
+  assert.ok(urls.every((url) => /page_size=50/.test(url)));
+});
+
+test("Education lookup keeps only current Irish education projects in the agreed planning stages", () => {
+  const plansApplied = planningLead({
+    id: "edu-applied",
+    sourceSystem: "National Planning Register",
+    projectSector: "Education",
+    title: "New primary school campus",
+    projectStage: "Plans Applied",
+  });
+  const granted = planningLead({
+    id: "edu-granted",
+    sourceSystem: "DCC",
+    title: "University teaching building",
+    projectStage: "Permission Granted",
+  });
+  const refused = planningLead({
+    id: "edu-refused",
+    title: "Secondary school extension",
+    projectStage: "Plans Refused",
+  });
+  const unrelated = planningLead({
+    id: "commercial",
+    title: "Office refurbishment",
+    projectStage: "Plans Applied",
+  });
+  assert.equal(isCurrentEducationLookupOpportunity(plansApplied, new Date("2026-10-30T09:00:00Z")), true);
+  assert.equal(isCurrentEducationLookupOpportunity(granted, new Date("2026-10-30T09:00:00Z")), true);
+  const selected = selectEducationLookupOpportunities(
+    [plansApplied, granted, refused, unrelated],
+    new Date("2026-10-30T09:00:00Z"),
+  );
+  assert.deepEqual(selected.map((record) => record.id), ["edu-applied", "edu-granted"]);
+  assert.ok(selected.every((record) => record.lookupCampaign === EDUCATION_LOOKUP_CAMPAIGN));
+});
+
+test("Education lookup Odoo records stay in a separate campaign without outranking a live acoustic RFI", () => {
+  const education = planningLead({
+    id: "education-campaign",
+    crmExternalId: "helmonic-lead:education-campaign",
+    sourceSystem: "PlanningLeads",
+    sourceRecordId: "EDU-100",
+    projectReference: "EDU-100",
+    title: "School campus extension",
+    description: "New education building",
+    projectSector: "Education",
+    projectStage: "Pre-planning",
+    lookupCampaign: EDUCATION_LOOKUP_CAMPAIGN,
+    evidenceStatus: "discovery-only",
+    evidenceExcerpt: undefined,
+    evidenceDocuments: [],
+    matchedTerms: [],
+  });
+  const rfi = planningLead({
+    id: "education-rfi",
+    crmExternalId: "helmonic-lead:education-rfi",
+    sourceRecordId: "EDU-RFI-1",
+    projectReference: "EDU-RFI-1",
+    title: "College acoustic RFI",
+    description: "Further Information Requested for a college noise assessment",
+    projectSector: "Education",
+    projectStage: "Further Information Requested",
+    lookupCampaign: EDUCATION_LOOKUP_CAMPAIGN,
+    classification: "noise-related-rfi",
+    responseDeadline: "2026-11-10",
+  });
+  const values = Object.fromEntries(buildOdooDryRun(
+    [education, rfi],
+    new Date("2026-10-30T09:00:00Z"),
+  ).map((payload) => [payload.matchValue, payload]));
+  const campaign = values["helmonic-lead:education-campaign"];
+  assert.equal(campaign.attribution.campaignName, "Education / BIM Outreach");
+  assert.equal(campaign.values.x_lead_panel, EDUCATION_LOOKUP_CAMPAIGN);
+  assert.ok(campaign.statusTagNames.includes(EDUCATION_LOOKUP_CAMPAIGN));
+  const urgent = values["helmonic-lead:education-rfi"];
+  assert.equal(urgent.values.x_lead_panel, "Urgent Acoustic RFI");
+  assert.ok(urgent.statusTagNames.includes(EDUCATION_LOOKUP_CAMPAIGN));
 });
 
 test("PlanningLeads records are discovery-only even when their summary sounds conclusive", () => {

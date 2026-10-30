@@ -27,6 +27,15 @@ function configuration(): BlobConfig | undefined {
   return { accountName, containerName, managedIdentityClientId };
 }
 
+function blobNamespace() {
+  const value = process.env.HELMONIC_TENDER_BLOB_NAMESPACE?.trim().replace(/^\/+|\/+$/g, "");
+  if (!value) return "";
+  if (!/^[a-z0-9][a-z0-9/_-]*$/i.test(value) || value.split("/").some((part) => part === "." || part === "..")) {
+    throw new Error("Tender artifact blob namespace is invalid.");
+  }
+  return `${value}/`;
+}
+
 function blobUrl(config: BlobConfig, blobName: string) {
   const encoded = blobName.split("/").map(encodeURIComponent).join("/");
   return `https://${config.accountName}.blob.core.windows.net/${encodeURIComponent(config.containerName)}/${encoded}`;
@@ -139,9 +148,10 @@ export async function hydrateTenderArtifacts(artifactRoot: string) {
   const config = configuration();
   if (!config) return { enabled: false, downloaded: 0, buildingInfoCsvFiles: 0 };
   const token = await accessToken(config);
+  const namespace = blobNamespace();
   let downloaded = 0;
   for (const relativePath of durableFiles) {
-    const response = await request(config, token, `current/${relativePath}`);
+    const response = await request(config, token, `${namespace}current/${relativePath}`);
     if (response.status === 404) continue;
     if (!response.ok) throw new Error(`Tender artifact download failed for ${relativePath} with status ${response.status}.`);
     const target = path.join(artifactRoot, ...relativePath.split("/"));
@@ -172,6 +182,7 @@ export async function persistTenderArtifacts(artifactRoot: string, runId: string
   const config = configuration();
   if (!config) return { enabled: false, uploaded: 0 };
   const token = await accessToken(config);
+  const namespace = blobNamespace();
   // Raw supplier inbox files are inputs, not run artifacts. Avoid multiplying
   // personal/contact data into every run archive.
   const files = (await filesUnder(artifactRoot))
@@ -185,14 +196,14 @@ export async function persistTenderArtifacts(artifactRoot: string, runId: string
       next += 1;
       if (index >= files.length) return;
       const relativePath = files[index];
-      await uploadFile(config, token, path.join(artifactRoot, ...relativePath.split("/")), `runs/${runId}/${relativePath}`);
+      await uploadFile(config, token, path.join(artifactRoot, ...relativePath.split("/")), `${namespace}runs/${runId}/${relativePath}`);
       uploaded += 1;
     }
   }));
   for (const relativePath of durableFiles) {
     const localPath = path.join(artifactRoot, ...relativePath.split("/"));
     try {
-      await uploadFile(config, token, localPath, `current/${relativePath}`);
+      await uploadFile(config, token, localPath, `${namespace}current/${relativePath}`);
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code === "ENOENT") continue;
       throw error;
