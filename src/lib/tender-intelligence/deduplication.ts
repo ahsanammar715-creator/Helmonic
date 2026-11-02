@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { normalizeText } from "./policy.ts";
+import { isRfiClassification, rfiEventIdentity, rfiResponseDueAt } from "./rfi.ts";
 import type { DuplicateSourceReference, TenderOpportunity } from "./types.ts";
 
 function compact(value: string | undefined) {
@@ -36,7 +37,17 @@ function strictIdentity(record: TenderOpportunity) {
   if (record.type === "planning-pipeline-lead") {
     const authority = authorityKey(record.planningAuthority);
     const reference = referenceKey(record);
-    return authority && reference ? `planning:${authority}:${reference}` : undefined;
+    if (!authority || !reference) return undefined;
+    const projectIdentity = `planning:${authority}:${reference}`;
+    if (!isRfiClassification(record.classification)) return projectIdentity;
+    const eventIdentity = rfiEventIdentity(record);
+    // Multiple Further Information Requests can belong to one planning
+    // application. Merge only the same dated/documented event. An undated RFI
+    // remains source-specific until stronger evidence proves it is the same
+    // request; preserving an extra row is safer than losing a genuine RFI.
+    return eventIdentity
+      ? `${projectIdentity}:rfi:${eventIdentity}`
+      : `${projectIdentity}:rfi:undated:${compact(record.sourceSystem)}:${compact(record.sourceRecordId)}`;
   }
   // TED and eTenders identifiers are not interchangeable. Formal notices are
   // merged only within their own source identity unless a future adapter
@@ -91,7 +102,7 @@ function sourceReference(record: TenderOpportunity): DuplicateSourceReference {
     parties: record.parties,
     rfiPublishedAt: record.rfiPublishedAt,
     rfiReceivedAt: record.rfiReceivedAt,
-    rfiResponseDueAt: record.responseDeadline,
+    rfiResponseDueAt: rfiResponseDueAt(record),
     rfiResponseReceivedAt: record.rfiResponseReceivedAt,
     planningReceivedAt: record.planningReceivedAt,
     planningValidatedAt: record.planningValidatedAt,
@@ -143,7 +154,7 @@ function mergedCanonicalRecord(canonical: TenderOpportunity, group: TenderOpport
     rfiPublishedAt: latest(group.map((record) => record.rfiPublishedAt)),
     rfiReceivedAt: latest(group.map((record) => record.rfiReceivedAt)),
     rfiResponseReceivedAt: latest(group.map((record) => record.rfiResponseReceivedAt)),
-    responseDeadline: earliest(group.map((record) => record.responseDeadline)),
+    responseDeadline: earliest(group.map((record) => rfiResponseDueAt(record))),
     planningReceivedAt: earliest(group.map((record) => record.planningReceivedAt)),
     planningValidatedAt: earliest(group.map((record) => record.planningValidatedAt)),
     rfiDateSource: uniqueStrings(group.map((record) => record.rfiDateSource)).join("; ") || undefined,

@@ -14,10 +14,15 @@ const statePath = path.join(documentProvenRoot, "pipeline-state.json");
 
 const confirmedPlanningClasses = new Set([
   "noise-related-rfi",
+  "further-information-request",
   "granted-with-noise-conditions",
   "refused-on-noise-grounds",
   "design-construction-potential",
 ]);
+
+function isRfi(record) {
+  return ["noise-related-rfi", "further-information-request"].includes(record.classification);
+}
 
 function isQualified(record) {
   if (record.cycleStatus === "resolved" || record.evidenceStatus !== "official-text") return false;
@@ -34,14 +39,14 @@ function category(record) {
 }
 
 function actionableDeadline(record) {
-  if (record.classification === "noise-related-rfi") return record.responseDeadline ?? "";
+  if (isRfi(record)) return record.responseDeadline ?? "";
   if (record.type === "formal-public-tender") return record.deadline ?? "";
   return "";
 }
 
 function urgency(record, now = new Date()) {
   const recordCategory = category(record);
-  if (recordCategory === "noise-related-rfi") return "urgent";
+  if (["noise-related-rfi", "further-information-request"].includes(recordCategory)) return "urgent";
   if (recordCategory === "granted-with-noise-conditions" || recordCategory === "refused-on-noise-grounds") {
     return "high";
   }
@@ -84,6 +89,7 @@ function exportedLeadPanel(record) {
   if (record.classification === "noise-related-rfi" && record.evidenceStatus === "official-text") {
     return "Urgent Acoustic RFI";
   }
+  if (record.classification === "further-information-request") return "Active Further Information Request";
   if (record.evidenceStatus === "official-text"
     && !["design-construction-potential", "needs-council-evidence", "no-relevant-opportunity"]
       .includes(record.classification)) {
@@ -222,7 +228,7 @@ const rows = qualified
       record.sourceMajorUpdatedAt ?? "",
       record.rfiPublishedAt ?? "",
       record.rfiReceivedAt ?? "",
-      record.classification === "noise-related-rfi" ? record.responseDeadline ?? "" : "",
+      isRfi(record) ? record.responseDeadline ?? "" : "",
       record.rfiDateSource ?? "",
       record.rfiDateConfidence ?? "",
       record.sourceAgeDays ?? "",
@@ -237,8 +243,8 @@ const rows = qualified
       (record.possibleDuplicateIds ?? []).join(";"),
       urgency(record),
       deadline,
-      deadline ? (record.classification === "noise-related-rfi" ? "RFI response deadline" : "tender submission deadline") : "",
-      record.type === "formal-public-tender" || record.classification === "noise-related-rfi" ? "" : record.deadline ?? "",
+      deadline ? (isRfi(record) ? "RFI response deadline" : "tender submission deadline") : "",
+      record.type === "formal-public-tender" || isRfi(record) ? "" : record.deadline ?? "",
       record.evidenceExcerpt ?? "",
       evidenceNote(record),
       record.sourceUrl,
@@ -279,7 +285,7 @@ const allLeadRows = (state.opportunities ?? [])
       record.sourceMajorUpdatedAt ?? "",
       record.rfiPublishedAt ?? "",
       record.rfiReceivedAt ?? "",
-      record.classification === "noise-related-rfi" ? record.responseDeadline ?? "" : "",
+      isRfi(record) ? record.responseDeadline ?? "" : "",
       record.rfiDateSource ?? "",
       record.rfiDateConfidence ?? "",
       record.sourceAgeDays ?? "",
@@ -294,8 +300,8 @@ const allLeadRows = (state.opportunities ?? [])
       (record.possibleDuplicateIds ?? []).join(";"),
       urgency(record),
       deadline,
-      deadline ? (record.classification === "noise-related-rfi" ? "RFI response deadline" : "tender submission deadline") : "",
-      record.type === "formal-public-tender" || record.classification === "noise-related-rfi" ? "" : record.deadline ?? "",
+      deadline ? (isRfi(record) ? "RFI response deadline" : "tender submission deadline") : "",
+      record.type === "formal-public-tender" || isRfi(record) ? "" : record.deadline ?? "",
       record.evidenceExcerpt ?? "",
       evidenceNote(record),
       record.sourceUrl,

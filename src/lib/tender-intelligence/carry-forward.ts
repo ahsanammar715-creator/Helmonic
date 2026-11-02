@@ -1,5 +1,6 @@
 import type { TenderOpportunity } from "./types.ts";
 import { hasConfirmedCurrentAcousticEvidence } from "./acoustic-evidence-guard.ts";
+import { isRfiClassification, rfiEventIdentity, rfiResponseDueAt } from "./rfi.ts";
 
 const resolvedSourceStatuses = new Set([
   "awarded",
@@ -11,13 +12,16 @@ const resolvedSourceStatuses = new Set([
   "withdrawn",
 ]);
 
-export function opportunityIdentity(record: Pick<TenderOpportunity, "sourceSystem" | "sourceRecordId">) {
-  return `${record.sourceSystem}:${record.sourceRecordId}`.trim().toLowerCase();
+export function opportunityIdentity(record: TenderOpportunity) {
+  const sourceIdentity = `${record.sourceSystem}:${record.sourceRecordId}`.trim().toLowerCase();
+  if (!isRfiClassification(record.classification)) return sourceIdentity;
+  return `${sourceIdentity}:rfi:${rfiEventIdentity(record) ?? `undated:${record.id}`}`;
 }
 
 export function isConfirmedOpportunity(record: TenderOpportunity) {
   if (record.cycleStatus === "resolved") return false;
-  return hasConfirmedCurrentAcousticEvidence(record);
+  return record.classification === "further-information-request"
+    || hasConfirmedCurrentAcousticEvidence(record);
 }
 
 function parseDate(value: string | undefined) {
@@ -37,14 +41,17 @@ export function positiveResolution(record: TenderOpportunity, now = new Date()) 
   if (sourceStatus && resolvedSourceStatuses.has(sourceStatus)) {
     return `source-status-${sourceStatus}`;
   }
+  if (isRfiClassification(record.classification) && record.rfiResponseReceivedAt) {
+    return "further-information-response-received";
+  }
 
   // A planning decision date is not an opportunity deadline. Only a formal
   // tender deadline or a stated RFI response deadline can close a record by
   // time alone.
   const deadline = record.type === "formal-public-tender"
     ? parseDate(record.deadline)
-    : record.classification === "noise-related-rfi"
-      ? parseDate(record.responseDeadline)
+    : isRfiClassification(record.classification)
+      ? parseDate(rfiResponseDueAt(record))
       : undefined;
   if (deadline !== undefined && deadline < now.getTime()) return "confirmed-deadline-expired";
   return undefined;

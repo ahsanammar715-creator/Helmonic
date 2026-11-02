@@ -171,7 +171,8 @@ function relationshipMatches(record: TenderOpportunity, lookup: RelationshipLook
 
 function isQualified(record: TenderOpportunity) {
   if (!isSalesRouteable(record)) return false;
-  return hasConfirmedCurrentAcousticEvidence(record);
+  return record.classification === "further-information-request"
+    || hasConfirmedCurrentAcousticEvidence(record);
 }
 
 export function routeOpportunityByRelationships(
@@ -268,6 +269,7 @@ export function routeOpportunitiesByRelationships(
   };
   const priority = (record: TenderOpportunity) => {
     const category = record.classification === "noise-related-rfi" ? 100
+      : record.classification === "further-information-request" ? 95
       : record.type === "formal-public-tender" ? 90
         : record.classification === "granted-with-noise-conditions" ? 80
           : record.classification === "refused-on-noise-grounds" ? 75 : 60;

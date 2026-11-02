@@ -6,6 +6,7 @@ import {
   relevantSector,
   scoreOpportunity,
 } from "./policy.ts";
+import { isRfiClassification } from "./rfi.ts";
 import type {
   PlanningClassification,
   PlanningDocumentEvidence,
@@ -153,16 +154,24 @@ export function classifyDccDocumentText(
   text: string,
 ): { classification?: PlanningClassification; excerpt?: string; matchedTerms: string[] } {
   const matchedTerms = [...matchedAcousticTerms(text)];
-  if (matchedTerms.length === 0) return { matchedTerms };
-  const windows = evidenceWindows(text);
   const kind = documentKind(document);
   if (kind === "rfi") {
+    if (matchedTerms.length === 0) {
+      return {
+        classification: "further-information-request",
+        excerpt: retainedOfficialExcerpt(text),
+        matchedTerms,
+      };
+    }
+    const windows = evidenceWindows(text);
     return {
       classification: "noise-related-rfi",
       excerpt: windows[0],
       matchedTerms,
     };
   }
+  if (matchedTerms.length === 0) return { matchedTerms };
+  const windows = evidenceWindows(text);
 
   if (kind === "decision") {
     const outcome = documentOutcome(text);
@@ -394,7 +403,7 @@ export async function fetchDccApplicationEvidence(
       const text = normalizeText(await extractDccDocumentText(response.headers.get("content-type") || "", bytes));
       if (!text) throw new Error("document-has-no-extractable-text");
       const classified = classifyDccDocumentText(document, text);
-      const rfiDates = classified.classification === "noise-related-rfi"
+      const rfiDates = isRfiClassification(classified.classification)
         ? extractRfiDocumentDates(document, text)
         : {};
       return {
@@ -484,19 +493,19 @@ export async function enrichDccPlanningOpportunity(
         : "no-relevant-opportunity"
     ),
     matchedTerms,
-    rfiPublishedAt: confirmed?.classification === "noise-related-rfi"
+    rfiPublishedAt: isRfiClassification(confirmed?.classification)
       ? confirmed.rfiPublishedAt ?? confirmed.receivedAt ?? opportunity.rfiPublishedAt
       : opportunity.rfiPublishedAt,
-    rfiReceivedAt: confirmed?.classification === "noise-related-rfi"
+    rfiReceivedAt: isRfiClassification(confirmed?.classification)
       ? confirmed.receivedAt ?? opportunity.rfiReceivedAt
       : opportunity.rfiReceivedAt,
-    responseDeadline: confirmed?.classification === "noise-related-rfi"
+    responseDeadline: isRfiClassification(confirmed?.classification)
       ? confirmed.responseDeadline ?? opportunity.responseDeadline
       : opportunity.responseDeadline,
-    rfiDateSource: confirmed?.classification === "noise-related-rfi"
+    rfiDateSource: isRfiClassification(confirmed?.classification)
       ? confirmed.rfiDateSource ?? opportunity.rfiDateSource
       : opportunity.rfiDateSource,
-    rfiDateConfidence: confirmed?.classification === "noise-related-rfi"
+    rfiDateConfidence: isRfiClassification(confirmed?.classification)
       ? confirmed.rfiDateConfidence ?? opportunity.rfiDateConfidence ?? "unavailable"
       : opportunity.rfiDateConfidence,
     fitScore: 0,

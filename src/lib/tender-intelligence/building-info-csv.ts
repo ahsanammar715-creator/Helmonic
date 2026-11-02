@@ -9,6 +9,7 @@ import {
   scoreOpportunity,
   stableOpportunityId,
 } from "./policy.ts";
+import { isRfiClassification, rfiEventIdentity } from "./rfi.ts";
 import type {
   LeadParty,
   PlanningClassification,
@@ -256,7 +257,13 @@ export function parseBuildingInfoCsv(text: string, sourceName = "BuildingInfo CS
       : undefined;
     const partyRows = partiesFromRow(row);
     const opportunity: TenderOpportunity = {
-      id: stableOpportunityId("BuildingInfo", projectId),
+      id: stableOpportunityId(
+        "BuildingInfo",
+        projectId,
+        isRfiClassification(classification)
+          ? rfiReceivedAt || rfiPublishedAt || responseDeadline || documentName
+          : "project",
+      ),
       type: "planning-pipeline-lead",
       sourceSystem: "BuildingInfo",
       sourceRecordId: projectId,
@@ -341,7 +348,8 @@ function partyKey(entry: LeadParty) {
 }
 
 const classificationPriority: Record<PlanningClassification, number> = {
-  "noise-related-rfi": 6,
+  "noise-related-rfi": 7,
+  "further-information-request": 6,
   "granted-with-noise-conditions": 5,
   "refused-on-noise-grounds": 4,
   "design-construction-potential": 3,
@@ -352,7 +360,13 @@ const classificationPriority: Record<PlanningClassification, number> = {
 export function mergeBuildingInfoCsvRecords(records: TenderOpportunity[]) {
   const grouped = new Map<string, TenderOpportunity[]>();
   for (const record of records) {
-    grouped.set(record.sourceRecordId, [...(grouped.get(record.sourceRecordId) ?? []), record]);
+    const eventIdentity = rfiEventIdentity(record);
+    const groupKey = eventIdentity
+      ? `${record.sourceRecordId}|rfi:${eventIdentity}`
+      : isRfiClassification(record.classification)
+        ? `${record.sourceRecordId}|rfi:undated:${record.id}`
+        : record.sourceRecordId;
+    grouped.set(groupKey, [...(grouped.get(groupKey) ?? []), record]);
   }
   return [...grouped.values()].map((group) => {
     const ordered = [...group].sort((left, right) =>

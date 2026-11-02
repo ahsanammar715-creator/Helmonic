@@ -6,6 +6,7 @@ import {
   type DccDocumentDescriptor,
 } from "./dcc-document-evidence.ts";
 import { normalizeText, relevantSector, scoreOpportunity } from "./policy.ts";
+import { isRfiClassification } from "./rfi.ts";
 import type { LeadParty, PlanningClassification, PlanningDocumentEvidence, TenderOpportunity } from "./types.ts";
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -176,7 +177,7 @@ async function agileCouncilEvidence(record: TenderOpportunity, fetcher: FetchLik
         ]) || undefined,
       };
       const classified = classifyDccDocumentText(descriptor, text);
-      const rfiDates = classified.classification === "noise-related-rfi"
+      const rfiDates = isRfiClassification(classified.classification)
         ? extractRfiDocumentDates(descriptor, text)
         : {};
       documents.push({
@@ -223,7 +224,7 @@ async function agileCouncilEvidence(record: TenderOpportunity, fetcher: FetchLik
           ]) || undefined,
         };
         const classified = classifyDccDocumentText(descriptor, text);
-        const rfiDates = classified.classification === "noise-related-rfi"
+        const rfiDates = isRfiClassification(classified.classification)
           ? extractRfiDocumentDates(descriptor, text)
           : {};
         documents.push({
@@ -343,10 +344,10 @@ async function eplanningCouncilEvidence(record: TenderOpportunity, fetcher: Fetc
 function chooseConfirmed(documents: PlanningDocumentEvidence[], stage = "") {
   const normalizedStage = normalizeText(stage).toLowerCase();
   const order = /grant|condition|conditional/.test(normalizedStage)
-    ? ["granted-with-noise-conditions", "noise-related-rfi", "refused-on-noise-grounds"]
+    ? ["granted-with-noise-conditions", "noise-related-rfi", "further-information-request", "refused-on-noise-grounds"]
     : /refus/.test(normalizedStage)
-      ? ["refused-on-noise-grounds", "noise-related-rfi", "granted-with-noise-conditions"]
-      : ["noise-related-rfi", "granted-with-noise-conditions", "refused-on-noise-grounds"];
+      ? ["refused-on-noise-grounds", "noise-related-rfi", "further-information-request", "granted-with-noise-conditions"]
+      : ["noise-related-rfi", "further-information-request", "granted-with-noise-conditions", "refused-on-noise-grounds"];
   return order.map((classification) =>
     documents.find((document) => document.classification === classification)).find(Boolean);
 }
@@ -367,7 +368,7 @@ export async function enrichNationalPlanningOpportunity(
 
   const confirmed = chooseConfirmed(result.documents, record.projectStage ?? record.sourceStatus);
   if (confirmed) {
-    const confirmedRfi = confirmed.classification === "noise-related-rfi";
+    const confirmedRfi = isRfiClassification(confirmed.classification);
     const confirmedRfiDateConfidence = confirmedRfi
       ? confirmed.rfiDateConfidence ?? record.rfiDateConfidence ?? "unavailable"
       : record.rfiDateConfidence;

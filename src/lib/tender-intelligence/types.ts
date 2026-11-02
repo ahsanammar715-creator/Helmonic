@@ -2,6 +2,7 @@ export type OpportunityType = "formal-public-tender" | "planning-pipeline-lead";
 
 export type PlanningClassification =
   | "noise-related-rfi"
+  | "further-information-request"
   | "granted-with-noise-conditions"
   | "refused-on-noise-grounds"
   | "design-construction-potential"

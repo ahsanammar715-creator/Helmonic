@@ -76,6 +76,7 @@ const dccDocumentAudit = {
   ),
   confirmedPlanningOpportunities: dccEvidence.filter((opportunity) => [
     "noise-related-rfi",
+    "further-information-request",
     "granted-with-noise-conditions",
     "refused-on-noise-grounds",
   ].includes(opportunity.classification)).length,

@@ -9,10 +9,11 @@ import { enrichFormalTenderOpportunities } from "../../src/lib/tender-intelligen
 import { enrichNationalPlanningOpportunities } from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
 import { isSalesRouteable, qualifyLead } from "../../src/lib/tender-intelligence/lead-qualification.ts";
 import { hasConfirmedCurrentAcousticEvidence } from "../../src/lib/tender-intelligence/acoustic-evidence-guard.ts";
+import { isRfiClassification } from "../../src/lib/tender-intelligence/rfi.ts";
 import { routeOpportunitiesByRelationships } from "../../src/lib/tender-intelligence/relationship-routing.ts";
 import { loadSearchRelationshipLookup } from "../../src/lib/tender-intelligence/search-relationship-index.ts";
 import { enrichWithHistoricalProjectMatches } from "../../src/lib/tender-intelligence/search-project-history.ts";
-import { applyIrelandScope, applyTargetScope } from "../../src/lib/tender-intelligence/source-scope.ts";
+import { applyIrelandScope } from "../../src/lib/tender-intelligence/source-scope.ts";
 import {
   EDUCATION_LOOKUP_CAMPAIGN_KEY,
   educationLookupSearchTerms,
@@ -97,6 +98,7 @@ function auditRecordToOpportunity(record, completedAt) {
     cpvCodes: [],
     matchedTerms: [],
     fitScore: record.classification === "noise-related-rfi" ? 95
+      : record.classification === "further-information-request" ? 90
       : record.classification === "granted-with-noise-conditions" ? 88
         : record.classification === "refused-on-noise-grounds" ? 84
           : record.classification === "design-construction-potential" ? 60 : 35,
@@ -185,7 +187,7 @@ try {
 if (!state) {
   console.log("Discovering current records and proving DCC/TED/eTenders documents...");
   const snapshot = await collectOfficialSourceSnapshot({
-    region: lookupCampaign === EDUCATION_LOOKUP_CAMPAIGN_KEY ? "ireland" : "leinster",
+    region: "ireland",
     planningLeads: {
       enabled: value("HELMONIC_PLANNINGLEADS_ENABLED") === "true",
       endpoint: value("PLANNINGLEADS_API_ENDPOINT") || "https://planningleads.ie/api/v1",
@@ -235,7 +237,7 @@ if (!state) {
     ...(previousCompletedState?.opportunities ?? []).filter(isConfirmedOpportunity),
   ];
   const priorConfirmed = mergePriorConfirmedRecords(fullPriorRecords, await loadHistoricalConfirmedRecords())
-    .map(lookupCampaign === EDUCATION_LOOKUP_CAMPAIGN_KEY ? applyIrelandScope : applyTargetScope);
+    .map(applyIrelandScope);
   const opportunities = mergeCurrentSnapshotWithLedger({
     current: snapshot.opportunities,
     priorConfirmed,
@@ -316,6 +318,7 @@ state.updatedAt = state.completedAt;
 
 const planningStageClasses = new Set([
   "noise-related-rfi",
+  "further-information-request",
   "granted-with-noise-conditions",
   "refused-on-noise-grounds",
 ]);
@@ -326,9 +329,9 @@ const isFormalConfirmed = (record) => record.evidenceStatus === "official-text"
 const isPlanningStageConfirmed = (record) => record.evidenceStatus === "official-text"
   && record.cycleStatus !== "resolved"
   && planningStageClasses.has(record.classification)
-  && hasConfirmedCurrentAcousticEvidence(record);
+  && (record.classification === "further-information-request" || hasConfirmedCurrentAcousticEvidence(record));
 const isConfirmed = (record) => record.cycleStatus !== "resolved"
-  && hasConfirmedCurrentAcousticEvidence(record);
+  && (record.classification === "further-information-request" || hasConfirmedCurrentAcousticEvidence(record));
 const deduplication = deduplicationSummary(state.opportunities);
 const sourceNames = ["TED", "eTenders", "National Planning Register", "DCC", "PlanningLeads", "BuildingInfo"];
 const sources = sourceNames.map((name) => {
@@ -462,7 +465,7 @@ const weeklyLists = {
   glen: confirmed.filter((record) => record.routedTo === "Glen"),
   owen: confirmed.filter((record) => record.routedTo === "Owen"),
   triage: confirmed.filter((record) => record.routedTo === "unassigned"),
-  dailyUrgentRfi: confirmed.filter((record) => record.classification === "noise-related-rfi"),
+  dailyUrgentRfi: confirmed.filter((record) => isRfiClassification(record.classification)),
   dailyFreshLeads: state.opportunities.filter((record) =>
     ["updated-today", "updated-1-3-days", "published-today", "published-1-3-days"].includes(record.leadFreshness)
     && record.cycleStatus !== "resolved"

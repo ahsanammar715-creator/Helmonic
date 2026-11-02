@@ -153,6 +153,16 @@ export function assessLeadQuality(record: TenderOpportunity) {
     );
   }
 
+  if (record.classification === "further-information-request") {
+    return commercialResult(
+      "good",
+      "active",
+      "A genuine Further Information Request is active. It remains visible in Leads even without acoustic wording; acoustic/noise RFIs receive the higher priority band.",
+      isLrd ? "lrd-100-plus" : isAttached && (count ?? 0) >= 4 ? "attached-4-plus" : isResidential ? "multi-unit-unconfirmed-attachment" : "not-residential",
+      count,
+    );
+  }
+
   if (isConfirmed && record.type === "formal-public-tender" && record.classification !== "no-relevant-opportunity") {
     return commercialResult(
       "excellent",

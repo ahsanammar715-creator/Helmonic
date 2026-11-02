@@ -114,10 +114,10 @@ export function classifyPlanningEvidence(input: {
   const matches = matchedAcousticTerms(evidence);
   const hasOfficialEvidence = Boolean(evidence && input.evidenceUrl);
 
-  if (/further information|rfi|clarification/.test(stage)) {
+  if (/(?:further|additional)\s+info(?:rmation)?|\brfi\b|clarification/.test(stage)) {
     return hasOfficialEvidence && matches.length > 0
       ? "noise-related-rfi"
-      : "needs-council-evidence";
+      : "further-information-request";
   }
   if (/grant|condition|conditional/.test(stage)) {
     return hasOfficialEvidence && matches.length > 0
@@ -144,6 +144,7 @@ export function scoreOpportunity(input: {
 }) {
   let score = 35;
   if (input.classification === "noise-related-rfi") score = 95;
+  else if (input.classification === "further-information-request") score = 90;
   else if (input.classification === "granted-with-noise-conditions") score = 88;
   else if (input.classification === "refused-on-noise-grounds") score = 84;
   else if (input.classification === "design-construction-potential") score = 60;

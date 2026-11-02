@@ -2,6 +2,7 @@ import type { OdooLeadDryRun } from "./odoo-payload.ts";
 import { ODOO_TENDER_FIELD_TYPES } from "./odoo-field-contract.ts";
 import { acousticCpvCodes, relevantTenderText } from "./policy.ts";
 import { genericPlanningPortalUrl, nationalPlanningProjectUrl } from "./project-links.ts";
+import { addCalendarMonths } from "./rfi.ts";
 
 export type OdooJson2Config = {
   enabled: boolean;
@@ -654,6 +655,8 @@ type ExistingLeadValues = {
   x_rfi_received_at?: string | false;
   x_rfi_response_due_at?: string | false;
   x_rfi_response_received_at?: string | false;
+  x_rfi_date_source?: string | false;
+  x_rfi_date_confidence?: string | false;
   x_deadline?: string | false;
   x_planning_received_at?: string | false;
   x_planning_validated_at?: string | false;
@@ -747,6 +750,19 @@ function historicalDaysRemaining(value: unknown, now: Date) {
   return Math.round((target - current) / 86_400_000);
 }
 
+function historicalRfiRequestedAt(record: ExistingLeadValues) {
+  return [record.x_rfi_received_at, record.x_rfi_published_at]
+    .find((value): value is string => typeof value === "string" && Boolean(value));
+}
+
+function historicalRfiResponseDueAt(record: ExistingLeadValues) {
+  if (typeof record.x_rfi_response_due_at === "string" && record.x_rfi_response_due_at) {
+    return record.x_rfi_response_due_at;
+  }
+  const requestedAt = historicalRfiRequestedAt(record);
+  return requestedAt ? addCalendarMonths(requestedAt, 6) : undefined;
+}
+
 function historicalRecentRfi(record: ExistingLeadValues, now: Date) {
   return [record.x_rfi_received_at, record.x_rfi_published_at, record.x_source_major_updated_at, record.x_first_seen_at]
     .map((value) => historicalDaysRemaining(value, now))
@@ -819,11 +835,11 @@ function historicalActiveLeadQueueStatus(record: ExistingLeadValues, now: Date):
     return true;
   }
 
-  if (record.x_classification === "noise-related-rfi") {
+  if (historicalIsRfiClassification(record.x_classification)) {
     if (record.x_rfi_response_received_at) return false;
-    const daysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
+    const daysRemaining = historicalDaysRemaining(historicalRfiResponseDueAt(record), now);
     if (daysRemaining !== false) return daysRemaining >= 0;
-    return historicalRecentRfi(record, now);
+    return true;
   }
 
   if (historicalClosedLeadStage(record.x_project_stage)) return false;
@@ -847,6 +863,10 @@ function historicalCommercialRfiTieBreaker(buildingInfo: boolean, verifiedEmailM
       : buildingInfo ? 10 : 0;
 }
 
+function historicalIsRfiClassification(value: unknown) {
+  return ["noise-related-rfi", "further-information-request"].includes(String(value ?? ""));
+}
+
 function historicalRfiActivityFreshness(record: ExistingLeadValues, now: Date) {
   return [record.x_rfi_received_at, record.x_rfi_published_at, record.x_source_major_updated_at, record.x_first_seen_at]
     .map((value) => historicalDaysRemaining(value, now))
@@ -866,21 +886,23 @@ function historicalGrantedConditionsActivityAge(record: ExistingLeadValues, now:
 function historicalLiveRfiPriority(
   daysRemaining: number,
   activityFreshness: number,
+  acoustic: boolean,
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  const dueDateRank = 2_100_000_000 - Math.min(daysRemaining, 5_000) * 100_000;
-  return dueDateRank
-    + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch) * 2_500
-    + activityFreshness * 20;
+  return (acoustic ? 2_100_000_000 : 1_800_000_000)
+    + activityFreshness * 100_000
+    + (5_000 - Math.min(daysRemaining, 5_000)) * 10
+    + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch) * 2_500;
 }
 
 function historicalRecentUndatedRfiPriority(
   activityFreshness: number,
+  acoustic: boolean,
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  return 1_500_000_000
+  return (acoustic ? 1_700_000_000 : 1_600_000_000)
     + activityFreshness * 100
     + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch);
 }
@@ -923,14 +945,18 @@ function historicalLiveRfiPriorityReason(
   hasActivityDate: boolean,
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
+  acoustic: boolean,
 ) {
   const due = daysRemaining === 0 ? "due today" : `due in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}`;
   const chronology = hasActivityDate
-    ? "; RFI received/published date is the secondary ordering key"
+    ? "; newest Further Information Requested date leads within this RFI category"
     : "; RFI received/published date unavailable";
   const source = buildingInfo ? "; human-reviewed BuildingInfo source" : "";
   const relationship = verifiedEmailMatch ? "; verified acoustic consultant email relationship" : "";
-  return `Active acoustic RFI ${due}; response deadline takes precedence${chronology}${source}${relationship}`;
+  const ordering = acoustic
+    ? "; acoustic/noise RFI category has first priority"
+    : "; active non-acoustic RFI category follows acoustic/noise RFIs and precedes all non-RFI leads";
+  return `Active ${acoustic ? "acoustic " : ""}RFI ${due}${ordering}${chronology}${source}${relationship}`;
 }
 
 function historicalConfirmedAcousticEvidence(record: ExistingLeadValues) {
@@ -957,11 +983,13 @@ function historicalLeadReviewPanel(record: ExistingLeadValues, now: Date) {
   const routeable = !["poor", "closed-background", "existing-project"].includes(quality)
     && !["background", "already-won"].includes(bucket);
   const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
-  if (record.x_classification === "noise-related-rfi" && routeable && confirmedAcoustic) {
+  if (historicalIsRfiClassification(record.x_classification) && routeable) {
     if (record.x_rfi_response_received_at) return "Competitive / Re-engagement";
-    const daysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
+    const daysRemaining = historicalDaysRemaining(historicalRfiResponseDueAt(record), now);
     if (daysRemaining !== false && daysRemaining < 0) return "Competitive / Re-engagement";
-    return "Urgent Acoustic RFI";
+    return record.x_classification === "noise-related-rfi" && confirmedAcoustic
+      ? "Urgent Acoustic RFI"
+      : "Active Further Information Request";
   }
   if (record.x_classification === "granted-with-noise-conditions"
     && routeable
@@ -985,12 +1013,13 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const confirmedAcoustic = historicalConfirmedAcousticEvidence(record);
   const retainedRelationship = record.x_warm_connection_verified === true;
   const verifiedEmailMatch = retainedRelationship && routeable && confirmedAcoustic;
-  const rfi = record.x_classification === "noise-related-rfi" && routeable && confirmedAcoustic;
+  const rfi = historicalIsRfiClassification(record.x_classification) && routeable;
+  const acousticRfi = record.x_classification === "noise-related-rfi" && confirmedAcoustic;
   const grantedAcousticConditions = record.x_classification === "granted-with-noise-conditions"
     && routeable
     && confirmedAcoustic;
   const buildingInfo = sourceCodesFromSystems(record.x_source_systems).includes("BI");
-  const rfiDaysRemaining = historicalDaysRemaining(record.x_rfi_response_due_at, now);
+  const rfiDaysRemaining = historicalDaysRemaining(historicalRfiResponseDueAt(record), now);
   const activityFreshness = historicalRfiActivityFreshness(record, now);
   const grantedConditionsAge = historicalGrantedConditionsActivityAge(record, now);
   const liveDatedRfi = rfi && rfiDaysRemaining !== false && rfiDaysRemaining >= 0;
@@ -1008,12 +1037,16 @@ function historicalPipelinePriority(record: ExistingLeadValues, now: Date) {
   const expiredGrant = grantedAcousticConditions && historicalExpiredGrantedCondition(record, now);
   const grantNeedsDateValidation = grantedAcousticConditions && !record.x_decision_due_at;
   if (liveDatedRfi && !fulfilledRfi) return {
-    rank: historicalLiveRfiPriority(rfiDaysRemaining, activityFreshness, buildingInfo, verifiedEmailMatch),
-    reason: historicalLiveRfiPriorityReason(rfiDaysRemaining, activityFreshness > 0, buildingInfo, verifiedEmailMatch),
+    rank: historicalLiveRfiPriority(rfiDaysRemaining, activityFreshness, acousticRfi, buildingInfo, verifiedEmailMatch),
+    reason: historicalLiveRfiPriorityReason(rfiDaysRemaining, activityFreshness > 0, buildingInfo, verifiedEmailMatch, acousticRfi),
   };
   if (recentUndatedRfi && !fulfilledRfi) return {
-    rank: historicalRecentUndatedRfiPriority(activityFreshness, buildingInfo, verifiedEmailMatch),
-    reason: `Recent confirmed acoustic RFI ordered by received/published date; response due date not supplied${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${verifiedEmailMatch ? "; verified acoustic consultant email relationship" : ""}`,
+    rank: historicalRecentUndatedRfiPriority(activityFreshness, acousticRfi, buildingInfo, verifiedEmailMatch),
+    reason: `${acousticRfi ? "Acoustic/noise RFI" : "Further Information Request"} retained visibly for date validation; response due date not supplied${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${verifiedEmailMatch ? "; verified acoustic consultant email relationship" : ""}`,
+  };
+  if (rfi && rfiDaysRemaining === false && !fulfilledRfi) return {
+    rank: historicalRecentUndatedRfiPriority(0, acousticRfi, buildingInfo, verifiedEmailMatch),
+    reason: `${acousticRfi ? "Acoustic/noise RFI" : "Further Information Request"} remains visible, but its requested and response-due dates require validation${buildingInfo ? "; human-reviewed BuildingInfo source" : ""}${verifiedEmailMatch ? "; verified acoustic consultant email relationship" : ""}`,
   };
   if (fulfilledRfi) return {
     rank: -200_000_000 + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch),
@@ -1118,6 +1151,7 @@ async function normalizeHistoricalOdooRecords(
       "x_lead_panel", "x_pipeline_priority_rank", "x_pipeline_priority_reason", "x_classification",
       "x_evidence_status", "x_evidence_excerpt", "x_matched_terms", "x_cpv_codes", "x_opportunity_type",
       "x_deadline", "x_rfi_published_at", "x_rfi_received_at", "x_rfi_response_due_at", "x_rfi_response_received_at",
+      "x_rfi_date_source", "x_rfi_date_confidence",
       "x_planning_received_at", "x_planning_validated_at", "x_decision_due_at",
       "x_source_major_updated_at", "x_first_seen_at", "x_last_seen_at", "x_project_stage", "x_project_value", "x_residential_scale",
     ],
@@ -1179,16 +1213,28 @@ async function normalizeHistoricalOdooRecords(
     if (resolvedProjectLink && resolvedProjectLink !== record.x_project_link) {
       values.x_project_link = resolvedProjectLink;
     }
-    const normalizedRecord = resolvedProjectLink
+    let normalizedRecord = resolvedProjectLink
       ? { ...record, x_project_link: resolvedProjectLink }
       : record;
+    const derivedRfiDueAt = historicalIsRfiClassification(normalizedRecord.x_classification)
+      ? historicalRfiResponseDueAt(normalizedRecord)
+      : undefined;
+    if (derivedRfiDueAt && !normalizedRecord.x_rfi_response_due_at) {
+      const odooDueAt = `${derivedRfiDueAt.slice(0, 10)} 00:00:00`;
+      values.x_rfi_response_due_at = odooDueAt;
+      if (!record.x_rfi_date_confidence) values.x_rfi_date_confidence = "derived";
+      if (!record.x_rfi_date_source) {
+        values.x_rfi_date_source = "Historical RFI requested date; response due calculated as request date plus six calendar months";
+      }
+      normalizedRecord = { ...normalizedRecord, x_rfi_response_due_at: odooDueAt };
+    }
     const priority = historicalPipelinePriority(normalizedRecord, normalizationNow);
     const activeLeadStatus = historicalActiveLeadQueueStatus(normalizedRecord, normalizationNow);
     if (activeLeadStatus !== undefined && record.active !== activeLeadStatus) {
       values.active = activeLeadStatus;
       if (activeLeadStatus) reactivatedLeads += 1;
       else archivedLeads += 1;
-      if (record.x_classification === "noise-related-rfi") {
+      if (historicalIsRfiClassification(record.x_classification)) {
         if (activeLeadStatus) reactivatedRfis += 1;
         else archivedRfis += 1;
       }
@@ -1206,7 +1252,8 @@ async function normalizeHistoricalOdooRecords(
     if (record.x_pipeline_priority_reason !== priority.reason) values.x_pipeline_priority_reason = priority.reason;
     const reviewPanel = historicalLeadReviewPanel(record, normalizationNow);
     if (record.x_lead_panel !== reviewPanel) values.x_lead_panel = reviewPanel;
-    if (!confirmedAcoustic
+    if (!historicalIsRfiClassification(record.x_classification)
+      && !confirmedAcoustic
       && !["poor", "closed-background", "existing-project", "potential"].includes(String(record.x_lead_quality ?? ""))
       && !["background", "already-won"].includes(String(record.x_pipeline_bucket ?? ""))) {
       values.x_lead_quality = "potential";
@@ -1603,11 +1650,11 @@ export async function syncOdooLeads(
         result.updated += 1;
         if (values.active === false && matches[0]?.active !== false) {
           result.managedLeadsArchived += 1;
-          if (values.x_classification === "noise-related-rfi") result.managedRfisArchived += 1;
+          if (historicalIsRfiClassification(values.x_classification)) result.managedRfisArchived += 1;
         }
         if (values.active === true && matches[0]?.active === false) {
           result.managedLeadsReactivated += 1;
-          if (values.x_classification === "noise-related-rfi") result.managedRfisReactivated += 1;
+          if (historicalIsRfiClassification(values.x_classification)) result.managedRfisReactivated += 1;
         }
         if (matches[0]?.type === "opportunity" && values.type === "lead") {
           result.managedRecordsMovedToLeads += 1;
@@ -1617,7 +1664,7 @@ export async function syncOdooLeads(
         result.created += 1;
         if (values.active === false) {
           result.managedLeadsArchived += 1;
-          if (values.x_classification === "noise-related-rfi") result.managedRfisArchived += 1;
+          if (historicalIsRfiClassification(values.x_classification)) result.managedRfisArchived += 1;
         }
       }
     } catch (error) {

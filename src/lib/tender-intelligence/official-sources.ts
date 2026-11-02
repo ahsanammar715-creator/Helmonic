@@ -29,6 +29,7 @@ import { enrichFormalTenderOpportunities } from "./formal-document-evidence.ts";
 import { enrichNationalPlanningOpportunities } from "./national-planning-evidence.ts";
 import { routeOpportunitiesByRelationships } from "./relationship-routing.ts";
 import { nationalPlanningProjectUrl } from "./project-links.ts";
+import { addCalendarMonths, isFurtherInformationStage } from "./rfi.ts";
 import {
   applyIrelandScope,
   applyTargetScope,
@@ -183,17 +184,22 @@ export function parseNationalPlanningFeatures(payload: unknown): TenderOpportuni
       normalizeText(attributes.LinkAppDetails),
     );
     if (!authority || !reference) return [];
+    const rfiRequestedAt = dateFromArcGis(attributes.FIRequestDate);
+    const rfiResponseReceivedAt = dateFromArcGis(attributes.FIRecDate);
+    const hasFurtherInformation = Boolean(rfiRequestedAt) || isFurtherInformationStage(decision);
     const recentActivity = [
       attributes.ReceivedDate,
       attributes.DecisionDate,
       attributes.FIRequestDate,
       attributes.FIRecDate,
-    ].some((value) => dateWithinDays(value, 120));
+    ].some((value) => dateWithinDays(value, nationalPlanningLookbackDays));
     if (!recentActivity) return [];
-    const discoveryRelevant = matchedAcousticTerms(description).length > 0 || relevantSector(description);
+    const discoveryRelevant = hasFurtherInformation
+      || matchedAcousticTerms(description).length > 0
+      || relevantSector(description);
     if (!discoveryRelevant) return [];
     const classification = classifyPlanningEvidence({
-      stage: decision,
+      stage: hasFurtherInformation ? "Further Information Requested" : decision,
       description,
       evidenceUrl: sourceUrl,
     });
@@ -214,9 +220,10 @@ export function parseNationalPlanningFeatures(payload: unknown): TenderOpportuni
       publishedAt: dateFromArcGis(attributes.ETL_DATE ?? attributes.ReceivedDate),
       planningReceivedAt: dateFromArcGis(attributes.ReceivedDate),
       deadline: dateFromArcGis(attributes.DecisionDueDate),
-      rfiPublishedAt: dateFromArcGis(attributes.FIRequestDate),
-      rfiReceivedAt: dateFromArcGis(attributes.FIRequestDate),
-      rfiResponseReceivedAt: dateFromArcGis(attributes.FIRecDate),
+      rfiPublishedAt: rfiRequestedAt,
+      rfiReceivedAt: rfiRequestedAt,
+      rfiResponseReceivedAt,
+      responseDeadline: rfiRequestedAt ? addCalendarMonths(rfiRequestedAt, 6) : undefined,
       rfiDateSource: attributes.FIRequestDate
         ? `${sourceUrl || "National Planning Register"} — FIRequestDate`
         : undefined,
@@ -227,8 +234,13 @@ export function parseNationalPlanningFeatures(payload: unknown): TenderOpportuni
       cpvCodes: [],
       matchedTerms: matchedAcousticTerms(description),
       fitScore: 0,
-      projectStage: decision || undefined,
-      sourceStatus: decision || undefined,
+      projectStage: hasFurtherInformation
+        ? rfiResponseReceivedAt ? "Further Information Received" : "Further Information Requested"
+        : decision || undefined,
+      sourceStatus: hasFurtherInformation
+        ? rfiResponseReceivedAt ? "Further Information Received" : "Further Information Requested"
+        : decision || undefined,
+      triggerType: hasFurtherInformation ? "Further Information Requested" : undefined,
     };
     opportunity.fitScore = scoreOpportunity(opportunity);
     return [opportunity];
@@ -265,10 +277,13 @@ export function parseDccPlanningCsv(baseText: string, furtherInformationText: st
     const fi = furtherInformation.get(applicationId) ?? furtherInformation.get(reference) ?? [];
     const evidenceText = fi.map((item) => pick(item, ["FI_DESC", "Description"])).filter(Boolean).join("\n");
     const sourceUrl = `https://planning.agileapplications.ie/dublincity/application-details/${encodeURIComponent(reference)}`;
-    if (!reference || !(matchedAcousticTerms(description, evidenceText).length > 0 || relevantSector(description))) {
+    const hasFurtherInformation = fi.length > 0 || isFurtherInformationStage(stage);
+    if (!reference || !(hasFurtherInformation || matchedAcousticTerms(description, evidenceText).length > 0 || relevantSector(description))) {
       return [];
     }
-    const effectiveStage = evidenceText ? "Further Information" : stage;
+    const effectiveStage = hasFurtherInformation ? "Further Information Requested" : stage;
+    const rfiRequestedAt = fi.map((item) => pick(item, ["REQDATE"])).find(Boolean) || undefined;
+    const rfiResponseReceivedAt = fi.map((item) => pick(item, ["RECDDATE"])).find(Boolean) || undefined;
     const classification = classifyPlanningEvidence({
       stage: effectiveStage,
       evidenceText: evidenceText || undefined,
@@ -293,9 +308,10 @@ export function parseDccPlanningCsv(baseText: string, furtherInformationText: st
         "VALIDATED_DATE", "VALIDATED DATE", "VALID_DATE", "VALID DATE", "RGNDAT",
       ]) || undefined,
       deadline: pick(row, ["DECDAT", "TIME_EXP"]) || undefined,
-      rfiPublishedAt: fi.map((item) => pick(item, ["REQDATE"])).find(Boolean) || undefined,
-      rfiReceivedAt: fi.map((item) => pick(item, ["REQDATE"])).find(Boolean) || undefined,
-      rfiResponseReceivedAt: fi.map((item) => pick(item, ["RECDDATE"])).find(Boolean) || undefined,
+      rfiPublishedAt: rfiRequestedAt,
+      rfiReceivedAt: rfiRequestedAt,
+      rfiResponseReceivedAt,
+      responseDeadline: rfiRequestedAt ? addCalendarMonths(rfiRequestedAt, 6) : undefined,
       rfiDateSource: fi.length ? `${sourceUrl} — DCC FURINFO REQDATE/RECDDATE` : undefined,
       rfiDateConfidence: fi.length ? "exact" : "unavailable",
       sourceUrl,
@@ -307,6 +323,7 @@ export function parseDccPlanningCsv(baseText: string, furtherInformationText: st
       fitScore: 0,
       projectStage: effectiveStage || undefined,
       sourceStatus: effectiveStage || undefined,
+      triggerType: hasFurtherInformation ? "Further Information Requested" : undefined,
     };
     opportunity.fitScore = scoreOpportunity(opportunity);
     return [opportunity];
@@ -409,7 +426,14 @@ function lastNDaysDate(days: number) {
   return date.toISOString().slice(0, 10).replaceAll("-", "");
 }
 
-const nationalPlanningLookbackDays = 35;
+// A planning applicant normally has six months to answer a Further
+// Information Request. Scan slightly beyond that window so exact expiry and
+// response evidence can close the request instead of silently missing it.
+// Over-fetch far enough to include February/March requests in a late-October
+// run. The active queue still uses the exact official due date, or request
+// date + six calendar months, so this wider discovery window cannot promote
+// expired work.
+const nationalPlanningLookbackDays = 250;
 const nationalPlanningPageSize = 1_000;
 
 function transientHttpStatus(status: number) {
@@ -581,7 +605,14 @@ export type PlanningLeadsConnectorConfig = {
   searchTerms?: string[];
 };
 
-const planningLeadsSearchTerms = ["noise", "acoustic", "vibration"] as const;
+const planningLeadsSearchTerms = [
+  "noise",
+  "acoustic",
+  "vibration",
+  "further information",
+  "further info",
+  "RFI",
+] as const;
 
 function firstValue(record: Record<string, unknown>, names: string[]) {
   for (const name of names) {
@@ -645,13 +676,36 @@ export function parsePlanningLeads(payload: unknown): TenderOpportunity[] {
       "url",
       "link",
     ]);
+    const hasFurtherInformation = isFurtherInformationStage(stage);
+    const rfiRequestedAt = firstValue(row, [
+      "further_information_requested_date",
+      "further_info_requested_date",
+      "fi_request_date",
+      "rfi_requested_date",
+      "rfi_received_date",
+      "rfi_date",
+    ]);
+    const rfiResponseReceivedAt = firstValue(row, [
+      "further_information_received_date",
+      "further_info_received_date",
+      "fi_received_date",
+      "rfi_response_received_date",
+    ]);
+    const suppliedRfiDueAt = firstValue(row, [
+      "rfi_response_due_date",
+      "rfi_response_deadline",
+      "further_information_due_date",
+      "fi_due_date",
+    ]);
     const matchedTerms = matchedAcousticTerms(title, description);
-    if (!sourceRecordId || !sourceUrl || (matchedTerms.length === 0 && !relevantSector(title, description))) return [];
+    if (!sourceRecordId || !sourceUrl || (!hasFurtherInformation && matchedTerms.length === 0 && !relevantSector(title, description))) return [];
 
     // PlanningLeads is an accelerator, not the evidence authority. Even if its
     // summary says granted/refused/RFI, the linked council wording must be read
     // before a planning-stage classification is confirmed.
-    const classification = relevantSector(title, description)
+    const classification = hasFurtherInformation
+      ? "further-information-request"
+      : relevantSector(title, description)
       ? "design-construction-potential"
       : "needs-council-evidence";
     const opportunity: TenderOpportunity = {
@@ -671,7 +725,7 @@ export function parsePlanningLeads(payload: unknown): TenderOpportunity[] {
         "date_received",
         "received_date",
         "created_at",
-      ]) || undefined,
+      ]) || rfiRequestedAt || undefined,
       planningReceivedAt: firstValue(row, [
         "planning_received_date",
         "application_received_date",
@@ -683,6 +737,12 @@ export function parsePlanningLeads(payload: unknown): TenderOpportunity[] {
         "application_validated_date",
         "validated_date",
       ]) || undefined,
+      rfiPublishedAt: rfiRequestedAt || undefined,
+      rfiReceivedAt: rfiRequestedAt || undefined,
+      rfiResponseReceivedAt: rfiResponseReceivedAt || undefined,
+      responseDeadline: suppliedRfiDueAt || (rfiRequestedAt ? addCalendarMonths(rfiRequestedAt, 6) : undefined),
+      rfiDateSource: rfiRequestedAt ? `${sourceUrl} — PlanningLeads Further Information Requested date` : undefined,
+      rfiDateConfidence: rfiRequestedAt ? "exact" : "unavailable",
       deadline: firstValue(row, ["decision_due_date", "deadline", "response_deadline"]) || undefined,
       sourceUrl,
       evidenceStatus: "discovery-only",
@@ -692,6 +752,7 @@ export function parsePlanningLeads(payload: unknown): TenderOpportunity[] {
       fitScore: 0,
       projectStage: stage || undefined,
       sourceStatus: stage || undefined,
+      triggerType: hasFurtherInformation ? "Further Information Requested" : undefined,
     };
     opportunity.fitScore = scoreOpportunity(opportunity);
     return [opportunity];
@@ -711,12 +772,12 @@ export function buildPlanningLeadsSearchUrls(config: PlanningLeadsConnectorConfi
 
 export function filterRecentPlanningLeads(
   records: TenderOpportunity[],
-  days = 120,
+  days = 250,
   now = Date.now(),
 ) {
   const maximumAge = days * 86_400_000;
   return records.filter((record) => {
-    const timestamp = Date.parse(record.publishedAt ?? "");
+    const timestamp = Date.parse(record.rfiReceivedAt ?? record.rfiPublishedAt ?? record.publishedAt ?? "");
     if (!Number.isFinite(timestamp)) return false;
     const age = now - timestamp;
     return age >= 0 && age <= maximumAge;

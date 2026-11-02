@@ -301,6 +301,92 @@ test("strict cross-source duplicates share one CRM identity without losing eithe
   });
 });
 
+test("same RFI across sources merges, while a separate RFI on the same project remains a separate visible Lead", () => {
+  const records = annotateOpportunityDuplicates([
+    qualifyLead(planningLead({
+      id: "npr-rfi-one",
+      sourceSystem: "National Planning Register",
+      sourceRecordId: "Meath County Council:2662001",
+      projectReference: "2662001",
+      planningAuthority: "Meath County Council",
+      classification: "further-information-request",
+      evidenceExcerpt: "Further Information Requested.",
+      matchedTerms: [],
+      rfiReceivedAt: "2026-09-01",
+      responseDeadline: "",
+    }), new Date("2026-10-30T12:00:00.000Z")),
+    qualifyLead(planningLead({
+      id: "council-rfi-one-copy",
+      sourceSystem: "DCC",
+      sourceRecordId: "2662001",
+      projectReference: "2662001",
+      planningAuthority: "Meath County Council",
+      classification: "further-information-request",
+      evidenceExcerpt: "Further Info Requested.",
+      matchedTerms: [],
+      rfiReceivedAt: "2026-09-01",
+      responseDeadline: "",
+    }), new Date("2026-10-30T12:00:00.000Z")),
+    qualifyLead(planningLead({
+      id: "council-rfi-two",
+      sourceSystem: "DCC",
+      sourceRecordId: "2662001",
+      projectReference: "2662001",
+      planningAuthority: "Meath County Council",
+      classification: "further-information-request",
+      evidenceExcerpt: "A second Further Information Request was issued.",
+      matchedTerms: [],
+      rfiReceivedAt: "2026-10-01",
+      responseDeadline: "",
+    }), new Date("2026-10-30T12:00:00.000Z")),
+  ]);
+  const payloads = buildOdooDryRun(records, new Date("2026-10-30T12:00:00.000Z"));
+  assert.equal(payloads.length, 2);
+  assert.equal(new Set(payloads.map((payload) => payload.matchValue)).size, 2);
+  const september = payloads.find((payload) => payload.values.x_rfi_received_at === "2026-09-01 00:00:00");
+  const october = payloads.find((payload) => payload.values.x_rfi_received_at === "2026-10-01 00:00:00");
+  assert.match(september.values.x_source_systems, /National Planning Register/);
+  assert.match(september.values.x_source_systems, /DCC/);
+  assert.equal(september.values.x_rfi_response_due_at, "2027-03-01 00:00:00");
+  assert.equal(october.values.x_rfi_response_due_at, "2027-04-01 00:00:00");
+  assert.equal(september.values.x_lead_panel, "Active Further Information Request");
+  assert.equal(october.values.x_lead_panel, "Active Further Information Request");
+  assert.equal(september.values.active, true);
+  assert.equal(october.values.active, true);
+  assert.ok(october.values.x_pipeline_priority_rank > september.values.x_pipeline_priority_rank);
+});
+
+test("acoustic RFIs rank above all other active RFIs, which still rank above every non-RFI", () => {
+  const payloads = buildOdooDryRun(annotateOpportunityDuplicates([
+    qualifyLead(planningLead({
+      id: "acoustic-rfi",
+      sourceRecordId: "ACOUSTIC-RFI-1",
+      projectReference: "ACOUSTIC-RFI-1",
+      classification: "noise-related-rfi",
+      rfiReceivedAt: "2026-08-01",
+      responseDeadline: "",
+    }), new Date("2026-10-30T12:00:00.000Z")),
+    qualifyLead(planningLead({
+      id: "generic-rfi",
+      sourceRecordId: "GENERIC-RFI-1",
+      projectReference: "GENERIC-RFI-1",
+      classification: "further-information-request",
+      evidenceExcerpt: "Further Info Requested.",
+      matchedTerms: [],
+      rfiReceivedAt: "2026-10-20",
+      responseDeadline: "",
+    }), new Date("2026-10-30T12:00:00.000Z")),
+    qualifyLead(planningLead({
+      id: "ordinary-planning-lead",
+      sourceRecordId: "ORDINARY-1",
+      projectReference: "ORDINARY-1",
+    }), new Date("2026-10-30T12:00:00.000Z")),
+  ]), new Date("2026-10-30T12:00:00.000Z"));
+  const ranks = Object.fromEntries(payloads.map((payload) => [payload.values.x_classification, payload.values.x_pipeline_priority_rank]));
+  assert.ok(ranks["noise-related-rfi"] > ranks["further-information-request"]);
+  assert.ok(ranks["further-information-request"] > ranks["design-construction-potential"]);
+});
+
 test("same-address applications with different references are flagged but retained as separate CRM opportunities", () => {
   const records = annotateOpportunityDuplicates([
     planningLead({
@@ -845,7 +931,7 @@ test("Odoo pipeline priority leads with qualified verified email matches", async
   assert.equal(writtenPriorities.get("helmonic-lead:excellent-unmatched-priority"), "1");
 });
 
-test("Odoo pipeline rank uses the live RFI deadline first and source/relationship ties second", () => {
+test("Odoo pipeline rank uses acoustic category and newest RFI request date before source/relationship ties", () => {
   const records = [
     planningLead({
       id: "buildinginfo-matched-rfi-rank",
@@ -937,9 +1023,9 @@ test("Odoo pipeline rank uses the live RFI deadline first and source/relationshi
   assert.ok(ranks["helmonic-lead:matched-rfi-rank"] > ranks["helmonic-lead:unmatched-rfi-rank"]);
   assert.ok(ranks["helmonic-lead:matched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-unmatched-rfi-rank"]);
   assert.ok(ranks["helmonic-lead:buildinginfo-unmatched-rfi-rank"] > ranks["helmonic-lead:unmatched-rfi-rank"]);
-  assert.ok(ranks["helmonic-lead:buildinginfo-matched-rfi-rank"] > ranks["helmonic-lead:newer-unmatched-rfi-rank"]);
-  assert.ok(ranks["helmonic-lead:earlier-unmatched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-matched-rfi-rank"]);
-  assert.ok(ranks["helmonic-lead:earlier-unmatched-rfi-rank"] > ranks["helmonic-lead:newer-unmatched-rfi-rank"]);
+  assert.ok(ranks["helmonic-lead:newer-unmatched-rfi-rank"] > ranks["helmonic-lead:buildinginfo-matched-rfi-rank"]);
+  assert.ok(ranks["helmonic-lead:buildinginfo-matched-rfi-rank"] > ranks["helmonic-lead:earlier-unmatched-rfi-rank"]);
+  assert.ok(ranks["helmonic-lead:newer-unmatched-rfi-rank"] > ranks["helmonic-lead:earlier-unmatched-rfi-rank"]);
   assert.equal(ranks["helmonic-lead:matched-standard-rank"], 900);
 });
 
@@ -1286,7 +1372,9 @@ test("Odoo archives expired RFIs out of active Leads while retaining their audit
   assert.equal(values["helmonic-lead:recently-expired-unmatched-rfi"].active, false);
   assert.equal(values["helmonic-lead:expired-matched-rfi"].active, false);
   assert.equal(values["helmonic-lead:answered-rfi"].active, false);
-  assert.equal(values["helmonic-lead:stale-undated-rfi"].active, false);
+  assert.equal(values["helmonic-lead:stale-undated-rfi"].active, true);
+  assert.equal(values["helmonic-lead:stale-undated-rfi"].x_rfi_response_due_at, "2027-01-01 00:00:00");
+  assert.match(values["helmonic-lead:stale-undated-rfi"].x_pipeline_priority_reason, /Active acoustic RFI.*newest Further Information Requested date/i);
   assert.match(values["helmonic-lead:answered-rfi"].x_pipeline_priority_reason, /archived from active Leads/i);
   assert.equal(values["helmonic-lead:recently-expired-unmatched-rfi"].x_rfi_response_due_at, "2026-10-10 00:00:00");
   assert.equal(values["helmonic-lead:expired-matched-rfi"].x_rfi_response_due_at, "2026-09-15 00:00:00");
@@ -1729,7 +1817,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
           x_evidence_excerpt: "The applicant shall submit a noise impact assessment.",
           x_matched_terms: "noise",
           x_opportunity_type: "planning-pipeline-lead",
-          x_rfi_response_due_at: "2099-10-20 00:00:00",
+          x_rfi_received_at: "2099-04-20 00:00:00",
         },
         {
           id: 72,
@@ -1913,15 +2001,18 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   );
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
-  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 1_600_075_000);
+  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 2_100_075_000);
   assert.equal(buildingInfoHistorical.vals.x_lead_panel, "Urgent Acoustic RFI");
+  assert.equal(buildingInfoHistorical.vals.x_rfi_response_due_at, "2099-10-20 00:00:00");
+  assert.equal(buildingInfoHistorical.vals.x_rfi_date_confidence, "derived");
+  assert.match(buildingInfoHistorical.vals.x_rfi_date_source, /request date plus six calendar months/i);
   assert.equal(buildingInfoHistorical.vals.name, "J-buildinginfo-rfi");
   assert.equal(buildingInfoHistorical.vals.type, "lead");
   assert.equal(buildingInfoHistorical.vals.priority, "3");
   assert.equal(buildingInfoHistorical.vals.active, true);
   assert.match(
     buildingInfoHistorical.vals.x_pipeline_priority_reason,
-    /^Active acoustic RFI due in \d+ days; response deadline takes precedence; RFI received\/published date unavailable; human-reviewed BuildingInfo source; verified acoustic consultant email relationship$/,
+    /^Active acoustic RFI due in \d+ days; acoustic\/noise RFI category has first priority; RFI received\/published date unavailable; human-reviewed BuildingInfo source; verified acoustic consultant email relationship$/,
   );
   assert.equal(partEHistorical.vals.x_lead_panel, "Potential Acoustic Fit");
   assert.equal(partEHistorical.vals.x_pipeline_priority_rank, 500);
@@ -2421,7 +2512,7 @@ test("BuildingInfo marks a supplied RFI due date as exact even when no received 
   assert.match(record.rfiDateSource, /supplied RFI date columns/i);
 });
 
-test("repeated BuildingInfo weekly rows collapse to one stable project while preserving distinct evidence", () => {
+test("repeated BuildingInfo weekly rows collapse the same RFI but retain a distinct later RFI as another lead", () => {
   const header = "project_id,project_title,county,project_url,trigger_type,evidence_document,evidence_excerpt,last_updated";
   const first = parseBuildingInfoCsv([
     header,
@@ -2433,12 +2524,14 @@ test("repeated BuildingInfo weekly rows collapse to one stable project while pre
     "BI-100,Apartment Development,Dublin,https://app.buildinginfo.test/p-100,RFI,second.pdf,Provide a construction noise and vibration report.,2026-10-07",
   ].join("\n"), "week-2.csv");
   const records = mergeBuildingInfoCsvRecords([...first, ...second]);
-  assert.equal(records.length, 1);
-  assert.equal(records[0].sourceRecordId, "BI-100");
-  assert.equal(records[0].evidenceDocuments.length, 2);
-  assert.deepEqual(records[0].sourceObservationFiles, ["week-1.csv row 2", "week-2.csv row 2", "week-2.csv row 3"]);
-  assert.match(records[0].evidenceExcerpt, /acoustic assessment/);
-  assert.match(records[0].evidenceExcerpt, /vibration report/);
+  assert.equal(records.length, 2);
+  assert.ok(records.every((record) => record.sourceRecordId === "BI-100"));
+  assert.deepEqual(
+    records.flatMap((record) => record.sourceObservationFiles).sort(),
+    ["week-1.csv row 2", "week-2.csv row 2", "week-2.csv row 3"],
+  );
+  assert.ok(records.some((record) => /acoustic assessment/.test(record.evidenceExcerpt)));
+  assert.ok(records.some((record) => /vibration report/.test(record.evidenceExcerpt)));
 });
 
 test("BuildingInfo export carries appointment evidence and the saved-search identity", () => {
@@ -2597,6 +2690,23 @@ test("national register records are discovery-only until council wording is insp
   assert.equal(records[0].rfiResponseReceivedAt, "2026-10-18T00:00:00.000Z");
 });
 
+test("national register retains every current Further Information Request and derives the six-month response date", () => {
+  const [record] = parseNationalPlanningFeatures({ features: [{ attributes: {
+    PlanningAuthority: "Meath County Council",
+    ApplicationNumber: "2662002",
+    DevelopmentDescription: "Residential development",
+    DevelopmentAddress: "Example Road, Co. Meath",
+    FIRequestDate: Date.parse("2026-10-20T00:00:00Z"),
+    LinkAppDetails: "https://planning.localgov.ie/",
+  } }] });
+  assert.equal(record.classification, "further-information-request");
+  assert.equal(record.rfiReceivedAt, "2026-10-20T00:00:00.000Z");
+  assert.equal(record.responseDeadline, "2027-04-20");
+  assert.equal(record.projectStage, "Further Information Requested");
+  assert.equal(record.triggerType, "Further Information Requested");
+  assert.deepEqual(record.matchedTerms, []);
+});
+
 test("national planning links are always project-specific and never a generic portal homepage", () => {
   assert.equal(genericPlanningPortalUrl("https://planning.localgov.ie/"), true);
   assert.equal(
@@ -2616,11 +2726,11 @@ test("national planning links are always project-specific and never a generic po
   assert.equal(record.sourceUrl, "https://www.eplanning.ie/KildareCC/AppFileRefDetails/2660381/0");
 });
 
-test("national register live query is bounded to current weekly discovery activity", () => {
-  const where = buildNationalPlanningWhere(Date.parse("2026-09-25T12:00:00Z"));
-  assert.match(where, /ReceivedDate >= DATE '2026-08-21'/);
-  assert.match(where, /DecisionDate >= DATE '2026-08-21'/);
-  assert.match(where, /FIRequestDate >= DATE '2026-08-21'/);
+test("national register live query covers the six-month RFI response window", () => {
+  const where = buildNationalPlanningWhere(Date.parse("2026-10-30T12:00:00Z"));
+  assert.match(where, /ReceivedDate >= DATE '2026-02-22'/);
+  assert.match(where, /DecisionDate >= DATE '2026-02-22'/);
+  assert.match(where, /FIRequestDate >= DATE '2026-02-22'/);
   assert.match(where, /PlanningAuthority IN/);
   assert.match(where, /Kildare County Council/);
   assert.doesNotMatch(where, /Cavan County Council/);
@@ -2628,9 +2738,9 @@ test("national register live query is bounded to current weekly discovery activi
 });
 
 test("Education campaign national-register query covers all Irish planning authorities", () => {
-  const where = buildNationalPlanningWhere(Date.parse("2026-09-25T12:00:00Z"), "ireland");
-  assert.match(where, /ReceivedDate >= DATE '2026-08-21'/);
-  assert.match(where, /FIRequestDate >= DATE '2026-08-21'/);
+  const where = buildNationalPlanningWhere(Date.parse("2026-10-30T12:00:00Z"), "ireland");
+  assert.match(where, /ReceivedDate >= DATE '2026-02-22'/);
+  assert.match(where, /FIRequestDate >= DATE '2026-02-22'/);
   assert.doesNotMatch(where, /PlanningAuthority IN/i);
 });
 
@@ -2712,7 +2822,7 @@ test("DCC further-information wording can prove a noise-related RFI", () => {
   assert.equal(records[0].rfiPublishedAt, "2026-09-01");
   assert.equal(records[0].rfiReceivedAt, "2026-09-01");
   assert.equal(records[0].rfiResponseReceivedAt, "2027-03-01");
-  assert.equal(records[0].responseDeadline, undefined);
+  assert.equal(records[0].responseDeadline, "2027-03-01");
 });
 
 test("DCC weekly collector selects the newest official document for every area", () => {
@@ -2887,6 +2997,15 @@ test("planning classes fail closed without actual acoustic wording", () => {
     classifyPlanningEvidence({ stage: "Refused", description: "Residential development" }),
     "needs-council-evidence",
   );
+});
+
+test("all Further Information Requested wording variants remain valid RFIs without acoustic wording", () => {
+  for (const stage of ["Further Information Requested", "Further Info Requested", "Additional Information Requested", "RFI"]) {
+    assert.equal(
+      classifyPlanningEvidence({ stage, description: "Residential development" }),
+      "further-information-request",
+    );
+  }
 });
 
 test("legacy ePlanning document index parser retains direct evidence-viewer rows", () => {
@@ -3171,12 +3290,15 @@ test("PlanningLeads free connector stays within the bounded search contract", ()
     endpoint: "https://planningleads.ie/api/v1/",
     pageSize: 500,
   });
-  assert.equal(urls.length, 3);
+  assert.equal(urls.length, 6);
   assert.ok(urls.every((url) => url.startsWith("https://planningleads.ie/api/v1/leads?")));
   assert.ok(urls.every((url) => url.includes("page_size=100")));
   assert.ok(urls.some((url) => url.includes("q=noise")));
   assert.ok(urls.some((url) => url.includes("q=acoustic")));
   assert.ok(urls.some((url) => url.includes("q=vibration")));
+  assert.ok(urls.some((url) => url.includes("q=further+information")));
+  assert.ok(urls.some((url) => url.includes("q=further+info")));
+  assert.ok(urls.some((url) => url.includes("q=RFI")));
 });
 
 test("Education lookup queries PlanningLeads with the campaign terms", () => {
@@ -3657,4 +3779,16 @@ test("records resolve only from explicit source status or an applicable expired 
     deadline: "2020-01-01",
   };
   assert.equal(positiveResolution(planning, new Date("2026-09-28T09:00:00Z")), undefined);
+
+  const answeredRfi = {
+    ...planning,
+    classification: "further-information-request",
+    rfiReceivedAt: "2026-09-01",
+    responseDeadline: "2027-03-01",
+    rfiResponseReceivedAt: "2026-09-20",
+  };
+  assert.equal(
+    positiveResolution(answeredRfi, new Date("2026-09-28T09:00:00Z")),
+    "further-information-response-received",
+  );
 });

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { hasConfirmedCurrentAcousticEvidence } from "../../src/lib/tender-intelligence/acoustic-evidence-guard.ts";
 import { isSalesRouteable } from "../../src/lib/tender-intelligence/lead-qualification.ts";
+import { isRfiClassification } from "../../src/lib/tender-intelligence/rfi.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -24,7 +25,7 @@ function escapeHtml(value) {
 function qualified(record) {
   return record.cycleStatus !== "resolved"
     && isSalesRouteable(record)
-    && hasConfirmedCurrentAcousticEvidence(record);
+    && (isRfiClassification(record.classification) || hasConfirmedCurrentAcousticEvidence(record));
 }
 
 function category(record) {
@@ -33,10 +34,11 @@ function category(record) {
 
 function urgencyRank(record) {
   if (record.classification === "noise-related-rfi") return 0;
-  if (record.classification === "granted-with-noise-conditions") return 1;
-  if (record.classification === "refused-on-noise-grounds") return 2;
-  if (record.type === "formal-public-tender") return 3;
-  return 4;
+  if (record.classification === "further-information-request") return 1;
+  if (record.classification === "granted-with-noise-conditions") return 2;
+  if (record.classification === "refused-on-noise-grounds") return 3;
+  if (record.type === "formal-public-tender") return 4;
+  return 5;
 }
 
 function freshnessRank(record) {

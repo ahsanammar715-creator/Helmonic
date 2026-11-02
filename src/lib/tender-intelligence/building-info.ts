@@ -5,6 +5,7 @@ import {
   scoreOpportunity,
   stableOpportunityId,
 } from "./policy.ts";
+import { addCalendarMonths, isFurtherInformationStage } from "./rfi.ts";
 import type { LeadParty, TenderOpportunity } from "./types.ts";
 
 export type BuildingInfoConfig = {
@@ -98,7 +99,26 @@ export function parseBuildingInfoProjects(payload: unknown): TenderOpportunity[]
     const parties = companiesFromRow(row);
     const sourceUrl = stringValue(row.planning_url) || stringValue(row.planning_urlopen) || "https://app.buildinginfo.com/";
     const agriculture = isAgriculture(row);
-    const classification = !agriculture && relevantSector(title, description)
+    const hasFurtherInformation = isFurtherInformationStage(stage);
+    const rfiRequestedAt = stringValue(
+      row.further_information_requested_date
+      ?? row.fi_request_date
+      ?? row.rfi_requested_date
+      ?? row.rfi_date,
+    ) || undefined;
+    const rfiResponseReceivedAt = stringValue(
+      row.further_information_received_date
+      ?? row.fi_received_date
+      ?? row.rfi_response_received_date,
+    ) || undefined;
+    const suppliedRfiDueAt = stringValue(
+      row.rfi_response_due_date
+      ?? row.rfi_response_deadline
+      ?? row.fi_due_date,
+    ) || undefined;
+    const classification = hasFurtherInformation
+      ? "further-information-request"
+      : !agriculture && relevantSector(title, description)
       ? "design-construction-potential"
       : "no-relevant-opportunity";
     const opportunity: TenderOpportunity = {
@@ -122,6 +142,12 @@ export function parseBuildingInfoProjects(payload: unknown): TenderOpportunity[]
       publishedAt: stringValue(row.planning_application_date) || undefined,
       sourceUpdatedAt: stringValue(row.api_date) || undefined,
       sourceMajorUpdatedAt: stringValue(row.planning_public_updated) || undefined,
+      rfiPublishedAt: rfiRequestedAt,
+      rfiReceivedAt: rfiRequestedAt,
+      rfiResponseReceivedAt,
+      responseDeadline: suppliedRfiDueAt || (rfiRequestedAt ? addCalendarMonths(rfiRequestedAt, 6) : undefined),
+      rfiDateSource: rfiRequestedAt ? `${sourceUrl} — BuildingInfo Further Information Requested date` : undefined,
+      rfiDateConfidence: rfiRequestedAt ? "exact" : "unavailable",
       deadline: stringValue(row.planning_tender_deadline) || undefined,
       sourceUrl,
       evidenceStatus: "discovery-only",
@@ -131,6 +157,7 @@ export function parseBuildingInfoProjects(payload: unknown): TenderOpportunity[]
       fitScore: 0,
       sourceStatus: stage || undefined,
       projectStage: stage || undefined,
+      triggerType: hasFurtherInformation ? "Further Information Requested" : undefined,
       projectSector: category || undefined,
       projectValue: value,
       projectUnits: units,
