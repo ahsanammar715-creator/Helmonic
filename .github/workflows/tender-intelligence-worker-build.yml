@@ -111,6 +111,28 @@ jobs:
             echo "::endgroup::"
           done
 
+          running_execution="$(az containerapp job execution list \
+            --name "$AZURE_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query '[?properties.status == `Running`] | [0].name' \
+            --output tsv)"
+          if [[ -n "$running_execution" ]]; then
+            container_name="$(az containerapp job show \
+              --name "$AZURE_JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --query 'properties.template.containers[0].name' \
+              --output tsv)"
+            echo "::group::Live output for running execution $running_execution"
+            az containerapp job logs show \
+              --name "$AZURE_JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --execution "$running_execution" \
+              --container "$container_name" \
+              --format text \
+              --tail 300 2>&1 || true
+            echo "::endgroup::"
+          fi
+
   suspend-buildinginfo-job:
     name: Switch the BuildingInfo job to manual-only
     if: github.event_name == 'workflow_dispatch' && inputs.suspend_buildinginfo_job
