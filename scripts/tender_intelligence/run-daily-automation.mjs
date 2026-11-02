@@ -22,6 +22,7 @@ const outputDirectory = path.join(automationRoot, runId);
 const summaryPath = path.join(outputDirectory, "summary.json");
 const summarizeOnly = process.argv.includes("--summarize-only");
 const buildingInfoRun = process.argv.includes("--buildinginfo-run");
+const odooMigrationOnly = process.env.HELMONIC_ODOO_MIGRATION_ONLY === "true";
 
 if (process.env.HELMONIC_ODOO_PREFLIGHT_ONLY === "true") {
   await import("./preflight-odoo.mjs");
@@ -105,7 +106,7 @@ function runScript(script, args = []) {
 const optionalSteps = process.env.ODOO_CRM_UI_CONFIG_ENABLED === "true"
   ? [{ script: "scripts/tender_intelligence/configure-odoo-crm-ui.mjs", args: [] }]
   : [];
-const steps = [
+const dailyCollectionSteps = [
   ...(process.env.HELMONIC_BUILDINGINFO_BROWSER_ENABLED === "true"
     ? [{ script: "scripts/tender_intelligence/collect-buildinginfo-browser.mjs", args: [] }]
     : []),
@@ -115,6 +116,12 @@ const steps = [
   { script: "scripts/tender_intelligence/build-odoo-dry-run.mjs", args: [] },
   { script: "scripts/tender_intelligence/sync-odoo-leads.mjs", args: [] },
 ];
+const steps = odooMigrationOnly
+  ? [
+      { script: "scripts/tender_intelligence/build-odoo-dry-run.mjs", args: [] },
+      { script: "scripts/tender_intelligence/sync-odoo-leads.mjs", args: [] },
+    ]
+  : dailyCollectionSteps;
 const summary = {
   status: "running",
   runId,
@@ -127,6 +134,7 @@ const summary = {
   buildingInfoBrowserEnabled: process.env.HELMONIC_BUILDINGINFO_BROWSER_ENABLED === "true",
   buildingInfoRun,
   summarizeOnly,
+  odooMigrationOnly,
   optionalSteps: [],
   completedSteps: [],
   failedStep: undefined,
