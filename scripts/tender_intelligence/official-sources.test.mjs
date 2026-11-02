@@ -717,6 +717,111 @@ test("Odoo synchronization remains completely inert while disabled", async () =>
   assert.equal(calls, 0);
 });
 
+test("Odoo bulk sync creates current Leads, archives existing stale records and never creates new inactive history", async () => {
+  const [base] = buildOdooDryRun([{
+    ...planningLead({
+      id: "odoo-sync-scope-base",
+      sourceRecordId: "ODOO-SCOPE-1",
+      evidenceStatus: "official-text",
+      classification: "design-construction-potential",
+      routedTo: "Owen",
+    }),
+    crmExternalId: "helmonic-lead:odoo-sync-scope-base",
+  }]);
+  const payloads = [
+    {
+      ...base,
+      matchValue: "helmonic-lead:current-create",
+      values: { ...base.values, active: true, x_assigned_person: "" },
+    },
+    {
+      ...base,
+      matchValue: "helmonic-lead:existing-expired",
+      values: {
+        ...base.values,
+        active: false,
+        x_assigned_person: "",
+        x_classification: "noise-related-rfi",
+        x_rfi_response_due_at: "2026-01-01 00:00:00",
+        x_rfi_response_received_at: "2026-01-02 00:00:00",
+      },
+    },
+    {
+      ...base,
+      matchValue: "helmonic-lead:historical-only",
+      values: {
+        ...base.values,
+        active: false,
+        x_assigned_person: "",
+        x_classification: "noise-related-rfi",
+        x_rfi_response_due_at: "2026-01-01 00:00:00",
+        x_rfi_response_received_at: "2026-01-02 00:00:00",
+      },
+    },
+  ];
+  let bulkSearches = 0;
+  const created = [];
+  const written = [];
+  const fetcher = async (request, options = {}) => {
+    const url = String(request);
+    const body = options.body ? JSON.parse(String(options.body)) : {};
+    if (url.endsWith("/web/version")) return Response.json({ version_info: [19, 0, 0, "final"] });
+    if (url.endsWith("/fields_get")) {
+      return Response.json(Object.fromEntries(body.allfields.map((field) => [field, {
+        type: ODOO_TENDER_FIELD_TYPES[field] ?? ({
+          name: "char", active: "boolean", description: "html", partner_name: "char", contact_name: "char",
+          email_from: "char", phone: "char", function: "char", street: "char", date_deadline: "date",
+          partner_id: "many2one", campaign_id: "many2one", medium_id: "many2one", source_id: "many2one",
+          tag_ids: "many2many", type: "selection", team_id: "many2one", user_id: "many2one",
+          priority: "selection", stage_id: "many2one",
+        }[field] ?? "char"),
+        ...(field === "x_studio_project_sector" ? { selection: [["other", "Other"]] } : {}),
+      }])));
+    }
+    if (url.endsWith("/search_read")) {
+      bulkSearches += 1;
+      assert.equal(body.domain[0][1], "in");
+      return Response.json([{
+        id: 902,
+        active: true,
+        type: "lead",
+        x_helmonic_external_id: "helmonic-lead:existing-expired",
+      }]);
+    }
+    if (url.endsWith("/create")) {
+      created.push(...body.vals_list);
+      return Response.json([903]);
+    }
+    if (url.endsWith("/write")) {
+      written.push(body);
+      return Response.json(true);
+    }
+    return new Response(`Unexpected request ${url}`, { status: 500 });
+  };
+  const result = await syncOdooLeads(payloads, {
+    enabled: true,
+    baseUrl: "https://odoo.example.test",
+    apiKey: "test-only-key",
+    salesTeamId: 41,
+    requestIntervalMs: 0,
+  }, fetcher);
+  assert.equal(bulkSearches, 1);
+  assert.equal(result.created, 1);
+  assert.equal(result.updated, 1);
+  assert.equal(result.inactiveNewRecordsSkipped, 1);
+  assert.equal(result.unchanged, 1);
+  assert.equal(created[0].x_helmonic_external_id, "helmonic-lead:current-create");
+  assert.deepEqual(written[0].ids, [902]);
+  assert.equal(written[0].vals.active, false, JSON.stringify({
+    classification: written[0].vals.x_classification,
+    due: written[0].vals.x_rfi_response_due_at,
+    received: written[0].vals.x_rfi_response_received_at,
+    panel: written[0].vals.x_lead_panel,
+    reason: written[0].vals.x_pipeline_priority_reason,
+  }));
+  assert.equal(created.some((values) => values.x_helmonic_external_id === "helmonic-lead:historical-only"), false);
+});
+
 test("Odoo preflight validates the complete contract and routing with zero writes", async () => {
   const calls = [];
   const fetcher = async (request, options = {}) => {

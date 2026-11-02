@@ -103,7 +103,7 @@ function runScript(script, args = []) {
   });
 }
 
-const optionalSteps = process.env.ODOO_CRM_UI_CONFIG_ENABLED === "true"
+const optionalSteps = !odooMigrationOnly && process.env.ODOO_CRM_UI_CONFIG_ENABLED === "true"
   ? [{ script: "scripts/tender_intelligence/configure-odoo-crm-ui.mjs", args: [] }]
   : [];
 const dailyCollectionSteps = [

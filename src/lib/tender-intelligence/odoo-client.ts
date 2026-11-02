@@ -36,6 +36,7 @@ export type OdooSyncResult = {
   created: number;
   updated: number;
   unchanged: number;
+  inactiveNewRecordsSkipped: number;
   contactsCreated: number;
   contactsMatched: number;
   attributionRecordsCreated: number;
@@ -353,35 +354,52 @@ async function namedRecordId(
   name: string,
   createMissing: boolean,
   fetcher: typeof fetch,
+  registry?: Map<string, Promise<{ id: number | false; created: boolean }>>,
 ) {
-  const matches = await json2Call(config, model, "search_read", {
-    domain: [["name", "=ilike", name]],
-    fields: ["id", "name"],
-    limit: 5,
-  }, fetcher) as Array<{ id?: number; name?: string }>;
-  const exact = matches.filter((record) => record.name?.trim().toLowerCase() === name.trim().toLowerCase());
-  if (exact.length > 0 && Number.isInteger(exact[0]?.id)) {
-    return { id: exact[0].id!, created: false };
+  const key = `${model}:${name.trim().toLowerCase()}`;
+  const cached = registry?.get(key);
+  if (cached) {
+    const value = await cached;
+    return { ...value, created: false };
   }
-  if (!createMissing) return { id: false as const, created: false };
-  const id = createdId(await json2Call(config, model, "create", { vals_list: [{ name }] }, fetcher));
-  return { id, created: true };
+  const resolution = (async () => {
+    const matches = await json2Call(config, model, "search_read", {
+      domain: [["name", "=ilike", name]],
+      fields: ["id", "name"],
+      limit: 5,
+    }, fetcher) as Array<{ id?: number; name?: string }>;
+    const exact = matches.filter((record) => record.name?.trim().toLowerCase() === name.trim().toLowerCase());
+    if (exact.length > 0 && Number.isInteger(exact[0]?.id)) {
+      return { id: exact[0].id!, created: false };
+    }
+    if (!createMissing) return { id: false as const, created: false };
+    const id = createdId(await json2Call(config, model, "create", { vals_list: [{ name }] }, fetcher));
+    return { id, created: true };
+  })();
+  registry?.set(key, resolution);
+  try {
+    return await resolution;
+  } catch (error) {
+    registry?.delete(key);
+    throw error;
+  }
 }
 
 async function attributionValues(
   payload: OdooLeadDryRun,
   config: ReturnType<typeof requiredConfig>,
   fetcher: typeof fetch,
+  registry?: Map<string, Promise<{ id: number | false; created: boolean }>>,
 ) {
   if (!config.populateAttribution) return { values: {}, created: 0 };
   const campaign = await namedRecordId(
-    config, "utm.campaign", payload.attribution.campaignName, config.createMissingAttribution, fetcher,
+    config, "utm.campaign", payload.attribution.campaignName, config.createMissingAttribution, fetcher, registry,
   );
   const medium = await namedRecordId(
-    config, "utm.medium", payload.attribution.mediumName, config.createMissingAttribution, fetcher,
+    config, "utm.medium", payload.attribution.mediumName, config.createMissingAttribution, fetcher, registry,
   );
   const source = await namedRecordId(
-    config, "utm.source", payload.attribution.sourceName, config.createMissingAttribution, fetcher,
+    config, "utm.source", payload.attribution.sourceName, config.createMissingAttribution, fetcher, registry,
   );
   const values: Record<string, number> = {};
   if (campaign.id) values.campaign_id = campaign.id;
@@ -522,36 +540,52 @@ async function primaryContactId(
   payload: OdooLeadDryRun,
   config: ReturnType<typeof requiredConfig>,
   fetcher: typeof fetch,
+  registry?: Map<string, Promise<{ id: number | false; created: boolean; matched: boolean }>>,
 ) {
   if (!config.linkPrimaryContact) return { id: false as const, created: false, matched: false };
   const { email_from: email, phone, contact_name: contact, partner_name: company } = payload.values;
   if (!email && !phone) return { id: false as const, created: false, matched: false };
-  const domain = email
-    ? [["email", "=ilike", email]]
-    : [["phone", "=", phone]];
-  const matches = await json2Call(config, "res.partner", "search_read", {
-    domain,
-    fields: ["id", "name", "email", "phone"],
-    limit: 3,
-  }, fetcher) as Array<{ id?: number }>;
-  if (matches.length === 1 && Number.isInteger(matches[0]?.id)) {
-    return { id: matches[0].id!, created: false, matched: true };
+  const key = email ? `email:${email.trim().toLowerCase()}` : `phone:${phone}`;
+  const cached = registry?.get(key);
+  if (cached) {
+    const value = await cached;
+    return { ...value, created: false, matched: Boolean(value.id) };
   }
-  if (matches.length > 1 || !config.createMissingContacts) {
-    return { id: false as const, created: false, matched: false };
+  const resolution = (async () => {
+    const domain = email
+      ? [["email", "=ilike", email]]
+      : [["phone", "=", phone]];
+    const matches = await json2Call(config, "res.partner", "search_read", {
+      domain,
+      fields: ["id", "name", "email", "phone"],
+      limit: 3,
+    }, fetcher) as Array<{ id?: number }>;
+    if (matches.length === 1 && Number.isInteger(matches[0]?.id)) {
+      return { id: matches[0].id!, created: false, matched: true };
+    }
+    if (matches.length > 1 || !config.createMissingContacts) {
+      return { id: false as const, created: false, matched: false };
+    }
+    const displayName = contact && company ? `${contact} (${company})` : contact || company || email || phone;
+    const id = createdId(await json2Call(config, "res.partner", "create", {
+      vals_list: [{
+        name: displayName,
+        email: email || false,
+        phone: phone || false,
+        function: payload.values.function || false,
+        street: payload.values.street || false,
+        comment: `Created by Helmonic Tender Intelligence for ${payload.values.name}.`,
+      }],
+    }, fetcher));
+    return { id, created: true, matched: false };
+  })();
+  registry?.set(key, resolution);
+  try {
+    return await resolution;
+  } catch (error) {
+    registry?.delete(key);
+    throw error;
   }
-  const displayName = contact && company ? `${contact} (${company})` : contact || company || email || phone;
-  const id = createdId(await json2Call(config, "res.partner", "create", {
-    vals_list: [{
-      name: displayName,
-      email: email || false,
-      phone: phone || false,
-      function: payload.values.function || false,
-      street: payload.values.street || false,
-      comment: `Created by Helmonic Tender Intelligence for ${payload.values.name}.`,
-    }],
-  }, fetcher));
-  return { id, created: true, matched: false };
 }
 
 function valuesForOdoo(
@@ -1514,6 +1548,100 @@ function payloadWithExistingEvidence(
   };
 }
 
+const ODOO_EXISTING_LEAD_FIELDS = [
+  "id",
+  "active",
+  "type",
+  "tag_ids",
+  "partner_name",
+  "contact_name",
+  "email_from",
+  "phone",
+  "function",
+  "street",
+  "partner_id",
+  "x_applicant",
+  "x_party_details",
+  "x_source_systems",
+  "x_project_reference",
+  "x_source_reference",
+  "x_studio_reference",
+  "x_source_ledger",
+  "x_source_record_ids",
+  "x_project_link",
+  "x_source_urls",
+  "x_evidence_document_urls",
+  "x_assigned_person",
+  "x_warm_connection_verified",
+  "x_routing_reason",
+  "x_relationship_summary",
+  "x_relationship_evidence",
+  "x_project_history_summary",
+  "x_project_history_evidence",
+  "x_acoustic_appointment_status",
+  "x_appointed_acoustician",
+  "x_appointment_evidence",
+  "x_appointment_evidence_source_url",
+  "x_competitive_quote_opportunity",
+  "x_outreach_eligibility",
+  "x_outreach_suppression_reason",
+  "x_outreach_key",
+] as const;
+
+async function exactExistingLeadMatches(
+  config: ReturnType<typeof requiredConfig>,
+  externalId: string,
+  fetcher: typeof fetch,
+) {
+  const matches = await json2Call(config, config.model, "search_read", {
+    domain: [[config.externalIdField, "=", externalId]],
+    fields: [...ODOO_EXISTING_LEAD_FIELDS, config.externalIdField],
+    limit: 2,
+    context: { active_test: false },
+  }, fetcher) as ExistingLeadValues[];
+  if (!Array.isArray(matches)) throw new Error("Odoo search_read returned an invalid response.");
+  if (matches.length > 1) throw new Error("More than one Odoo lead has the same Helmonic external ID.");
+  return matches;
+}
+
+async function preloadExistingLeads(
+  config: ReturnType<typeof requiredConfig>,
+  payloads: OdooLeadDryRun[],
+  fetcher: typeof fetch,
+) {
+  const byExternalId = new Map<string, ExistingLeadValues>();
+  const completeExternalIds = new Set<string>();
+  const chunkSize = 250;
+  for (let offset = 0; offset < payloads.length; offset += chunkSize) {
+    const externalIds = payloads.slice(offset, offset + chunkSize).map((payload) => payload.matchValue);
+    const records = await json2Call(config, config.model, "search_read", {
+      domain: [[config.externalIdField, "in", externalIds]],
+      fields: [...ODOO_EXISTING_LEAD_FIELDS, config.externalIdField],
+      limit: externalIds.length + 1,
+      context: { active_test: false },
+    }, fetcher) as ExistingLeadValues[];
+    if (!Array.isArray(records)) throw new Error("Odoo bulk search_read returned an invalid response.");
+
+    // Real Odoo returns the requested external-ID field. A few unit-test and
+    // compatibility adapters only return a minimal legacy shape; those IDs
+    // deliberately fall back to the exact one-record lookup below.
+    const indexed = records.every((record) => {
+      const externalId = String((record as Record<string, unknown>)[config.externalIdField] ?? "").trim();
+      return Boolean(externalId) && externalIds.includes(externalId);
+    });
+    if (!indexed && records.length > 0) continue;
+    for (const externalId of externalIds) completeExternalIds.add(externalId);
+    for (const record of records) {
+      const externalId = String((record as Record<string, unknown>)[config.externalIdField] ?? "").trim();
+      if (byExternalId.has(externalId)) {
+        throw new Error(`More than one Odoo lead has the Helmonic external ID ${externalId}.`);
+      }
+      byExternalId.set(externalId, record);
+    }
+  }
+  return { byExternalId, completeExternalIds };
+}
+
 export async function syncOdooLeads(
   payloads: OdooLeadDryRun[],
   inputConfig: OdooJson2Config,
@@ -1526,6 +1654,7 @@ export async function syncOdooLeads(
       created: 0,
       updated: 0,
       unchanged: payloads.length,
+      inactiveNewRecordsSkipped: 0,
       contactsCreated: 0,
       contactsMatched: 0,
       attributionRecordsCreated: 0,
@@ -1549,6 +1678,9 @@ export async function syncOdooLeads(
   await assertSupportedVersion(config, odooFetch);
   const { fields } = await assertFieldsExist(config, payloads, odooFetch);
   const tagRegistry = await loadTagRegistry(config, odooFetch);
+  const existingLeads = await preloadExistingLeads(config, payloads, odooFetch);
+  const attributionRegistry = new Map<string, Promise<{ id: number | false; created: boolean }>>();
+  const contactRegistry = new Map<string, Promise<{ id: number | false; created: boolean; matched: boolean }>>();
 
   const result: OdooSyncResult = {
     status: "completed",
@@ -1556,6 +1688,7 @@ export async function syncOdooLeads(
     created: 0,
     updated: 0,
     unchanged: 0,
+    inactiveNewRecordsSkipped: 0,
     contactsCreated: 0,
     contactsMatched: 0,
     attributionRecordsCreated: 0,
@@ -1574,59 +1707,28 @@ export async function syncOdooLeads(
   };
   for (const payload of payloads) {
     try {
-      const matches = await json2Call(config, config.model, "search_read", {
-        domain: [[config.externalIdField, "=", payload.matchValue]],
-        fields: [
-          "id",
-          "active",
-          "type",
-          "tag_ids",
-          "partner_name",
-          "contact_name",
-          "email_from",
-          "phone",
-          "function",
-          "street",
-          "partner_id",
-          "x_applicant",
-          "x_party_details",
-          "x_source_systems",
-          "x_project_reference",
-          "x_source_reference",
-          "x_studio_reference",
-          "x_source_ledger",
-          "x_source_record_ids",
-          "x_project_link",
-          "x_source_urls",
-          "x_evidence_document_urls",
-          "x_assigned_person",
-          "x_warm_connection_verified",
-          "x_routing_reason",
-          "x_relationship_summary",
-          "x_relationship_evidence",
-          "x_project_history_summary",
-          "x_project_history_evidence",
-          "x_acoustic_appointment_status",
-          "x_appointed_acoustician",
-          "x_appointment_evidence",
-          "x_appointment_evidence_source_url",
-          "x_competitive_quote_opportunity",
-          "x_outreach_eligibility",
-          "x_outreach_suppression_reason",
-          "x_outreach_key",
-        ],
-        limit: 2,
-        context: { active_test: false },
-      }, odooFetch) as ExistingLeadValues[];
-      if (!Array.isArray(matches)) throw new Error("Odoo search_read returned an invalid response.");
-      if (matches.length > 1) throw new Error("More than one Odoo lead has the same Helmonic external ID.");
+      const prefetched = existingLeads.byExternalId.get(payload.matchValue);
+      const matches = existingLeads.completeExternalIds.has(payload.matchValue)
+        ? prefetched ? [prefetched] : []
+        : await exactExistingLeadMatches(config, payload.matchValue, odooFetch);
+
+      // The durable source ledger intentionally keeps closed, expired and
+      // background records. They must remain available for deduplication and
+      // audit, but a record that has never existed in Odoo must not be created
+      // there merely to be archived. Existing inactive records still flow
+      // through the update path so current runs can archive or enrich them.
+      if (matches.length === 0 && payload.values.active === false) {
+        result.unchanged += 1;
+        result.inactiveNewRecordsSkipped += 1;
+        continue;
+      }
       const effectivePayload = payloadWithExistingEvidence(payload, matches[0], tagRegistry);
-      const attribution = await attributionValues(effectivePayload, config, odooFetch);
+      const attribution = await attributionValues(effectivePayload, config, odooFetch, attributionRegistry);
       const sourceTags = await sourceTagValues(effectivePayload, config, tagRegistry, odooFetch);
       const emailMatchTag = await emailMatchTagValues(effectivePayload, config, tagRegistry, odooFetch);
       const contact = matches[0]?.partner_id
         ? { id: false as const, created: false, matched: false }
-        : await primaryContactId(effectivePayload, config, odooFetch);
+        : await primaryContactId(effectivePayload, config, odooFetch, contactRegistry);
       const tagCommands = managedTagCommands(
         matches[0]?.tag_ids ?? [],
         [...sourceTags.ids, ...emailMatchTag.ids],
