@@ -34,6 +34,7 @@ import {
 import {
   enrichNationalPlanningOpportunity,
   parseEplanningDocumentRows,
+  shouldEnrichNationalPlanningEvidence,
 } from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
 import {
   buildRelationshipLookup,
@@ -3111,6 +3112,68 @@ test("all Further Information Requested wording variants remain valid RFIs witho
       "further-information-request",
     );
   }
+});
+
+test("council evidence selection reads every live RFI but skips answered and expired requests", () => {
+  const now = new Date("2026-11-02T12:00:00Z");
+  const national = (overrides = {}) => planningLead({
+    sourceSystem: "National Planning Register",
+    classification: "further-information-request",
+    projectStage: "Further Information Requested",
+    evidenceStatus: "discovery-only",
+    ...overrides,
+  });
+
+  assert.equal(shouldEnrichNationalPlanningEvidence(national({
+    rfiReceivedAt: "2026-09-07",
+    responseDeadline: "2027-03-07",
+  }), now), true);
+  assert.equal(shouldEnrichNationalPlanningEvidence(national({
+    responseDeadline: "2026-11-02",
+  }), now), true, "an RFI remains live through its due date");
+  assert.equal(shouldEnrichNationalPlanningEvidence(national({
+    rfiReceivedAt: "2026-02-01",
+    responseDeadline: "2026-08-01",
+  }), now), false);
+  assert.equal(shouldEnrichNationalPlanningEvidence(national({
+    rfiReceivedAt: "2026-09-07",
+    rfiResponseReceivedAt: "2026-10-01",
+  }), now), false);
+  assert.equal(shouldEnrichNationalPlanningEvidence(national({
+    rfiReceivedAt: undefined,
+    responseDeadline: undefined,
+  }), now), true, "undated RFIs stay visible for date validation");
+});
+
+test("council evidence selection limits non-RFIs to the acoustic-condition discovery window", () => {
+  const now = new Date("2026-11-02T12:00:00Z");
+  const national = (overrides = {}) => planningLead({
+    sourceSystem: "National Planning Register",
+    classification: "design-construction-potential",
+    projectStage: "Plans Granted",
+    evidenceStatus: "discovery-only",
+    matchedTerms: [],
+    ...overrides,
+  });
+
+  assert.equal(shouldEnrichNationalPlanningEvidence(national({ sourceUpdatedAt: "2026-10-20" }), now), true);
+  assert.equal(shouldEnrichNationalPlanningEvidence(national({
+    sourceUpdatedAt: "2026-10-20",
+    classification: "granted-with-noise-conditions",
+    evidenceStatus: "official-text",
+  }), now), false, "already-proven acoustic grants do not need the same document reread");
+  assert.equal(shouldEnrichNationalPlanningEvidence(national({ sourceUpdatedAt: "2026-08-20" }), now), false);
+  assert.equal(shouldEnrichNationalPlanningEvidence(national({
+    projectStage: "Plans Applied",
+    matchedTerms: ["noise"],
+    sourceUpdatedAt: "2026-10-25",
+  }), now), true);
+  assert.equal(shouldEnrichNationalPlanningEvidence(national({
+    projectStage: "Plans Applied",
+    matchedTerms: [],
+    sourceUpdatedAt: "2026-10-25",
+  }), now), false);
+  assert.equal(shouldEnrichNationalPlanningEvidence(national({ cycleStatus: "resolved" }), now), false);
 });
 
 test("every FI Request Letter uses the full acoustic vocabulary and retains matched page numbers", () => {

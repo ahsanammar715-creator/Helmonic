@@ -20,6 +20,8 @@ restore_safe_recurring_mode() {
       HELMONIC_ODOO_MIGRATION_ONLY=false \
       HELMONIC_BUILDINGINFO_BROWSER_ENABLED=false \
       HELMONIC_SCHEDULE_GUARD_ENABLED=true \
+      HELMONIC_COUNCIL_EVIDENCE_CONCURRENCY=3 \
+      HELMONIC_ACOUSTIC_GRANT_LOOKBACK_DAYS=2 \
       NODE_OPTIONS=--experimental-strip-types \
     --command node \
     --args scripts/tender_intelligence/run-daily-automation.mjs \
@@ -81,6 +83,13 @@ wait_for_execution() {
 
   echo "Full Odoo test collection did not finish within 60 minutes." >&2
   show_execution_logs "$execution_name"
+  echo "Stopping the bounded test execution so it cannot continue unattended." >&2
+  az containerapp job stop \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --name "$AZURE_JOB_NAME" \
+    --job-execution-name "$execution_name" \
+    --only-show-errors \
+    --output none 2>/dev/null || true
   return 1
 }
 
@@ -105,6 +114,8 @@ az containerapp job update \
     HELMONIC_ODOO_MIGRATION_ONLY=false \
     HELMONIC_BUILDINGINFO_BROWSER_ENABLED=false \
     HELMONIC_SCHEDULE_GUARD_ENABLED=false \
+    HELMONIC_COUNCIL_EVIDENCE_CONCURRENCY=5 \
+    HELMONIC_ACOUSTIC_GRANT_LOOKBACK_DAYS=30 \
     NODE_OPTIONS=--experimental-strip-types \
   --command node \
   --args scripts/tender_intelligence/run-daily-automation.mjs \

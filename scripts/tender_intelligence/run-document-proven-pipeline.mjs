@@ -6,7 +6,10 @@ import { collectOfficialSourceSnapshot } from "../../src/lib/tender-intelligence
 import { annotateOpportunityDuplicates, deduplicationSummary } from "../../src/lib/tender-intelligence/deduplication.ts";
 import { applyAppointmentSafeguards } from "../../src/lib/tender-intelligence/appointment-classification.ts";
 import { enrichFormalTenderOpportunities } from "../../src/lib/tender-intelligence/formal-document-evidence.ts";
-import { enrichNationalPlanningOpportunities } from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
+import {
+  enrichNationalPlanningOpportunities,
+  shouldEnrichNationalPlanningEvidence,
+} from "../../src/lib/tender-intelligence/national-planning-evidence.ts";
 import { isSalesRouteable, qualifyLead } from "../../src/lib/tender-intelligence/lead-qualification.ts";
 import { hasConfirmedCurrentAcousticEvidence } from "../../src/lib/tender-intelligence/acoustic-evidence-guard.ts";
 import { isRfiClassification } from "../../src/lib/tender-intelligence/rfi.ts";
@@ -40,8 +43,11 @@ const ledgerPath = path.join(artifactDirectory, "confirmed-ledger.json");
 const runHistoryDirectory = path.join(artifactDirectory, "runs");
 const envPath = path.join(repoRoot, ".env.local");
 const batchSize = Math.max(1, Number.parseInt(process.env.HELMONIC_COUNCIL_EVIDENCE_BATCH_SIZE || "10", 10));
+const evidenceConcurrency = Math.max(1, Math.min(6, Number.parseInt(process.env.HELMONIC_COUNCIL_EVIDENCE_CONCURRENCY || "3", 10)));
+const grantEvidenceLookbackDays = Math.max(1, Number.parseInt(process.env.HELMONIC_ACOUSTIC_GRANT_LOOKBACK_DAYS || "2", 10));
 const retryUnavailable = process.argv.includes("--retry-unavailable");
 const summarizeOnly = process.argv.includes("--summarize-only");
+const evidenceSelectionVersion = "live-rfi-and-recent-acoustic-grants-v1";
 
 function parseEnv(text) {
   return Object.fromEntries(text.split(/\r?\n/)
@@ -176,6 +182,14 @@ let previousCompletedState;
 try {
   state = JSON.parse(await readFile(statePath, "utf8"));
   if (!Array.isArray(state.opportunities)) state = undefined;
+  else if (state.evidenceSelectionVersion !== evidenceSelectionVersion && !retryUnavailable && !summarizeOnly) {
+    // A partially processed state stores its progress as an offset into the
+    // selected record list. Reusing that offset after the selection rule
+    // changes could silently skip live RFIs, so begin a fresh discovery cycle
+    // while still retaining any confirmed evidence as prior ledger input.
+    previousCompletedState = state;
+    state = undefined;
+  }
   else if (state.status === "complete" && !retryUnavailable && !summarizeOnly) {
     previousCompletedState = state;
     state = undefined;
@@ -249,6 +263,7 @@ if (!state) {
     sources: snapshot.sources,
     opportunities,
     nationalProcessed: 0,
+    evidenceSelectionVersion,
   };
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
@@ -269,15 +284,30 @@ const nationalIndexes = summarizeOnly ? [] : state.opportunities
   .map((record, index) => ({ record, index }))
   .filter(({ record }) => record.sourceSystem === "National Planning Register" && (
     !retryUnavailable || record.evidenceStatus === "evidence-unavailable"
-  ) && record.cycleStatus !== "resolved")
+  ) && shouldEnrichNationalPlanningEvidence(record, new Date(), { grantLookbackDays: grantEvidenceLookbackDays }))
   .map(({ index }) => index);
+
+if (!summarizeOnly) {
+  const nationalDiscovered = state.opportunities.filter((record) =>
+    record.sourceSystem === "National Planning Register" && record.cycleStatus !== "resolved").length;
+  console.log(JSON.stringify({
+    councilEvidenceSelection: {
+      discovered: nationalDiscovered,
+      selected: nationalIndexes.length,
+      excludedFromDocumentScan: Math.max(0, nationalDiscovered - nationalIndexes.length),
+      grantEvidenceLookbackDays,
+      concurrency: evidenceConcurrency,
+      rule: "all live or undated RFIs; recent grants/acoustic candidates; answered and expired RFIs retained in ledger but excluded from active evidence scan",
+    },
+  }));
+}
 
 for (let offset = state.nationalProcessed || 0; offset < nationalIndexes.length; offset += batchSize) {
   const indexes = nationalIndexes.slice(offset, offset + batchSize);
   const batch = indexes.map((index) => state.opportunities[index]);
   const enriched = await enrichNationalPlanningOpportunities(batch, {
     limit: batch.length,
-    concurrency: 3,
+    concurrency: evidenceConcurrency,
   });
   indexes.forEach((index, batchIndex) => {
     state.opportunities[index] = applyEvidenceRefresh(

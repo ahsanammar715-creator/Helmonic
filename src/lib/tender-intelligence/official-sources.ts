@@ -218,6 +218,7 @@ export function parseNationalPlanningFeatures(payload: unknown): TenderOpportuni
       description,
       location: normalizeText(attributes.DevelopmentAddress) || undefined,
       publishedAt: dateFromArcGis(attributes.ETL_DATE ?? attributes.ReceivedDate),
+      sourceUpdatedAt: dateFromArcGis(attributes.DecisionDate ?? attributes.ETL_DATE),
       planningReceivedAt: dateFromArcGis(attributes.ReceivedDate),
       deadline: dateFromArcGis(attributes.DecisionDueDate),
       rfiPublishedAt: rfiRequestedAt,

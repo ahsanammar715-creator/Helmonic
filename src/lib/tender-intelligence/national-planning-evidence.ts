@@ -7,7 +7,7 @@ import {
   type DccDocumentDescriptor,
 } from "./dcc-document-evidence.ts";
 import { normalizeText, relevantSector, scoreOpportunity } from "./policy.ts";
-import { isFurtherInformationStage, isRfiClassification } from "./rfi.ts";
+import { isFurtherInformationStage, isRfiClassification, rfiResponseDueAt } from "./rfi.ts";
 import type { LeadParty, PlanningClassification, PlanningDocumentEvidence, TenderOpportunity } from "./types.ts";
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -613,4 +613,70 @@ export async function enrichNationalPlanningOpportunities(
     }
   }));
   return output;
+}
+
+function timestamp(value?: string) {
+  if (!value) return undefined;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function withinDays(value: string | undefined, now: Date, days: number) {
+  const parsed = timestamp(value);
+  if (parsed === undefined) return false;
+  const age = now.getTime() - parsed;
+  return age >= 0 && age <= days * 86_400_000;
+}
+
+function dueTodayOrLater(value: string | undefined, now: Date) {
+  const parsed = timestamp(value);
+  if (parsed === undefined) return false;
+  const due = new Date(parsed);
+  const dueDay = Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate());
+  const currentDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return dueDay >= currentDay;
+}
+
+/**
+ * Select only records whose council documents can change the active sales
+ * queue. Every live/undated RFI is included so acoustic wording can be read
+ * from its FI Request Letter. Answered and expired RFIs stay in the durable
+ * ledger but do not consume the current evidence-reading budget. Recent
+ * grants receive a short evidence window so acoustic conditions can still be
+ * discovered as the secondary primary category.
+ */
+export function shouldEnrichNationalPlanningEvidence(
+  record: TenderOpportunity,
+  now = new Date(),
+  options: { grantLookbackDays?: number } = {},
+): boolean {
+  if (record.sourceSystem !== "National Planning Register" || record.cycleStatus === "resolved") return false;
+
+  const stage = [record.projectStage, record.sourceStatus, record.triggerType].filter(Boolean).join(" ");
+  const rfi = isRfiClassification(record.classification) || isFurtherInformationStage(stage);
+  if (rfi) {
+    if (record.rfiResponseReceivedAt) return false;
+    const due = rfiResponseDueAt(record);
+    return !due || dueTodayOrLater(due, now);
+  }
+
+  if (record.classification === "granted-with-noise-conditions" && record.evidenceStatus === "official-text") {
+    return false;
+  }
+
+  const grantLookbackDays = Math.max(1, options.grantLookbackDays ?? 30);
+
+  if (/grant|condition|conditional/i.test(stage)) {
+    return [record.sourceUpdatedAt, record.sourceMajorUpdatedAt, record.lastSeenAt, record.publishedAt]
+      .some((value) => withinDays(value, now, grantLookbackDays));
+  }
+
+  // A recent description-level acoustic hit is worth proving from the
+  // council file even when the source stage wording is incomplete.
+  if ((record.matchedTerms?.length ?? 0) > 0) {
+    return [record.sourceUpdatedAt, record.sourceMajorUpdatedAt, record.lastSeenAt, record.publishedAt]
+      .some((value) => withinDays(value, now, grantLookbackDays));
+  }
+
+  return false;
 }
