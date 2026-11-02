@@ -8,6 +8,11 @@ on:
         required: true
         default: false
         type: boolean
+      run_full_odoo_test_collection:
+        description: Run one guarded full official-source collection and refresh the Odoo test Leads queue (BuildingInfo browser disabled)
+        required: true
+        default: false
+        type: boolean
       configure_odoo_ui_only:
         description: Repair or refresh only the inherited Odoo CRM fields and views; do not rerun the lead migration
         required: true
@@ -605,3 +610,10 @@ jobs:
             --name "$AZURE_JOB_NAME" \
             --query '{image:properties.template.containers[0].image,triggerType:properties.configuration.triggerType,schedule:properties.configuration.scheduleTriggerConfig.cronExpression}' \
             --output json
+
+      - name: Run one guarded full official-source collection into Odoo test
+        if: github.event_name == 'workflow_dispatch' && inputs.run_full_odoo_test_collection
+        shell: bash
+        env:
+          TENDER_INTELLIGENCE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+        run: bash scripts/deployment/run-full-odoo-test-collection.sh
