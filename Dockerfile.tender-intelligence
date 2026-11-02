@@ -8,7 +8,10 @@ ENV NODE_ENV=production \
     HELMONIC_TENDER_ARTIFACT_ROOT=/var/lib/helmonic/tender-intelligence
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm ci --omit=dev --no-audit --no-fund \
     && npx playwright install --with-deps chromium \
     && chmod -R a+rX /ms-playwright
 COPY scripts/tender_intelligence ./scripts/tender_intelligence

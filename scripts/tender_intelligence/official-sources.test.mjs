@@ -18,7 +18,7 @@ import {
   parsePlanningLeads,
   parseTedNotices,
 } from "../../src/lib/tender-intelligence/official-sources.ts";
-import { classifyPlanningEvidence } from "../../src/lib/tender-intelligence/policy.ts";
+import { classifyPlanningEvidence, matchedAcousticTerms } from "../../src/lib/tender-intelligence/policy.ts";
 import {
   classifyDccDocumentText,
   enrichDccPlanningOpportunity,
@@ -3111,6 +3111,125 @@ test("all Further Information Requested wording variants remain valid RFIs witho
       "further-information-request",
     );
   }
+});
+
+test("every FI Request Letter uses the full acoustic vocabulary and retains matched page numbers", () => {
+  const descriptor = {
+    id: "403430",
+    documentType: "F.I. Request Letter",
+    description: "FI Request Letter",
+    sourceUrl: "https://roscommon.example/iDocsWebDPSS/ViewFiles.aspx?docid=403430&format=djvu",
+  };
+  assert.equal(isDccEvidenceDocument(descriptor), true);
+  const classified = classifyDccDocumentText(descriptor, [
+    "--- PAGE 1 ---",
+    "Further information is required in respect of drainage.",
+    "--- PAGE 2 ---",
+    "Appoint a suitably qualified acoustic consultant and submit a noise impact assessment demonstrating compliance with Part E and BS 8233.",
+  ].join("\n"));
+  assert.equal(classified.classification, "noise-related-rfi");
+  assert.deepEqual(classified.matchedPages, [2]);
+  assert.ok(classified.matchedTerms.includes("acoustic consultant"));
+  assert.ok(classified.matchedTerms.includes("noise impact assessment"));
+  assert.ok(classified.matchedTerms.includes("Part E / TGD E"));
+  assert.ok(classified.matchedTerms.includes("acoustic standard"));
+  assert.deepEqual(matchedAcousticTerms("General references to air quality and noise must be addressed").includes("noise"), true);
+
+  const generic = classifyDccDocumentText(descriptor, "Further information is required about surface water drainage.");
+  assert.equal(generic.classification, "further-information-request");
+  assert.deepEqual(generic.matchedTerms, []);
+});
+
+test("legacy ePlanning parser recognises F.I. Request Letter rows without a visible document id", () => {
+  const html = `<table><tr><td>F.I. Request Letter</td><td>FI Request Letter</td><td>1</td><td>735 Kb</td><td><a href='ViewFiles.aspx?docid=403430&format=djvu'>View</a></td></tr></table>`;
+  const rows = parseEplanningDocumentRows(html, "https://roscommon.example/iDocsWebDPSS/listFiles.aspx?id=2660114");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "403430");
+  assert.equal(rows[0].documentType, "F.I. Request Letter");
+  assert.equal(rows[0].description, "FI Request Letter");
+  assert.equal(isDccEvidenceDocument(rows[0]), true);
+});
+
+test("legacy ePlanning adapter accepts copyright, opens the FI viewer and classifies the source letter", async () => {
+  let copyrightPosts = 0;
+  const hidden = `<input name="__VIEWSTATE" value="state"><input name="__VIEWSTATEGENERATOR" value="generator"><input name="__EVENTVALIDATION" value="validation">`;
+  const fetcher = async (url, init = {}) => {
+    const value = String(url);
+    const method = init.method ?? "GET";
+    if (value === "https://www.eplanning.ie/RoscommonCC/AppFileRefDetails/2660114/0") {
+      return new Response(`<a href="https://roscommon.example/iDocsWebDPSS/Copyright.aspx?catalog=planning&amp;id=2660114">Documents</a>`);
+    }
+    if (value.includes("Copyright.aspx") && method === "GET") return new Response(`<form>${hidden}<input name="chkAgree"></form>`);
+    if (value.includes("Copyright.aspx") && method === "POST") {
+      copyrightPosts += 1;
+      if (copyrightPosts === 1) return new Response(`<form>${hidden}<input name="chkAgree" checked><input name="btnViewFiles"></form>`);
+      return new Response("", { status: 302, headers: { location: "/iDocsWebDPSS/listFiles.aspx?catalog=planning&id=2660114&orderBy=type" } });
+    }
+    if (value.includes("listFiles.aspx")) {
+      return new Response(`<table><tr><td>F.I. Request Letter</td><td>FI Request Letter</td><td>1</td><td>735 Kb</td><td><a href='ViewFiles.aspx?docid=403430&format=djvu'>View</a></td></tr></table>`);
+    }
+    if (value.includes("ViewFiles.aspx")) return new Response(`<iframe src="ViewPdf.aspx?count=1&file=test.pdf"></iframe>`, { headers: { "content-type": "text/html" } });
+    if (value.includes("ViewPdf.aspx")) return new Response(`<iframe src="./files/test.pdf#view=fit"></iframe>`, { headers: { "content-type": "text/html" } });
+    if (value.includes("/files/test.pdf")) {
+      return new Response("Date: 07/09/2026. Further information is required. Submit an operational noise assessment by 07/03/2027.", { headers: { "content-type": "text/plain" } });
+    }
+    return new Response("missing", { status: 404 });
+  };
+  const enriched = await enrichNationalPlanningOpportunity({
+    id: "roscommon-rfi",
+    type: "planning-pipeline-lead",
+    sourceSystem: "National Planning Register",
+    sourceRecordId: "Roscommon:2660114",
+    projectReference: "2660114",
+    planningAuthority: "Roscommon County Council",
+    title: "Roscommon development",
+    description: "Residential development",
+    projectStage: "Further Information Requested",
+    sourceUrl: "https://www.eplanning.ie/RoscommonCC/AppFileRefDetails/2660114/0",
+    evidenceStatus: "discovery-only",
+    classification: "further-information-request",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 0,
+  }, fetcher);
+  assert.equal(copyrightPosts, 2);
+  assert.equal(enriched.classification, "noise-related-rfi");
+  assert.equal(enriched.rfiReceivedAt, "2026-09-07");
+  assert.equal(enriched.responseDeadline, "2027-03-07");
+  assert.match(enriched.evidenceExcerpt, /operational noise/i);
+  assert.match(enriched.evidenceDocuments[0].sourceUrl, /docid=403430/);
+});
+
+test("Odoo visibly exposes the acoustic FI letter, matched page and extraction method", () => {
+  const [payload] = buildOdooDryRun([planningLead({
+    id: "visible-acoustic-rfi",
+    sourceSystem: "National Planning Register",
+    sourceRecordId: "Roscommon:2660115",
+    projectReference: "2660115",
+    crmExternalId: "helmonic-lead:visible-acoustic-rfi",
+    classification: "noise-related-rfi",
+    projectStage: "Further Information Requested",
+    rfiReceivedAt: "2026-10-20",
+    responseDeadline: "2027-04-20",
+    evidenceExcerpt: "Appoint a suitably qualified acoustic consultant and submit a noise impact assessment.",
+    matchedTerms: ["acoustic consultant", "noise impact assessment"],
+    evidenceDocuments: [{
+      id: "403431",
+      documentType: "F.I. Request Letter",
+      description: "FI Request Letter",
+      sourceUrl: "https://roscommon.example/iDocsWebDPSS/ViewFiles.aspx?docid=403431&format=djvu",
+      fetchStatus: "fetched",
+      extractionMethod: "ocr",
+      matchedPages: [2, 3],
+      matchedTerms: ["acoustic consultant", "noise impact assessment"],
+      classification: "noise-related-rfi",
+    }],
+  })], new Date("2026-11-02T09:00:00Z"));
+  assert.equal(payload.values.x_lead_panel, "Urgent Acoustic RFI");
+  assert.match(payload.values.description, /FI Request Letter \/ Evidence Document Audit/);
+  assert.match(payload.values.description, /OCR/);
+  assert.match(payload.values.description, /2, 3/);
+  assert.match(payload.values.description, /docid=403431/);
 });
 
 test("legacy ePlanning document index parser retains direct evidence-viewer rows", () => {

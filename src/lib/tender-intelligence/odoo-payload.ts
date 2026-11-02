@@ -832,9 +832,21 @@ function projectSourceLinks(record: TenderOpportunity) {
 
 function evidenceDocumentLinks(record: TenderOpportunity) {
   return (record.evidenceDocuments ?? []).map((document) => ({
-    label: `${document.documentType}${document.description && document.description !== document.documentType ? ` · ${document.description}` : ""}`,
+    label: [
+      `${document.documentType}${document.description && document.description !== document.documentType ? ` · ${document.description}` : ""}`,
+      document.matchedPages?.length ? `matched page${document.matchedPages.length === 1 ? "" : "s"} ${document.matchedPages.join(", ")}` : "",
+      document.extractionMethod === "ocr" ? "OCR extracted" : "",
+    ].filter(Boolean).join(" · "),
     url: document.sourceUrl,
   }));
+}
+
+function evidenceDocumentAudit(record: TenderOpportunity) {
+  const documents = record.evidenceDocuments ?? [];
+  if (documents.length === 0) return "<p>No evidence documents were supplied by the source.</p>";
+  return `<table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left">Document</th><th style="text-align:left">Status</th><th style="text-align:left">Extraction</th><th style="text-align:left">Matched page(s)</th><th style="text-align:left">Matched wording</th></tr>${documents.map((document) =>
+    `<tr><td>${htmlText(`${document.documentType}${document.description && document.description !== document.documentType ? ` · ${document.description}` : ""}`)}</td><td>${htmlText(document.fetchStatus)}</td><td>${htmlText(document.extractionMethod)}</td><td>${htmlText(document.matchedPages?.join(", "))}</td><td>${htmlText(document.matchedTerms.join("; "))}</td></tr>`,
+  ).join("")}</table>`;
 }
 
 function allPartyRows(record: TenderOpportunity) {
@@ -1296,6 +1308,8 @@ function description(record: TenderOpportunity, now: Date) {
       ["Deduplication status", record.deduplicationStatus ?? "unique"],
       ["Possible duplicates", (record.possibleDuplicateIds ?? []).join("; ")],
     ]),
+    "<h3>FI Request Letter / Evidence Document Audit</h3>",
+    evidenceDocumentAudit(record),
     htmlNamedLinks("Project and Source Links", projectSourceLinks(record)),
     htmlNamedLinks("Evidence Document Links", evidenceDocumentLinks(record)),
     "<h2>Recommended Next Review Action</h2>",

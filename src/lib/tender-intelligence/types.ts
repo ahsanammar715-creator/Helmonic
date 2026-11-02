@@ -136,6 +136,8 @@ export type PlanningDocumentEvidence = {
   sourceUrl: string;
   fetchStatus: "fetched" | "unavailable" | "unsupported";
   matchedTerms: string[];
+  matchedPages?: number[];
+  extractionMethod?: "embedded-text" | "ocr" | "structured-api";
   excerpt?: string;
   classification?: PlanningClassification;
   error?: string;

@@ -1,12 +1,13 @@
 import {
   classifyDccDocumentText,
+  extractDccDocument,
   extractRfiDocumentDates,
-  extractDccDocumentText,
   isDccEvidenceDocument,
+  isFurtherInformationRequestDocument,
   type DccDocumentDescriptor,
 } from "./dcc-document-evidence.ts";
 import { normalizeText, relevantSector, scoreOpportunity } from "./policy.ts";
-import { isRfiClassification } from "./rfi.ts";
+import { isFurtherInformationStage, isRfiClassification } from "./rfi.ts";
 import type { LeadParty, PlanningClassification, PlanningDocumentEvidence, TenderOpportunity } from "./types.ts";
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -15,6 +16,36 @@ const userAgent = "Helmonic-Tender-Intelligence/1.0";
 const agileIdentity = "https://identity.agileapplications.ie";
 const agileApi = "https://planningapi.agileapplications.ie/api";
 const maxDocumentBytes = 20 * 1024 * 1024;
+
+function setCookieHeaders(response: Response) {
+  const headers = response.headers as Headers & { getSetCookie?: () => string[] };
+  return headers.getSetCookie?.() ?? (response.headers.get("set-cookie") ? [response.headers.get("set-cookie")!] : []);
+}
+
+function createCookieSession(fetcher: FetchLike) {
+  const cookies = new Map<string, Map<string, string>>();
+  return {
+    async fetch(input: string | URL, init: RequestInit = {}) {
+      const url = new URL(input);
+      const headers = new Headers(init.headers);
+      const stored = cookies.get(url.origin);
+      if (stored?.size) headers.set("Cookie", [...stored].map(([name, value]) => `${name}=${value}`).join("; "));
+      const response = await fetcher(url, { ...init, headers });
+      for (const raw of setCookieHeaders(response)) {
+        const pair = raw.split(";", 1)[0];
+        const separator = pair.indexOf("=");
+        if (separator <= 0) continue;
+        const name = pair.slice(0, separator).trim();
+        const value = pair.slice(separator + 1).trim();
+        const jar = cookies.get(url.origin) ?? new Map<string, string>();
+        if (value) jar.set(name, value);
+        else jar.delete(name);
+        cookies.set(url.origin, jar);
+      }
+      return response;
+    },
+  };
+}
 
 function decodeHtml(value: string) {
   return value
@@ -183,6 +214,7 @@ async function agileCouncilEvidence(record: TenderOpportunity, fetcher: FetchLik
       documents.push({
         ...descriptor,
         fetchStatus: "fetched",
+        extractionMethod: "structured-api",
         matchedTerms: classified.matchedTerms,
         excerpt: classified.excerpt ?? retainedOfficialExcerpt(text),
         classification: classified.classification,
@@ -215,8 +247,9 @@ async function agileCouncilEvidence(record: TenderOpportunity, fetcher: FetchLik
         if (!response.ok) throw new Error(`document-http-${response.status}`);
         const bytes = new Uint8Array(await response.arrayBuffer());
         if (bytes.byteLength > maxDocumentBytes) throw new Error(`document-too-large:${bytes.byteLength}`);
-        const text = normalizeText(await extractDccDocumentText(response.headers.get("content-type") ?? "", bytes));
-        if (!text) throw new Error("document-has-no-extractable-text");
+        const extracted = await extractDccDocument(response.headers.get("content-type") ?? "", bytes);
+        const text = extracted.text;
+        if (!normalizeText(text)) throw new Error("document-has-no-extractable-text");
         const descriptor = {
           ...evidenceDescriptor(id, label, sourceUrl),
           receivedAt: stringField(document, [
@@ -230,6 +263,7 @@ async function agileCouncilEvidence(record: TenderOpportunity, fetcher: FetchLik
         documents.push({
           ...descriptor,
           fetchStatus: "fetched",
+          extractionMethod: extracted.extractionMethod,
           ...classified,
           excerpt: classified.excerpt ?? retainedOfficialExcerpt(text),
           ...rfiDates,
@@ -268,11 +302,122 @@ export function parseEplanningDocumentRows(html: string, baseUrl: string): Eplan
     const link = row.match(/href=['"]([^'"]*ViewFiles\.aspx\?[^'"]+)['"]/i)?.[1];
     if (!link) return [];
     const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((cell) => htmlText(cell[1]));
-    const id = cells[0] || link.match(/docid=(\d+)/i)?.[1] || link;
-    const documentType = cells[1] || "Planning document";
-    const description = cells[2] || documentType;
+    const id = link.match(/docid=(\d+)/i)?.[1] || cells[0] || link;
+    const offset = cells[0] === id ? 1 : 0;
+    const documentType = cells[offset] || "Planning document";
+    const description = cells[offset + 1] || documentType;
     return [{ id, documentType, description, sourceUrl: absoluteUrl(link, baseUrl) }];
   });
+}
+
+function hiddenFormValue(html: string, name: string) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return decodeHtml(html.match(new RegExp(`name=["']${escaped}["'][^>]*value=["']([^"']*)["']`, "i"))?.[1] ?? "");
+}
+
+async function openEplanningDocumentIndex(fetcher: FetchLike, originalUrl: string) {
+  const session = createCookieSession(fetcher);
+  let documentIndexUrl = decodeHtml(originalUrl).trim();
+  if (/\/copyright\.aspx\?/i.test(documentIndexUrl)) {
+    const agreement = await session.fetch(documentIndexUrl, {
+      headers: { "User-Agent": userAgent },
+      signal: AbortSignal.timeout(30_000),
+      redirect: "follow",
+    });
+    if (!agreement.ok) throw new Error(`eplanning-copyright-http-${agreement.status}`);
+    let html = await agreement.text();
+    const common = () => ({
+      __VIEWSTATE: hiddenFormValue(html, "__VIEWSTATE"),
+      __VIEWSTATEGENERATOR: hiddenFormValue(html, "__VIEWSTATEGENERATOR"),
+      __EVENTVALIDATION: hiddenFormValue(html, "__EVENTVALIDATION"),
+    });
+    const checked = await session.fetch(documentIndexUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: documentIndexUrl,
+        "User-Agent": userAgent,
+      },
+      body: new URLSearchParams({ ...common(), __EVENTTARGET: "chkAgree", __EVENTARGUMENT: "", chkAgree: "on" }),
+      signal: AbortSignal.timeout(30_000),
+      redirect: "follow",
+    });
+    if (!checked.ok) throw new Error(`eplanning-copyright-agree-http-${checked.status}`);
+    html = await checked.text();
+    const viewFiles = await session.fetch(documentIndexUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: documentIndexUrl,
+        "User-Agent": userAgent,
+      },
+      body: new URLSearchParams({ ...common(), chkAgree: "on", btnViewFiles: "View Files" }),
+      signal: AbortSignal.timeout(30_000),
+      redirect: "manual",
+    });
+    if (![301, 302, 303, 307, 308].includes(viewFiles.status)) {
+      throw new Error(`eplanning-copyright-view-files-http-${viewFiles.status}`);
+    }
+    const location = viewFiles.headers.get("location");
+    if (!location) throw new Error("eplanning-document-index-redirect-missing");
+    documentIndexUrl = new URL(location, documentIndexUrl).toString();
+  }
+  const indexResponse = await session.fetch(documentIndexUrl, {
+    headers: { "User-Agent": userAgent },
+    signal: AbortSignal.timeout(30_000),
+    redirect: "follow",
+  });
+  if (!indexResponse.ok) throw new Error(`eplanning-document-index-http-${indexResponse.status}`);
+  return { session, documentIndexUrl, html: await indexResponse.text() };
+}
+
+function embeddedViewerUrl(html: string, baseUrl: string, pattern: RegExp) {
+  const raw = html.match(pattern)?.[1];
+  return raw ? absoluteUrl(raw.replaceAll("\\", "/").split("#", 1)[0], baseUrl) : undefined;
+}
+
+async function fetchEplanningDocument(
+  session: ReturnType<typeof createCookieSession>,
+  descriptor: EplanningDocumentRow,
+  referer: string,
+) {
+  let response = await session.fetch(descriptor.sourceUrl, {
+    headers: { "User-Agent": userAgent, Referer: referer },
+    signal: AbortSignal.timeout(45_000),
+    redirect: "follow",
+  });
+  if (!response.ok) throw new Error(`document-http-${response.status}`);
+  let contentType = response.headers.get("content-type") ?? "";
+  if (!/html/i.test(contentType)) return { response, contentType };
+
+  const viewerHtml = await response.text();
+  const pdfViewerUrl = embeddedViewerUrl(
+    viewerHtml,
+    descriptor.sourceUrl,
+    /<iframe[^>]+src=["']([^"']*ViewPdf\.aspx\?[^"']+)["']/i,
+  );
+  if (!pdfViewerUrl) throw new Error("legacy-idocs-viewer-source-missing");
+  response = await session.fetch(pdfViewerUrl, {
+    headers: { "User-Agent": userAgent, Referer: descriptor.sourceUrl },
+    signal: AbortSignal.timeout(45_000),
+    redirect: "follow",
+  });
+  if (!response.ok) throw new Error(`document-pdf-viewer-http-${response.status}`);
+  const pdfViewerHtml = await response.text();
+  const pdfUrl = embeddedViewerUrl(
+    pdfViewerHtml,
+    pdfViewerUrl,
+    /(?:<iframe[^>]+src|<a[^>]+href)=["']([^"']*[\\/]files[\\/][^"']+\.pdf(?:#[^"']*)?)["']/i,
+  );
+  if (!pdfUrl) throw new Error("legacy-idocs-pdf-source-missing");
+  response = await session.fetch(pdfUrl, {
+    headers: { "User-Agent": userAgent, Referer: pdfViewerUrl },
+    signal: AbortSignal.timeout(45_000),
+    redirect: "follow",
+  });
+  if (!response.ok) throw new Error(`document-pdf-http-${response.status}`);
+  contentType = response.headers.get("content-type") ?? "application/pdf";
+  return { response, contentType };
 }
 
 function eplanningParties(html: string): LeadParty[] {
@@ -296,37 +441,48 @@ async function eplanningCouncilEvidence(record: TenderOpportunity, fetcher: Fetc
   const applicationHtml = await response.text();
   const idocsHref = applicationHtml.match(/https?:\/\/[^'"\s]+\/iDocsWeb(?:DPSS)?\/(?:listFiles|copyright)\.aspx\?[^'"]+/i)?.[0];
   if (!idocsHref) return { documents: [] as PlanningDocumentEvidence[], parties: eplanningParties(applicationHtml), error: "eplanning-document-index-link-missing" };
-  const documentIndexUrl = decodeHtml(idocsHref).trim().replace(/copyright\.aspx/i, "listFiles.aspx");
-  const indexResponse = await fetcher(documentIndexUrl, {
-    headers: { "User-Agent": userAgent },
-    signal: AbortSignal.timeout(30_000),
-    redirect: "follow",
-  });
-  if (!indexResponse.ok) return { documents: [] as PlanningDocumentEvidence[], parties: eplanningParties(applicationHtml), error: `eplanning-document-index-http-${indexResponse.status}` };
-  const rows = parseEplanningDocumentRows(await indexResponse.text(), documentIndexUrl).filter(isDccEvidenceDocument);
+  let opened: Awaited<ReturnType<typeof openEplanningDocumentIndex>>;
+  try {
+    opened = await openEplanningDocumentIndex(fetcher, idocsHref);
+  } catch (error) {
+    return {
+      documents: [] as PlanningDocumentEvidence[],
+      parties: eplanningParties(applicationHtml),
+      error: error instanceof Error ? error.message : "eplanning-document-index-unavailable",
+    };
+  }
+  const listed = parseEplanningDocumentRows(opened.html, opened.documentIndexUrl).filter(isDccEvidenceDocument);
+  const rows = isFurtherInformationStage(record.projectStage ?? record.sourceStatus)
+    ? (() => {
+        const rfiLetters = listed.filter(isFurtherInformationRequestDocument);
+        return rfiLetters.length > 0 ? rfiLetters : listed;
+      })()
+    : listed;
   if (rows.length === 0) return { documents: [] as PlanningDocumentEvidence[], parties: eplanningParties(applicationHtml), error: "no-relevant-planning-documents-listed" };
   const documents: PlanningDocumentEvidence[] = [];
   for (const descriptor of rows) {
     try {
-      const documentResponse = await fetcher(descriptor.sourceUrl, {
-        headers: { "User-Agent": userAgent },
-        signal: AbortSignal.timeout(45_000),
-        redirect: "follow",
-      });
-      if (!documentResponse.ok) throw new Error(`document-http-${documentResponse.status}`);
+      const { response: documentResponse, contentType } = await fetchEplanningDocument(
+        opened.session,
+        descriptor,
+        opened.documentIndexUrl,
+      );
       const bytes = new Uint8Array(await documentResponse.arrayBuffer());
       if (bytes.byteLength > maxDocumentBytes) throw new Error(`document-too-large:${bytes.byteLength}`);
-      const contentType = documentResponse.headers.get("content-type") ?? "";
-      // The legacy iDocs viewer often returns a JavaScript/DjVu shell instead
-      // of the source document. That is not usable evidence and must fail closed.
-      if (/html/i.test(contentType)) throw new Error("legacy-idocs-viewer-has-no-extractable-source-document");
-      const text = normalizeText(await extractDccDocumentText(contentType, bytes));
+      const extracted = await extractDccDocument(contentType, bytes);
+      const text = extracted.text;
+      if (!normalizeText(text)) throw new Error("document-has-no-extractable-text");
       const classified = classifyDccDocumentText(descriptor, text);
+      const rfiDates = isRfiClassification(classified.classification)
+        ? extractRfiDocumentDates(descriptor, text)
+        : {};
       documents.push({
         ...descriptor,
         fetchStatus: "fetched",
         ...classified,
+        extractionMethod: extracted.extractionMethod,
         excerpt: classified.excerpt ?? retainedOfficialExcerpt(text),
+        ...rfiDates,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "document-unavailable";
@@ -389,7 +545,7 @@ export async function enrichNationalPlanningOpportunity(
         ? confirmed.rfiPublishedAt ?? confirmed.receivedAt ?? record.rfiPublishedAt
         : record.rfiPublishedAt,
       rfiReceivedAt: confirmedRfi
-        ? confirmed.receivedAt ?? record.rfiReceivedAt
+        ? confirmed.receivedAt ?? confirmed.rfiPublishedAt ?? record.rfiReceivedAt
         : record.rfiReceivedAt,
       responseDeadline: confirmedRfi
         ? confirmed.responseDeadline ?? record.responseDeadline

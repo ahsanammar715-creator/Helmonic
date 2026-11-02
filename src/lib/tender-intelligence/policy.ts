@@ -14,6 +14,48 @@ export const acousticKeywords = [
   "acoustician",
 ] as const;
 
+// Planning evidence is deliberately broader than the six discovery keywords.
+// These expressions are applied to authoritative RFI/decision documents, not
+// to generic search-result metadata, so the retained match can be shown to a
+// consultant with the source letter and excerpt.
+const acousticDocumentVocabulary: ReadonlyArray<{ label: string; pattern: RegExp }> = [
+  { label: "acoustic consultant", pattern: /\b(?:suitably\s+qualified\s+)?acoustic(?:al)?\s+consultant\b/i },
+  { label: "suitably qualified acoustician", pattern: /\bsuitably\s+qualified\s+acoustician\b/i },
+  { label: "acoustician", pattern: /\bacoustician\b/i },
+  { label: "acoustic", pattern: /\bacoustics?\b/i },
+  { label: "noise impact assessment", pattern: /\bnoise\s+impact\s+assessment\b|\bNI[AR]\b/i },
+  { label: "acoustic impact assessment", pattern: /\bacoustic\s+impact\s+assessment\b/i },
+  { label: "noise and vibration impact assessment", pattern: /\bnoise\s+(?:and|&)\s+vibration\s+impact\s+assessment\b/i },
+  { label: "acoustic report or assessment", pattern: /\bacoustic\s+(?:report|assessment|design)\b/i },
+  { label: "noise survey or monitoring", pattern: /\b(?:baseline\s+)?noise\s+(?:survey|monitoring)\b/i },
+  { label: "noise assessment", pattern: /\bnoise\s+assessment\b/i },
+  { label: "operational noise", pattern: /\boperational\s+noise\b/i },
+  { label: "environmental noise", pattern: /\benvironmental\s+noise\b/i },
+  { label: "construction noise or vibration", pattern: /\bconstruction\s+(?:noise|vibration|noise\s+(?:and|&)\s+vibration)\b/i },
+  { label: "noise and vibration management plan", pattern: /\b(?:construction\s+)?noise\s+(?:and|&)\s+vibration\s+management\s+plan\b/i },
+  { label: "plant or building-services noise", pattern: /\b(?:mechanical\s+)?plant\s+noise\b|\bbuilding[- ]services\s+noise\b|\bM\s*&\s*E\s+noise\b/i },
+  { label: "background or ambient noise", pattern: /\b(?:background|ambient)\s+noise\b/i },
+  { label: "sound insulation", pattern: /\b(?:airborne\s+|impact\s+|fa[cç]ade\s+)?sound\s+insulation\b/i },
+  { label: "sound reduction", pattern: /\bsound\s+reduction\b/i },
+  { label: "sound-insulation testing", pattern: /\bsound[- ]insulation\s+testing\b|\bpre[- ]completion\s+testing\b/i },
+  { label: "acoustic glazing or ventilation", pattern: /\bacoustic\s+glazing\b|\benhanced\s+glazing\b|\balternative\s+ventilation\b[^.]{0,100}\bnoise\b/i },
+  { label: "noise-control plant treatment", pattern: /\b(?:plant|acoustic)\s+enclosure\b|\bacoustic\s+louvre\b|\battenuator\b|\bnoise\s+barrier\b/i },
+  { label: "room acoustics", pattern: /\broom\s+acoustics\b|\breverberation\b|\bspeech\s+intelligibility\b/i },
+  { label: "noise breakout", pattern: /\bnoise\s+breakout\b/i },
+  { label: "noise mitigation", pattern: /\b(?:noise|acoustic)\s+mitigation\b/i },
+  { label: "noise-sensitive receptor", pattern: /\bnoise[- ]sensitive\s+(?:receptor|location)\b/i },
+  { label: "noise level or decibel limit", pattern: /\bnoise\s+(?:level|limit)s?\b|\bdecibels?\b|\bdB(?:\(A\))?\b|\bLAeq\b|\bLAFmax\b/i },
+  { label: "Part E / TGD E", pattern: /\b(?:Technical\s+Guidance\s+Document\s+E|TGD\s*E|Building\s+Regulations\s+Part\s+E|Part\s+E)\b/i },
+  { label: "acoustic standard", pattern: /\b(?:BS\s*4142|BS\s*8233|BS\s*5228|ProPG|BB93|HTM\s*08-01|ISO\s*16283|ISO\s*717|ISO\s*3382)\b/i },
+  { label: "BNS", pattern: /\bBNS\b/i },
+  { label: "vibration", pattern: /\bvibration(?:\s+isolation)?\b/i },
+  // Never treat ordinary wording such as "structurally sound" as acoustic
+  // evidence. Standalone sound is retained only with a professional acoustic
+  // collocation; the more specific insulation/reduction patterns above remain.
+  { label: "sound", pattern: /\bsound\s+(?:level|survey|monitoring|assessment|pressure|transmission|attenuation|breakout)\b/i },
+  { label: "noise", pattern: /\bnoise\b/i },
+] as const;
+
 export const acousticCpvCodes = [
   "71313100",
   "71313200",
@@ -79,10 +121,10 @@ export function stableOpportunityId(...parts: unknown[]) {
 }
 
 export function matchedAcousticTerms(...values: unknown[]) {
-  const text = values.map(normalizeText).join(" ").toLowerCase();
-  return acousticKeywords.filter((keyword) =>
-    new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text),
-  );
+  const text = values.map(normalizeText).join(" ");
+  return acousticDocumentVocabulary
+    .filter(({ pattern }) => pattern.test(text))
+    .map(({ label }) => label);
 }
 
 export function relevantTenderText(...values: unknown[]) {

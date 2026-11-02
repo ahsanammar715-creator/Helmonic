@@ -1,4 +1,9 @@
 import { strFromU8, unzipSync } from "fflate";
+import { execFile } from "node:child_process";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 
 import {
   matchedAcousticTerms,
@@ -18,6 +23,7 @@ const dccPublicAccessRoot = `${dccPublicAccessOrigin}/PublicAccess_Live`;
 const maxDocumentBytes = 20 * 1024 * 1024;
 const maxApplicationBytes = 100 * 1024 * 1024;
 const documentConcurrency = 3;
+const execFileAsync = promisify(execFile);
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -76,15 +82,27 @@ export function isDccEvidenceDocument(document: DccDocumentDescriptor) {
     /manager'?s order/,
     /request.*(?:further|additional).*information/,
     /(?:further|additional).*information.*request/,
+    /\bf\s*\.\s*i\s*\.\s*request(?:\s+letter)?\b/,
+    /\bfi\s+request(?:\s+letter)?\b/,
     /abp (?:order|inspector'?s report)/,
     /appeal.*(?:decision|order|inspector)/,
     /refusal reason/,
   ].some((pattern) => pattern.test(label));
 }
 
+export function isFurtherInformationRequestDocument(document: DccDocumentDescriptor) {
+  const label = `${document.documentType} ${document.description}`.toLowerCase();
+  return [
+    /request.*(?:further|additional).*information/,
+    /(?:further|additional).*information.*request/,
+    /\bf\s*\.\s*i\s*\.\s*request(?:\s+letter)?\b/,
+    /\bfi\s+request(?:\s+letter)?\b/,
+  ].some((pattern) => pattern.test(label));
+}
+
 function documentKind(document: DccDocumentDescriptor) {
   const label = `${document.documentType} ${document.description}`.toLowerCase();
-  if (/request.*(?:further|additional).*information|(?:further|additional).*information.*request/.test(label)) {
+  if (isFurtherInformationRequestDocument(document)) {
     return "rfi" as const;
   }
   if (/decision notice|manager'?s order|abp order|appeal.*(?:decision|order)/.test(label)) {
@@ -92,6 +110,17 @@ function documentKind(document: DccDocumentDescriptor) {
   }
   if (/planner'?s report|inspector'?s report/.test(label)) return "report" as const;
   return "other" as const;
+}
+
+function matchedPageNumbers(text: string) {
+  const pages = text.split(/\n--- PAGE (\d+) ---\n/);
+  const matched = new Set<number>();
+  for (let index = 1; index < pages.length; index += 2) {
+    const pageNumber = Number(pages[index]);
+    const pageText = pages[index + 1] ?? "";
+    if (matchedAcousticTerms(pageText).length > 0 && Number.isFinite(pageNumber)) matched.add(pageNumber);
+  }
+  return [...matched].sort((left, right) => left - right);
 }
 
 function evidenceWindows(text: string) {
@@ -152,8 +181,9 @@ function documentOutcome(text: string) {
 export function classifyDccDocumentText(
   document: DccDocumentDescriptor,
   text: string,
-): { classification?: PlanningClassification; excerpt?: string; matchedTerms: string[] } {
+): { classification?: PlanningClassification; excerpt?: string; matchedTerms: string[]; matchedPages?: number[] } {
   const matchedTerms = [...matchedAcousticTerms(text)];
+  const matchedPages = matchedPageNumbers(text);
   const kind = documentKind(document);
   if (kind === "rfi") {
     if (matchedTerms.length === 0) {
@@ -161,6 +191,7 @@ export function classifyDccDocumentText(
         classification: "further-information-request",
         excerpt: retainedOfficialExcerpt(text),
         matchedTerms,
+        matchedPages,
       };
     }
     const windows = evidenceWindows(text);
@@ -168,25 +199,26 @@ export function classifyDccDocumentText(
       classification: "noise-related-rfi",
       excerpt: windows[0],
       matchedTerms,
+      matchedPages,
     };
   }
-  if (matchedTerms.length === 0) return { matchedTerms };
+  if (matchedTerms.length === 0) return { matchedTerms, matchedPages };
   const windows = evidenceWindows(text);
 
   if (kind === "decision") {
     const outcome = documentOutcome(text);
     if (outcome === "refused") {
       const excerpt = windows.find((window) => /refus|reason/.test(window.toLowerCase()));
-      if (excerpt) return { classification: "refused-on-noise-grounds", excerpt, matchedTerms };
+      if (excerpt) return { classification: "refused-on-noise-grounds", excerpt, matchedTerms, matchedPages };
     }
     if (outcome === "granted") {
       const excerpt = windows.find((window) =>
         /condition|shall|subject to|reason:|noise limit|acoustic report|noise impact/.test(window.toLowerCase()),
       );
-      if (excerpt) return { classification: "granted-with-noise-conditions", excerpt, matchedTerms };
+      if (excerpt) return { classification: "granted-with-noise-conditions", excerpt, matchedTerms, matchedPages };
     }
   }
-  return { excerpt: windows[0], matchedTerms };
+  return { excerpt: windows[0], matchedTerms, matchedPages };
 }
 
 function textFromDocx(bytes: Uint8Array) {
@@ -218,25 +250,72 @@ async function textFromPdf(bytes: Uint8Array) {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber);
       const content = await page.getTextContent();
-      pages.push(content.items.map((item: { str?: string }) => item.str ?? "").join(" "));
+      pages.push(`--- PAGE ${pageNumber} ---\n${content.items.map((item: { str?: string }) => item.str ?? "").join(" ")}`);
       page.cleanup();
     }
     return pages.join("\n");
   } finally {
-    await pdf.destroy();
+    if (typeof pdf.destroy === "function") await pdf.destroy();
+    else if (typeof loadingTask.destroy === "function") await loadingTask.destroy();
   }
 }
 
-export async function extractDccDocumentText(contentType: string, bytes: Uint8Array) {
+async function textFromScannedPdf(bytes: Uint8Array) {
+  const directory = await mkdtemp(path.join(tmpdir(), "helmonic-rfi-ocr-"));
+  const pdfPath = path.join(directory, "document.pdf");
+  const pagePrefix = path.join(directory, "page");
+  try {
+    await writeFile(pdfPath, bytes);
+    await execFileAsync("pdftoppm", ["-jpeg", "-r", "200", pdfPath, pagePrefix], {
+      timeout: 180_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    const images = (await readdir(directory))
+      .filter((name) => /^page-\d+\.jpg$/i.test(name))
+      .sort((left, right) => Number(left.match(/(\d+)/)?.[1]) - Number(right.match(/(\d+)/)?.[1]));
+    if (images.length === 0) throw new Error("ocr-render-produced-no-pages");
+    const pages: string[] = [];
+    for (let index = 0; index < images.length; index += 1) {
+      const imagePath = path.join(directory, images[index]);
+      const { stdout } = await execFileAsync("tesseract", [imagePath, "stdout", "-l", "eng", "--psm", "6"], {
+        timeout: 90_000,
+        maxBuffer: 20 * 1024 * 1024,
+      });
+      pages.push(`--- PAGE ${index + 1} ---\n${stdout}`);
+    }
+    return pages.join("\n");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") throw new Error("ocr-runtime-unavailable");
+    throw error;
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+export async function extractDccDocument(
+  contentType: string,
+  bytes: Uint8Array,
+): Promise<{ text: string; extractionMethod: "embedded-text" | "ocr" }> {
   const type = contentType.toLowerCase();
   if (type.includes("pdf") || String.fromCharCode(...bytes.slice(0, 4)) === "%PDF") {
-    return textFromPdf(bytes);
+    const embedded = await textFromPdf(bytes);
+    if (normalizeText(embedded.replace(/--- PAGE \d+ ---/g, "")).length >= 80) {
+      return { text: embedded, extractionMethod: "embedded-text" };
+    }
+    return { text: await textFromScannedPdf(bytes), extractionMethod: "ocr" };
   }
   if (type.includes("wordprocessingml") || (bytes[0] === 0x50 && bytes[1] === 0x4b)) {
-    return textFromDocx(bytes);
+    return { text: textFromDocx(bytes), extractionMethod: "embedded-text" };
   }
-  if (type.startsWith("text/")) return new TextDecoder().decode(bytes);
+  if (type.startsWith("text/")) {
+    return { text: new TextDecoder().decode(bytes), extractionMethod: "embedded-text" };
+  }
   throw new Error(`unsupported-document-type:${contentType || "unknown"}`);
+}
+
+export async function extractDccDocumentText(contentType: string, bytes: Uint8Array) {
+  return (await extractDccDocument(contentType, bytes)).text;
 }
 
 async function readBoundedResponse(response: Response, remainingBytes: number) {
@@ -322,10 +401,12 @@ function addUtcMonths(value: string, months: number) {
 }
 
 export function extractRfiDocumentDates(document: DccDocumentDescriptor, text: string) {
-  const publishedAt = normalizedDocumentDate(document.receivedAt);
   const normalized = normalizeText(text);
+  const headingDate = normalized.match(/\bDate\s*:\s*([^.;]{4,35})/i)?.[1];
+  const publishedAt = normalizedDocumentDate(document.receivedAt)
+    ?? normalizedDocumentDate(headingDate);
   const explicitDeadlinePatterns = [
-    /(?:response|reply|further information|additional information|requested information|submission)[^\n.]{0,180}?(?:on or before|no later than|not later than|by|before)\s+(?:the\s+)?([^\n.;]{4,45})/i,
+    /(?:response|reply|further information|additional information|requested information|submission|submit(?:ted)?)[^\n.]{0,180}?(?:on or before|no later than|not later than|by|before)\s+(?:the\s+)?([^\n.;]{4,45})/i,
     /(?:on or before|no later than|not later than)\s+(?:the\s+)?([^\n.;]{4,45})[^\n.]{0,120}?(?:response|further information|additional information)/i,
   ];
   let responseDeadline: string | undefined;
@@ -400,7 +481,8 @@ export async function fetchDccApplicationEvidence(
       if (!response.ok) throw new Error(`document-http-${response.status}`);
       const bytes = await readBoundedResponse(response, maxApplicationBytes - consumedBytes);
       consumedBytes += bytes.byteLength;
-      const text = normalizeText(await extractDccDocumentText(response.headers.get("content-type") || "", bytes));
+      const extracted = await extractDccDocument(response.headers.get("content-type") || "", bytes);
+      const text = extracted.text;
       if (!text) throw new Error("document-has-no-extractable-text");
       const classified = classifyDccDocumentText(document, text);
       const rfiDates = isRfiClassification(classified.classification)
@@ -413,6 +495,7 @@ export async function fetchDccApplicationEvidence(
         receivedAt: document.receivedAt,
         sourceUrl: document.sourceUrl,
         fetchStatus: "fetched" as const,
+        extractionMethod: extracted.extractionMethod,
         matchedTerms: classified.matchedTerms,
         excerpt: classified.excerpt ?? retainedOfficialExcerpt(text),
         classification: classified.classification,
@@ -497,7 +580,7 @@ export async function enrichDccPlanningOpportunity(
       ? confirmed.rfiPublishedAt ?? confirmed.receivedAt ?? opportunity.rfiPublishedAt
       : opportunity.rfiPublishedAt,
     rfiReceivedAt: isRfiClassification(confirmed?.classification)
-      ? confirmed.receivedAt ?? opportunity.rfiReceivedAt
+      ? confirmed.receivedAt ?? confirmed.rfiPublishedAt ?? opportunity.rfiReceivedAt
       : opportunity.rfiReceivedAt,
     responseDeadline: isRfiClassification(confirmed?.classification)
       ? confirmed.responseDeadline ?? opportunity.responseDeadline
