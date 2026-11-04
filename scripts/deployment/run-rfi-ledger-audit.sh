@@ -36,7 +36,7 @@ show_execution_logs() {
     --execution "$execution_name" \
     --container "$container_name" \
     --format text \
-    --tail 500 2>&1 || true
+    --tail 300 2>&1 || true
 }
 
 trap restore_safe_recurring_mode EXIT
