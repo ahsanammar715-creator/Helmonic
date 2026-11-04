@@ -107,6 +107,12 @@ import {
   isCurrentEducationLookupOpportunity,
   selectEducationLookupOpportunities,
 } from "../../src/lib/tender-intelligence/education-lookup.ts";
+import {
+  evidenceRecordKey,
+  initializeEvidenceQueue,
+  NATIONAL_EVIDENCE_QUEUE_VERSION,
+  resolveEvidenceBatch,
+} from "../../src/lib/tender-intelligence/evidence-checkpoint.ts";
 
 function planningLead(overrides = {}) {
   return {
@@ -4078,4 +4084,54 @@ test("records resolve only from explicit source status or an applicable expired 
     positiveResolution(answeredRfi, new Date("2026-09-28T09:00:00Z")),
     "further-information-response-received",
   );
+});
+
+test("durable evidence queue keys do not change when FI-letter evidence changes classification", () => {
+  const discovered = planningLead({
+    id: "npr-2660715",
+    sourceSystem: "National Planning Register",
+    sourceRecordId: "2660715",
+    classification: "needs-council-evidence",
+  });
+  const enriched = {
+    ...discovered,
+    classification: "noise-related-rfi",
+    evidenceStatus: "official-text",
+    matchedTerms: ["noise impact assessment"],
+  };
+  assert.equal(evidenceRecordKey(discovered), evidenceRecordKey(enriched));
+});
+
+test("legacy numeric evidence progress resets rather than skipping a live RFI", () => {
+  const records = [
+    planningLead({ id: "rfi-1", sourceSystem: "National Planning Register", sourceRecordId: "RFI-1" }),
+    planningLead({ id: "rfi-2", sourceSystem: "National Planning Register", sourceRecordId: "RFI-2" }),
+  ];
+  const initialized = initializeEvidenceQueue(records, [0, 1], { processed: 1 });
+  assert.equal(initialized.processed, 0);
+  assert.equal(initialized.legacyProgressReset, true);
+  assert.equal(initialized.queue.length, 2);
+});
+
+test("resumable evidence batches preserve their original order and advance past missing records safely", () => {
+  const records = [
+    planningLead({ id: "rfi-1", sourceSystem: "National Planning Register", sourceRecordId: "RFI-1" }),
+    planningLead({ id: "rfi-3", sourceSystem: "National Planning Register", sourceRecordId: "RFI-3" }),
+  ];
+  const missing = evidenceRecordKey(planningLead({
+    id: "rfi-2",
+    sourceSystem: "National Planning Register",
+    sourceRecordId: "RFI-2",
+  }));
+  const queue = [evidenceRecordKey(records[0]), missing, evidenceRecordKey(records[1])];
+  const resumed = initializeEvidenceQueue(records, [0, 1], {
+    version: NATIONAL_EVIDENCE_QUEUE_VERSION,
+    queue,
+    processed: 1,
+  });
+  const batch = resolveEvidenceBatch(records, resumed.queue, resumed.processed, 2);
+  assert.equal(resumed.initialized, false);
+  assert.deepEqual(batch.indexes, [1]);
+  assert.deepEqual(batch.missingKeys, [missing]);
+  assert.equal(batch.nextOffset, 3);
 });

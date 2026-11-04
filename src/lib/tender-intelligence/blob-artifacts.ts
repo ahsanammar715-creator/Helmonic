@@ -9,6 +9,7 @@ const durableFiles = [
   "document-proven/pipeline-state.json",
   "document-proven/latest-audit.json",
 ] as const;
+const checkpointFiles = ["document-proven/pipeline-state.json"] as const;
 
 type BlobConfig = {
   accountName: string;
@@ -204,6 +205,30 @@ export async function persistTenderArtifacts(artifactRoot: string, runId: string
     const localPath = path.join(artifactRoot, ...relativePath.split("/"));
     try {
       await uploadFile(config, token, localPath, `${namespace}current/${relativePath}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") continue;
+      throw error;
+    }
+  }
+  return { enabled: true, uploaded };
+}
+
+/**
+ * Persist only the resumable pipeline state. This is intentionally separate
+ * from the full run archive so evidence batches can survive a container stop
+ * without repeatedly copying every report and CSV artifact.
+ */
+export async function persistTenderCheckpoint(artifactRoot: string) {
+  const config = configuration();
+  if (!config) return { enabled: false, uploaded: 0 };
+  const token = await accessToken(config);
+  const namespace = blobNamespace();
+  let uploaded = 0;
+  for (const relativePath of checkpointFiles) {
+    const localPath = path.join(artifactRoot, ...relativePath.split("/"));
+    try {
+      await uploadFile(config, token, localPath, `${namespace}current/${relativePath}`);
+      uploaded += 1;
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code === "ENOENT") continue;
       throw error;

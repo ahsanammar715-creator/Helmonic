@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { collectOfficialSourceSnapshot } from "../../src/lib/tender-intelligence/official-sources.ts";
+import { persistTenderCheckpoint } from "../../src/lib/tender-intelligence/blob-artifacts.ts";
 import { annotateOpportunityDuplicates, deduplicationSummary } from "../../src/lib/tender-intelligence/deduplication.ts";
 import { applyAppointmentSafeguards } from "../../src/lib/tender-intelligence/appointment-classification.ts";
 import { enrichFormalTenderOpportunities } from "../../src/lib/tender-intelligence/formal-document-evidence.ts";
@@ -30,6 +31,11 @@ import {
   opportunityIdentity,
   routingMetadataWithDurablePrecedence,
 } from "../../src/lib/tender-intelligence/carry-forward.ts";
+import {
+  initializeEvidenceQueue,
+  NATIONAL_EVIDENCE_QUEUE_VERSION,
+  resolveEvidenceBatch,
+} from "../../src/lib/tender-intelligence/evidence-checkpoint.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -42,7 +48,7 @@ const reportPath = path.join(artifactDirectory, "latest-audit.json");
 const ledgerPath = path.join(artifactDirectory, "confirmed-ledger.json");
 const runHistoryDirectory = path.join(artifactDirectory, "runs");
 const envPath = path.join(repoRoot, ".env.local");
-const batchSize = Math.max(1, Number.parseInt(process.env.HELMONIC_COUNCIL_EVIDENCE_BATCH_SIZE || "10", 10));
+const batchSize = Math.max(1, Number.parseInt(process.env.HELMONIC_COUNCIL_EVIDENCE_BATCH_SIZE || "50", 10));
 const evidenceConcurrency = Math.max(1, Math.min(6, Number.parseInt(process.env.HELMONIC_COUNCIL_EVIDENCE_CONCURRENCY || "3", 10)));
 const grantEvidenceLookbackDays = Math.max(1, Number.parseInt(process.env.HELMONIC_ACOUSTIC_GRANT_LOOKBACK_DAYS || "2", 10));
 const retryUnavailable = process.argv.includes("--retry-unavailable");
@@ -278,14 +284,42 @@ if (retryUnavailable) {
   }
   state.status = "running";
   state.nationalProcessed = 0;
+  state.nationalEvidenceQueueVersion = undefined;
+  state.nationalEvidenceQueue = undefined;
 }
 
-const nationalIndexes = summarizeOnly ? [] : state.opportunities
+const selectedNationalIndexes = summarizeOnly ? [] : state.opportunities
   .map((record, index) => ({ record, index }))
   .filter(({ record }) => record.sourceSystem === "National Planning Register" && (
     !retryUnavailable || record.evidenceStatus === "evidence-unavailable"
   ) && shouldEnrichNationalPlanningEvidence(record, new Date(), { grantLookbackDays: grantEvidenceLookbackDays }))
   .map(({ index }) => index);
+
+const evidenceQueue = initializeEvidenceQueue(
+  state.opportunities,
+  selectedNationalIndexes,
+  {
+    version: state.nationalEvidenceQueueVersion,
+    queue: state.nationalEvidenceQueue,
+    processed: state.nationalProcessed,
+  },
+);
+state.nationalEvidenceQueueVersion = NATIONAL_EVIDENCE_QUEUE_VERSION;
+state.nationalEvidenceQueue = evidenceQueue.queue;
+state.nationalProcessed = evidenceQueue.processed;
+
+if (!summarizeOnly && evidenceQueue.initialized) {
+  state.updatedAt = new Date().toISOString();
+  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  const checkpoint = await persistTenderCheckpoint(artifactRoot);
+  console.log(JSON.stringify({
+    councilEvidenceCheckpointInitialized: {
+      total: evidenceQueue.queue.length,
+      legacyProgressReset: evidenceQueue.legacyProgressReset,
+      durable: checkpoint.enabled && checkpoint.uploaded > 0,
+    },
+  }));
+}
 
 if (!summarizeOnly) {
   const nationalDiscovered = state.opportunities.filter((record) =>
@@ -293,8 +327,9 @@ if (!summarizeOnly) {
   console.log(JSON.stringify({
     councilEvidenceSelection: {
       discovered: nationalDiscovered,
-      selected: nationalIndexes.length,
-      excludedFromDocumentScan: Math.max(0, nationalDiscovered - nationalIndexes.length),
+      selected: evidenceQueue.queue.length,
+      alreadyProcessed: state.nationalProcessed,
+      excludedFromDocumentScan: Math.max(0, nationalDiscovered - evidenceQueue.queue.length),
       grantEvidenceLookbackDays,
       concurrency: evidenceConcurrency,
       rule: "all live or undated RFIs; recent grants/acoustic candidates; answered and expired RFIs retained in ledger but excluded from active evidence scan",
@@ -302,24 +337,42 @@ if (!summarizeOnly) {
   }));
 }
 
-for (let offset = state.nationalProcessed || 0; offset < nationalIndexes.length; offset += batchSize) {
-  const indexes = nationalIndexes.slice(offset, offset + batchSize);
+for (let offset = state.nationalProcessed || 0; offset < evidenceQueue.queue.length;) {
+  const batchPlan = resolveEvidenceBatch(
+    state.opportunities,
+    evidenceQueue.queue,
+    offset,
+    batchSize,
+  );
+  const indexes = batchPlan.indexes;
   const batch = indexes.map((index) => state.opportunities[index]);
-  const enriched = await enrichNationalPlanningOpportunities(batch, {
-    limit: batch.length,
-    concurrency: evidenceConcurrency,
-  });
-  indexes.forEach((index, batchIndex) => {
-    state.opportunities[index] = applyEvidenceRefresh(
-      state.opportunities[index],
-      enriched[batchIndex],
-    );
-  });
+  if (batch.length > 0) {
+    const enriched = await enrichNationalPlanningOpportunities(batch, {
+      limit: batch.length,
+      concurrency: evidenceConcurrency,
+    });
+    indexes.forEach((index, batchIndex) => {
+      state.opportunities[index] = applyEvidenceRefresh(
+        state.opportunities[index],
+        enriched[batchIndex],
+      );
+    });
+  }
   state.opportunities = routeCurrentAndPreserveCarryForward(prepareCommercialRecords(state.opportunities));
-  state.nationalProcessed = offset + indexes.length;
+  state.nationalProcessed = batchPlan.nextOffset;
   state.updatedAt = new Date().toISOString();
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  console.log(`Council document evidence ${state.nationalProcessed}/${nationalIndexes.length}`);
+  const checkpoint = await persistTenderCheckpoint(artifactRoot);
+  console.log(JSON.stringify({
+    councilDocumentEvidence: {
+      processed: state.nationalProcessed,
+      total: evidenceQueue.queue.length,
+      batchRecords: indexes.length,
+      missingQueueRecords: batchPlan.missingKeys.length,
+      durableCheckpoint: checkpoint.enabled && checkpoint.uploaded > 0,
+    },
+  }));
+  offset = batchPlan.nextOffset;
 }
 
 state.opportunities = routeCurrentAndPreserveCarryForward(prepareCommercialRecords(state.opportunities));
