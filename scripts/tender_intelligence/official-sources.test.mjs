@@ -1473,6 +1473,7 @@ test("Odoo archives expired RFIs out of active Leads while retaining their audit
   const payloads = buildOdooDryRun(records, new Date("2026-10-12T12:00:00.000Z"));
   const values = Object.fromEntries(payloads.map((payload) => [payload.matchValue, payload.values]));
   assert.ok(values["helmonic-lead:live-buildinginfo-rfi"].x_pipeline_priority_rank > 500_000_000);
+  assert.ok(values["helmonic-lead:live-buildinginfo-rfi"].x_pipeline_priority_rank <= 2_147_483_647);
   assert.equal(values["helmonic-lead:live-buildinginfo-rfi"].x_lead_panel, "Urgent Acoustic RFI");
   assert.equal(values["helmonic-lead:live-buildinginfo-rfi"].active, true);
   assert.ok(values["helmonic-lead:recently-expired-unmatched-rfi"].x_pipeline_priority_rank < 0);
@@ -2115,7 +2116,7 @@ test("Odoo normalization upgrades every retained lead without touching manual ta
   );
   assert.deepEqual(historical.vals.tag_ids, [[3, 1], [3, 2], [4, 3], [4, 4]]);
   assert.ok(!historical.vals.tag_ids.some(([, id]) => id === 5));
-  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 2_100_075_000);
+  assert.equal(buildingInfoHistorical.vals.x_pipeline_priority_rank, 2_050_075_000);
   assert.equal(buildingInfoHistorical.vals.x_lead_panel, "Urgent Acoustic RFI");
   assert.equal(buildingInfoHistorical.vals.x_rfi_response_due_at, "2099-10-20 00:00:00");
   assert.equal(buildingInfoHistorical.vals.x_rfi_date_confidence, "derived");

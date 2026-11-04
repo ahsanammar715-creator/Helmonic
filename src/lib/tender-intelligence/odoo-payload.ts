@@ -218,6 +218,14 @@ function odooDatetime(value?: string) {
   return parsed.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
 }
 
+const ODOO_INTEGER_MIN = -2_147_483_648;
+const ODOO_INTEGER_MAX = 2_147_483_647;
+
+function odooInteger(value?: number | false) {
+  if (value === false || value === undefined || !Number.isFinite(value)) return false;
+  return Math.max(ODOO_INTEGER_MIN, Math.min(ODOO_INTEGER_MAX, Math.trunc(value)));
+}
+
 function odooDate(value?: string) {
   if (!value) return false;
   const parsed = new Date(value);
@@ -1036,7 +1044,9 @@ function liveRfiPriority(
   // Every active RFI outranks every non-RFI. Acoustic/noise RFIs are the first
   // band; all other RFIs are the second band. Within each band the newest
   // requested date leads, exactly as the Tender Desk review requires.
-  const categoryRank = acoustic ? 2_100_000_000 : 1_800_000_000;
+  // Keep the complete rank inside Odoo/PostgreSQL's signed 32-bit integer
+  // while preserving a full day's precedence over every commercial tie.
+  const categoryRank = acoustic ? 2_050_000_000 : 1_800_000_000;
   return categoryRank
     + activityFreshness * 100_000
     + (5_000 - Math.min(daysRemaining, 5_000)) * 10
@@ -1325,6 +1335,7 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
     if (!externalId) throw new Error(`Record ${record.id} has no stable CRM external ID.`);
     const sources = sourceValues(record);
     const priority = pipelinePriority(record, now);
+    const boundedPriorityRank = odooInteger(priority.rank);
     const primary = primaryParty(record);
     const organisation = primary?.organisation ?? record.applicant ?? record.buyer ?? "";
     const contact = primary?.name ?? "";
@@ -1362,7 +1373,7 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         date_deadline: odooDate(deadline),
         x_helmonic_external_id: externalId,
         x_pipeline_bucket: record.leadDisposition ?? "monitor",
-        x_pipeline_priority_rank: priority.rank,
+        x_pipeline_priority_rank: boundedPriorityRank === false ? 0 : boundedPriorityRank,
         x_pipeline_priority_reason: priority.reason,
         x_lead_panel: leadReviewPanel(record, now),
         x_lead_quality: displayedLeadQuality(record),
@@ -1377,7 +1388,7 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         x_source_published_at: odooDatetime(record.publishedAt),
         x_source_updated_at: odooDatetime(record.sourceUpdatedAt),
         x_source_major_updated_at: odooDatetime(record.sourceMajorUpdatedAt),
-        x_source_age_days: Number.isFinite(record.sourceAgeDays) ? record.sourceAgeDays! : false,
+        x_source_age_days: odooInteger(record.sourceAgeDays),
         x_freshness_band: record.leadFreshness ?? "date-unknown",
         x_deadline: odooDatetime(deadline),
         x_rfi_published_at: odooDatetime(rfiPublishedAt(record)),
@@ -1389,7 +1400,7 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         x_planning_received_at: odooDatetime(planningReceivedAt(record)),
         x_planning_validated_at: odooDatetime(planningValidatedAt(record)),
         x_decision_due_at: odooDatetime(planningDecisionDueAt(record)),
-        x_action_days_remaining: calendarDaysRemaining(deadline, now),
+        x_action_days_remaining: odooInteger(calendarDaysRemaining(deadline, now)),
         x_deadline_urgency: recordUrgency(record, now),
         x_rfi_trigger: record.triggerType ?? record.classification ?? "",
         x_assigned_person: ownerDisplayName(record),
@@ -1402,9 +1413,9 @@ export function buildOdooDryRun(records: TenderOpportunity[], now = new Date()) 
         x_deduplication_status: record.deduplicationStatus ?? "unique",
         x_possible_duplicate_ids: (record.possibleDuplicateIds ?? []).join(";"),
         x_project_value: Number.isFinite(record.projectValue) ? record.projectValue! : false,
-        x_project_units: Number.isFinite(record.projectUnits)
+        x_project_units: odooInteger(Number.isFinite(record.projectUnits)
           ? record.projectUnits!
-          : Number.isFinite(record.residentialUnitCount) ? record.residentialUnitCount! : false,
+          : Number.isFinite(record.residentialUnitCount) ? record.residentialUnitCount! : false),
         x_project_stage: record.projectStage ?? record.sourceStatus ?? "",
         x_opportunity_type: record.type,
         x_location: record.location ?? "",

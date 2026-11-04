@@ -4,6 +4,13 @@ import { acousticCpvCodes, relevantTenderText } from "./policy.ts";
 import { genericPlanningPortalUrl, nationalPlanningProjectUrl } from "./project-links.ts";
 import { addCalendarMonths } from "./rfi.ts";
 
+const ODOO_INTEGER_MIN = -2_147_483_648;
+const ODOO_INTEGER_MAX = 2_147_483_647;
+
+function boundedOdooInteger(value: number) {
+  return Math.max(ODOO_INTEGER_MIN, Math.min(ODOO_INTEGER_MAX, Math.trunc(value)));
+}
+
 export type OdooJson2Config = {
   enabled: boolean;
   baseUrl?: string;
@@ -924,7 +931,7 @@ function historicalLiveRfiPriority(
   buildingInfo: boolean,
   verifiedEmailMatch: boolean,
 ) {
-  return (acoustic ? 2_100_000_000 : 1_800_000_000)
+  return (acoustic ? 2_050_000_000 : 1_800_000_000)
     + activityFreshness * 100_000
     + (5_000 - Math.min(daysRemaining, 5_000)) * 10
     + historicalCommercialRfiTieBreaker(buildingInfo, verifiedEmailMatch) * 2_500;
@@ -1282,7 +1289,8 @@ async function normalizeHistoricalOdooRecords(
       || nativeOwnerId === config.glenUserId
       || nativeOwnerId === config.eoghanUserId
     );
-    if (record.x_pipeline_priority_rank !== priority.rank) values.x_pipeline_priority_rank = priority.rank;
+    const boundedPriorityRank = boundedOdooInteger(priority.rank);
+    if (record.x_pipeline_priority_rank !== boundedPriorityRank) values.x_pipeline_priority_rank = boundedPriorityRank;
     if (record.x_pipeline_priority_reason !== priority.reason) values.x_pipeline_priority_reason = priority.reason;
     const reviewPanel = historicalLeadReviewPanel(record, normalizationNow);
     if (record.x_lead_panel !== reviewPanel) values.x_lead_panel = reviewPanel;
@@ -1532,7 +1540,7 @@ function payloadWithExistingEvidence(
   const normalizationNow = new Date();
   const normalizedPriority = historicalPipelinePriority(normalizedRecord, normalizationNow);
   const normalizedActive = historicalActiveLeadQueueStatus(normalizedRecord, normalizationNow);
-  values.x_pipeline_priority_rank = normalizedPriority.rank;
+  values.x_pipeline_priority_rank = boundedOdooInteger(normalizedPriority.rank);
   values.x_pipeline_priority_reason = normalizedPriority.reason;
   values.x_lead_panel = historicalLeadReviewPanel(normalizedRecord, normalizationNow);
   if (normalizedActive !== undefined) values.active = normalizedActive;
