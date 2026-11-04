@@ -19,6 +19,7 @@ import {
   parseTedNotices,
 } from "../../src/lib/tender-intelligence/official-sources.ts";
 import { classifyPlanningEvidence, matchedAcousticTerms } from "../../src/lib/tender-intelligence/policy.ts";
+import { isQualifiedReviewRecord } from "../../src/lib/tender-intelligence/review-export-qualification.ts";
 import {
   classifyDccDocumentText,
   enrichDccPlanningOpportunity,
@@ -4134,4 +4135,53 @@ test("resumable evidence batches preserve their original order and advance past 
   assert.deepEqual(batch.indexes, [1]);
   assert.deepEqual(batch.missingKeys, [missing]);
   assert.equal(batch.nextOffset, 3);
+});
+
+test("review export follows the pipeline rule that keeps every live RFI without promoting weak potentials", () => {
+  const liveRfi = planningLead({
+    id: "live-rfi",
+    classification: "further-information-request",
+    evidenceStatus: "discovery-only",
+    cycleStatus: "confirmed-this-cycle",
+    deduplicationStatus: "unique",
+    leadQuality: "good",
+    leadDisposition: "active",
+  });
+  const resolvedRfi = {
+    ...liveRfi,
+    id: "resolved-rfi",
+    cycleStatus: "resolved",
+  };
+  const duplicateRfi = {
+    ...liveRfi,
+    id: "duplicate-rfi",
+    deduplicationStatus: "duplicate",
+  };
+  const weakPotential = planningLead({
+    id: "weak-potential",
+    classification: "design-construction-potential",
+    evidenceStatus: "official-text",
+    evidenceExcerpt: "A large residential development is proposed.",
+    cycleStatus: "confirmed-this-cycle",
+    deduplicationStatus: "unique",
+    leadQuality: "medium",
+    leadDisposition: "monitor",
+  });
+  const acousticGrant = planningLead({
+    id: "acoustic-grant",
+    classification: "granted-with-noise-conditions",
+    evidenceStatus: "official-text",
+    evidenceExcerpt: "Submit a noise impact assessment prepared by a suitably qualified acoustician.",
+    matchedTerms: ["noise impact assessment", "acoustician"],
+    cycleStatus: "confirmed-this-cycle",
+    deduplicationStatus: "unique",
+    leadQuality: "excellent",
+    leadDisposition: "active",
+  });
+
+  assert.equal(isQualifiedReviewRecord(liveRfi), true);
+  assert.equal(isQualifiedReviewRecord(resolvedRfi), false);
+  assert.equal(isQualifiedReviewRecord(duplicateRfi), false);
+  assert.equal(isQualifiedReviewRecord(weakPotential), false);
+  assert.equal(isQualifiedReviewRecord(acousticGrant), true);
 });

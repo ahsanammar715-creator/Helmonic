@@ -2,6 +2,8 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isQualifiedReviewRecord } from "../../src/lib/tender-intelligence/review-export-qualification.ts";
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
 const artifactRoot = process.env.HELMONIC_TENDER_ARTIFACT_ROOT
@@ -12,24 +14,8 @@ const ledgerPath = path.join(documentProvenRoot, "confirmed-ledger.json");
 const auditPath = path.join(documentProvenRoot, "latest-audit.json");
 const statePath = path.join(documentProvenRoot, "pipeline-state.json");
 
-const confirmedPlanningClasses = new Set([
-  "noise-related-rfi",
-  "further-information-request",
-  "granted-with-noise-conditions",
-  "refused-on-noise-grounds",
-  "design-construction-potential",
-]);
-
 function isRfi(record) {
   return ["noise-related-rfi", "further-information-request"].includes(record.classification);
-}
-
-function isQualified(record) {
-  if (record.cycleStatus === "resolved" || record.evidenceStatus !== "official-text") return false;
-  if (record.deduplicationStatus === "duplicate") return false;
-  if (["poor", "closed-background"].includes(record.leadQuality) || record.leadDisposition === "background") return false;
-  if (record.type === "formal-public-tender") return record.classification !== "no-relevant-opportunity";
-  return confirmedPlanningClasses.has(record.classification ?? "");
 }
 
 function category(record) {
@@ -147,7 +133,7 @@ function isoDate(value) {
 const ledger = JSON.parse(await readFile(ledgerPath, "utf8"));
 const audit = JSON.parse(await readFile(auditPath, "utf8"));
 const state = JSON.parse(await readFile(statePath, "utf8"));
-const qualified = (ledger.opportunities ?? ledger).filter(isQualified);
+const qualified = (ledger.opportunities ?? ledger).filter(isQualifiedReviewRecord);
 const auditCount = audit?.totals?.qualifiedWorkingList;
 if (Number.isFinite(auditCount) && auditCount !== qualified.length) {
   throw new Error(`Ledger/audit discrepancy: ledger has ${qualified.length} qualified records; audit reports ${auditCount}.`);
