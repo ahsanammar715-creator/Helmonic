@@ -13,6 +13,11 @@ on:
         required: true
         default: false
         type: boolean
+      sync_completed_odoo_checkpoint:
+        description: Reuse the last completed ledger and audit to refresh Odoo test without restarting source collection
+        required: true
+        default: false
+        type: boolean
       configure_odoo_ui_only:
         description: Repair or refresh only the inherited Odoo CRM fields and views; do not rerun the lead migration
         required: true
@@ -616,4 +621,12 @@ jobs:
         shell: bash
         env:
           TENDER_INTELLIGENCE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+        run: bash scripts/deployment/run-full-odoo-test-collection.sh
+
+      - name: Sync the completed authoritative ledger into Odoo test
+        if: github.event_name == 'workflow_dispatch' && inputs.sync_completed_odoo_checkpoint
+        shell: bash
+        env:
+          TENDER_INTELLIGENCE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+          HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY: "true"
         run: bash scripts/deployment/run-full-odoo-test-collection.sh

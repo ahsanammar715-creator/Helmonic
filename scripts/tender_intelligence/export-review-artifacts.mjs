@@ -133,6 +133,10 @@ function isoDate(value) {
 const ledger = JSON.parse(await readFile(ledgerPath, "utf8"));
 const audit = JSON.parse(await readFile(auditPath, "utf8"));
 const state = JSON.parse(await readFile(statePath, "utf8"));
+const completedLedgerSyncOnly = process.env.HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY === "true";
+const authoritativeInventory = completedLedgerSyncOnly
+  ? (ledger.opportunities ?? ledger)
+  : (state.opportunities ?? []);
 const qualified = (ledger.opportunities ?? ledger).filter(isQualifiedReviewRecord);
 const auditCount = audit?.totals?.qualifiedWorkingList;
 if (Number.isFinite(auditCount) && auditCount !== qualified.length) {
@@ -245,7 +249,7 @@ const rows = qualified
   });
 
 const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
-const allLeadRows = (state.opportunities ?? [])
+const allLeadRows = authoritativeInventory
   .sort((left, right) => qualityWeight(right) - qualityWeight(left)
     || freshnessWeight(right) - freshnessWeight(left)
     || left.sourceSystem.localeCompare(right.sourceSystem)
@@ -312,6 +316,7 @@ await writeFile(allLeadsCsvPath, allLeadCsv, "utf8");
 await copyFile(auditPath, auditCopyPath);
 
 console.log(JSON.stringify({
+  source: completedLedgerSyncOnly ? "completed-confirmed-ledger" : "pipeline-state",
   qualifiedRecords: qualified.length,
   csvPath,
   allLeadsCsvPath,

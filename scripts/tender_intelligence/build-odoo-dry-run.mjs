@@ -7,6 +7,7 @@ import {
   summarizeOdooDryRun,
 } from "../../src/lib/tender-intelligence/odoo-payload.ts";
 import { ODOO_TENDER_FIELD_CONTRACT } from "../../src/lib/tender-intelligence/odoo-field-contract.ts";
+import { recordsForOdooSync } from "../../src/lib/tender-intelligence/odoo-record-source.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -15,7 +16,20 @@ const artifactRoot = process.env.HELMONIC_TENDER_ARTIFACT_ROOT
   : path.join(repoRoot, "local-artifacts", "tender-intelligence");
 const statePath = path.join(artifactRoot, "document-proven", "pipeline-state.json");
 const state = JSON.parse(await readFile(statePath, "utf8"));
-const payloads = buildOdooDryRun(state.opportunities ?? []);
+const completedLedgerSyncOnly = process.env.HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY === "true";
+const ledger = completedLedgerSyncOnly
+  ? JSON.parse(await readFile(path.join(artifactRoot, "document-proven", "confirmed-ledger.json"), "utf8"))
+  : undefined;
+const audit = completedLedgerSyncOnly
+  ? JSON.parse(await readFile(path.join(artifactRoot, "document-proven", "latest-audit.json"), "utf8"))
+  : undefined;
+const sourceRecords = recordsForOdooSync({
+  state,
+  ledger,
+  audit,
+  useCompletedLedger: completedLedgerSyncOnly,
+});
+const payloads = buildOdooDryRun(sourceRecords);
 const summary = summarizeOdooDryRun(payloads);
 const timestamp = new Date().toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z");
 const outputDirectory = path.join(artifactRoot, "odoo-dry-runs", timestamp);
@@ -39,4 +53,11 @@ await writeFile(fieldContractPath, `${JSON.stringify({
   customFields: ODOO_TENDER_FIELD_CONTRACT,
 }, null, 2)}\n`, "utf8");
 
-console.log(JSON.stringify({ ...summary, payloadPath, summaryPath, fieldContractPath }, null, 2));
+console.log(JSON.stringify({
+  ...summary,
+  source: completedLedgerSyncOnly ? "completed-confirmed-ledger" : "pipeline-state",
+  sourceRecords: sourceRecords.length,
+  payloadPath,
+  summaryPath,
+  fieldContractPath,
+}, null, 2));

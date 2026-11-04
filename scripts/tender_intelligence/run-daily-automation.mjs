@@ -23,6 +23,11 @@ const summaryPath = path.join(outputDirectory, "summary.json");
 const summarizeOnly = process.argv.includes("--summarize-only");
 const buildingInfoRun = process.argv.includes("--buildinginfo-run");
 const odooMigrationOnly = process.env.HELMONIC_ODOO_MIGRATION_ONLY === "true";
+const odooCompletedLedgerSyncOnly = process.env.HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY === "true";
+
+if (odooMigrationOnly && odooCompletedLedgerSyncOnly) {
+  throw new Error("Odoo migration-only and completed-ledger sync-only modes cannot run together.");
+}
 
 if (process.env.HELMONIC_ODOO_PREFLIGHT_ONLY === "true") {
   await import("./preflight-odoo.mjs");
@@ -121,7 +126,14 @@ const steps = odooMigrationOnly
       { script: "scripts/tender_intelligence/build-odoo-dry-run.mjs", args: [] },
       { script: "scripts/tender_intelligence/sync-odoo-leads.mjs", args: [] },
     ]
-  : dailyCollectionSteps;
+  : odooCompletedLedgerSyncOnly
+    ? [
+        { script: "scripts/tender_intelligence/export-review-artifacts.mjs", args: [] },
+        { script: "scripts/tender_intelligence/generate-review-digest.mjs", args: [] },
+        { script: "scripts/tender_intelligence/build-odoo-dry-run.mjs", args: [] },
+        { script: "scripts/tender_intelligence/sync-odoo-leads.mjs", args: [] },
+      ]
+    : dailyCollectionSteps;
 const summary = {
   status: "running",
   runId,
@@ -135,6 +147,7 @@ const summary = {
   buildingInfoRun,
   summarizeOnly,
   odooMigrationOnly,
+  odooCompletedLedgerSyncOnly,
   optionalSteps: [],
   completedSteps: [],
   failedStep: undefined,

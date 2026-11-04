@@ -20,6 +20,7 @@ import {
 } from "../../src/lib/tender-intelligence/official-sources.ts";
 import { classifyPlanningEvidence, matchedAcousticTerms } from "../../src/lib/tender-intelligence/policy.ts";
 import { isQualifiedReviewRecord } from "../../src/lib/tender-intelligence/review-export-qualification.ts";
+import { recordsForOdooSync } from "../../src/lib/tender-intelligence/odoo-record-source.ts";
 import {
   classifyDccDocumentText,
   enrichDccPlanningOpportunity,
@@ -4184,4 +4185,48 @@ test("review export follows the pipeline rule that keeps every live RFI without 
   assert.equal(isQualifiedReviewRecord(duplicateRfi), false);
   assert.equal(isQualifiedReviewRecord(weakPotential), false);
   assert.equal(isQualifiedReviewRecord(acousticGrant), true);
+});
+
+test("completed-ledger Odoo sync ignores a partial scan only when ledger and audit agree", () => {
+  const partialState = {
+    opportunities: [planningLead({
+      id: "partial-only",
+      classification: "needs-council-evidence",
+      evidenceStatus: "discovery-only",
+    })],
+  };
+  const liveRfi = planningLead({
+    id: "completed-live-rfi",
+    classification: "further-information-request",
+    evidenceStatus: "discovery-only",
+    cycleStatus: "confirmed-this-cycle",
+    deduplicationStatus: "unique",
+    leadQuality: "good",
+    leadDisposition: "active",
+  });
+  const resolved = {
+    ...liveRfi,
+    id: "completed-resolved-rfi",
+    cycleStatus: "resolved",
+    leadQuality: "closed-background",
+    leadDisposition: "background",
+  };
+  const ledger = { opportunities: [liveRfi, resolved] };
+
+  assert.deepEqual(recordsForOdooSync({
+    state: partialState,
+    ledger,
+    audit: { totals: { qualifiedWorkingList: 1 } },
+    useCompletedLedger: true,
+  }), [liveRfi, resolved]);
+  assert.deepEqual(recordsForOdooSync({
+    state: partialState,
+    useCompletedLedger: false,
+  }), partialState.opportunities);
+  assert.throws(() => recordsForOdooSync({
+    state: partialState,
+    ledger,
+    audit: { totals: { qualifiedWorkingList: 2 } },
+    useCompletedLedger: true,
+  }), /Completed-ledger Odoo sync refused/);
 });

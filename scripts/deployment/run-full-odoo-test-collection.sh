@@ -5,6 +5,16 @@ set -euo pipefail
 : "${AZURE_JOB_NAME:?AZURE_JOB_NAME is required}"
 : "${TENDER_INTELLIGENCE_IMAGE:?TENDER_INTELLIGENCE_IMAGE is required}"
 
+completed_ledger_sync_only="${HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY:-false}"
+if [[ "$completed_ledger_sync_only" != "true" && "$completed_ledger_sync_only" != "false" ]]; then
+  echo "HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY must be true or false." >&2
+  exit 1
+fi
+run_label="guarded full Odoo test collection"
+if [[ "$completed_ledger_sync_only" == "true" ]]; then
+  run_label="completed-ledger Odoo test sync"
+fi
+
 restore_safe_recurring_mode() {
   az containerapp job update \
     --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -18,6 +28,7 @@ restore_safe_recurring_mode() {
       ODOO_CRM_UI_CONFIG_REQUIRED=false \
       HELMONIC_ODOO_PREFLIGHT_ONLY=false \
       HELMONIC_ODOO_MIGRATION_ONLY=false \
+      HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY=false \
       HELMONIC_BUILDINGINFO_BROWSER_ENABLED=false \
       HELMONIC_SCHEDULE_GUARD_ENABLED=true \
       HELMONIC_COUNCIL_EVIDENCE_CONCURRENCY=3 \
@@ -50,11 +61,11 @@ show_execution_logs() {
 wait_for_execution() {
   local execution_name="$1"
   if [[ -z "$execution_name" ]]; then
-    echo "Azure did not return a job execution name for the full Odoo test collection." >&2
+    echo "Azure did not return a job execution name for the $run_label." >&2
     return 1
   fi
 
-  echo "Started guarded full Odoo test collection: $execution_name"
+  echo "Started $run_label: $execution_name"
   for attempt in {1..120}; do
     local status
     status="$(az containerapp job execution show \
@@ -66,22 +77,22 @@ wait_for_execution() {
 
     case "$status" in
       Succeeded)
-        echo "Guarded full Odoo test collection succeeded."
+        echo "$run_label succeeded."
         return 0
         ;;
       Failed)
-        echo "Guarded full Odoo test collection failed: $execution_name" >&2
+        echo "$run_label failed: $execution_name" >&2
         show_execution_logs "$execution_name"
         return 1
         ;;
       *)
-        echo "Full Odoo test collection status: ${status:-starting} (check $attempt/120)"
+        echo "$run_label status: ${status:-starting} (check $attempt/120)"
         sleep 30
         ;;
     esac
   done
 
-  echo "Full Odoo test collection did not finish within 60 minutes." >&2
+  echo "$run_label did not finish within 60 minutes." >&2
   show_execution_logs "$execution_name"
   echo "Stopping the bounded test execution so it cannot continue unattended." >&2
   az containerapp job stop \
@@ -112,6 +123,7 @@ az containerapp job update \
     ODOO_CRM_UI_CONFIG_REQUIRED=false \
     HELMONIC_ODOO_PREFLIGHT_ONLY=false \
     HELMONIC_ODOO_MIGRATION_ONLY=false \
+    HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY="$completed_ledger_sync_only" \
     HELMONIC_BUILDINGINFO_BROWSER_ENABLED=false \
     HELMONIC_SCHEDULE_GUARD_ENABLED=false \
     HELMONIC_COUNCIL_EVIDENCE_CONCURRENCY=5 \

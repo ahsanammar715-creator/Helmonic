@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { syncOdooLeads } from "../../src/lib/tender-intelligence/odoo-client.ts";
 import { buildOdooDryRun } from "../../src/lib/tender-intelligence/odoo-payload.ts";
+import { recordsForOdooSync } from "../../src/lib/tender-intelligence/odoo-record-source.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -11,7 +12,20 @@ const artifactRoot = process.env.HELMONIC_TENDER_ARTIFACT_ROOT
   ? path.resolve(process.env.HELMONIC_TENDER_ARTIFACT_ROOT)
   : path.join(repoRoot, "local-artifacts", "tender-intelligence");
 const state = JSON.parse(await readFile(path.join(artifactRoot, "document-proven", "pipeline-state.json"), "utf8"));
-const payloads = buildOdooDryRun(state.opportunities ?? []);
+const completedLedgerSyncOnly = process.env.HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY === "true";
+const ledger = completedLedgerSyncOnly
+  ? JSON.parse(await readFile(path.join(artifactRoot, "document-proven", "confirmed-ledger.json"), "utf8"))
+  : undefined;
+const audit = completedLedgerSyncOnly
+  ? JSON.parse(await readFile(path.join(artifactRoot, "document-proven", "latest-audit.json"), "utf8"))
+  : undefined;
+const sourceRecords = recordsForOdooSync({
+  state,
+  ledger,
+  audit,
+  useCompletedLedger: completedLedgerSyncOnly,
+});
+const payloads = buildOdooDryRun(sourceRecords);
 const integerEnv = (name) => {
   const parsed = Number.parseInt(process.env[name] || "", 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
@@ -45,5 +59,15 @@ const timestamp = new Date().toISOString().replaceAll(":", "-").replace(/\.\d{3}
 const outputDirectory = path.join(artifactRoot, "odoo-sync-runs", timestamp);
 await mkdir(outputDirectory, { recursive: true });
 const outputPath = path.join(outputDirectory, "summary.json");
-await writeFile(outputPath, `${JSON.stringify({ ...result, outputPath }, null, 2)}\n`, "utf8");
-console.log(JSON.stringify({ ...result, outputPath }, null, 2));
+await writeFile(outputPath, `${JSON.stringify({
+  ...result,
+  source: completedLedgerSyncOnly ? "completed-confirmed-ledger" : "pipeline-state",
+  sourceRecords: sourceRecords.length,
+  outputPath,
+}, null, 2)}\n`, "utf8");
+console.log(JSON.stringify({
+  ...result,
+  source: completedLedgerSyncOnly ? "completed-confirmed-ledger" : "pipeline-state",
+  sourceRecords: sourceRecords.length,
+  outputPath,
+}, null, 2));
