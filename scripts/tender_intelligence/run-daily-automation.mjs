@@ -24,9 +24,10 @@ const summarizeOnly = process.argv.includes("--summarize-only");
 const buildingInfoRun = process.argv.includes("--buildinginfo-run");
 const odooMigrationOnly = process.env.HELMONIC_ODOO_MIGRATION_ONLY === "true";
 const odooCompletedLedgerSyncOnly = process.env.HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY === "true";
+const rfiLedgerAuditOnly = process.env.HELMONIC_RFI_LEDGER_AUDIT_ONLY === "true";
 
-if (odooMigrationOnly && odooCompletedLedgerSyncOnly) {
-  throw new Error("Odoo migration-only and completed-ledger sync-only modes cannot run together.");
+if ([odooMigrationOnly, odooCompletedLedgerSyncOnly, rfiLedgerAuditOnly].filter(Boolean).length > 1) {
+  throw new Error("Migration-only, completed-ledger sync-only and RFI audit-only modes are mutually exclusive.");
 }
 
 if (process.env.HELMONIC_ODOO_PREFLIGHT_ONLY === "true") {
@@ -108,7 +109,7 @@ function runScript(script, args = []) {
   });
 }
 
-const optionalSteps = !odooMigrationOnly && process.env.ODOO_CRM_UI_CONFIG_ENABLED === "true"
+const optionalSteps = !odooMigrationOnly && !rfiLedgerAuditOnly && process.env.ODOO_CRM_UI_CONFIG_ENABLED === "true"
   ? [{ script: "scripts/tender_intelligence/configure-odoo-crm-ui.mjs", args: [] }]
   : [];
 const dailyCollectionSteps = [
@@ -121,7 +122,9 @@ const dailyCollectionSteps = [
   { script: "scripts/tender_intelligence/build-odoo-dry-run.mjs", args: [] },
   { script: "scripts/tender_intelligence/sync-odoo-leads.mjs", args: [] },
 ];
-const steps = odooMigrationOnly
+const steps = rfiLedgerAuditOnly
+  ? [{ script: "scripts/tender_intelligence/audit-rfi-ledger.mjs", args: [] }]
+  : odooMigrationOnly
   ? [
       { script: "scripts/tender_intelligence/build-odoo-dry-run.mjs", args: [] },
       { script: "scripts/tender_intelligence/sync-odoo-leads.mjs", args: [] },
@@ -148,6 +151,7 @@ const summary = {
   summarizeOnly,
   odooMigrationOnly,
   odooCompletedLedgerSyncOnly,
+  rfiLedgerAuditOnly,
   optionalSteps: [],
   completedSteps: [],
   failedStep: undefined,
