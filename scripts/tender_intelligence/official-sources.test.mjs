@@ -4191,12 +4191,14 @@ test("completed-ledger Odoo sync ignores a partial scan only when ledger and aud
   const partialState = {
     opportunities: [planningLead({
       id: "partial-only",
+      crmExternalId: "helmonic-lead:partial-only",
       classification: "needs-council-evidence",
       evidenceStatus: "discovery-only",
     })],
   };
   const liveRfi = planningLead({
     id: "completed-live-rfi",
+    crmExternalId: "helmonic-lead:completed-rfi",
     classification: "further-information-request",
     evidenceStatus: "discovery-only",
     cycleStatus: "confirmed-this-cycle",
@@ -4213,12 +4215,15 @@ test("completed-ledger Odoo sync ignores a partial scan only when ledger and aud
   };
   const ledger = { opportunities: [liveRfi, resolved] };
 
-  assert.deepEqual(recordsForOdooSync({
+  const completedRecords = recordsForOdooSync({
     state: partialState,
     ledger,
     audit: { totals: { qualifiedWorkingList: 1 } },
     useCompletedLedger: true,
-  }), [liveRfi, resolved]);
+  });
+  assert.equal(completedRecords.length, 1);
+  assert.equal(completedRecords[0].id, liveRfi.id);
+  assert.equal(completedRecords[0].deduplicationStatus, "canonical");
   assert.deepEqual(recordsForOdooSync({
     state: partialState,
     useCompletedLedger: false,
