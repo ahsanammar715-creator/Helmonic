@@ -8,6 +8,9 @@ const durableFiles = [
   "document-proven/confirmed-ledger.json",
   "document-proven/pipeline-state.json",
   "document-proven/latest-audit.json",
+  "document-proven/latest-rfi-audit.json",
+  "odoo-sync-runs/latest-summary.json",
+  "automation-runs/latest-health.json",
 ] as const;
 const checkpointFiles = ["document-proven/pipeline-state.json"] as const;
 

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { hasConfirmedCurrentAcousticEvidence } from "../../src/lib/tender-intelligence/acoustic-evidence-guard.ts";
@@ -145,5 +145,9 @@ const result = {
   },
 };
 
+const outputPath = path.join(artifactRoot, "document-proven", "latest-rfi-audit.json");
+await mkdir(path.dirname(outputPath), { recursive: true });
+await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+
 console.log(`RFI_LEDGER_AUDIT_JSON=${JSON.stringify(result)}`);
-console.log(JSON.stringify(result, null, 2));
+console.log(JSON.stringify({ ...result, outputPath }, null, 2));
