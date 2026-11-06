@@ -326,35 +326,39 @@ jobs:
       - name: Publish the approved daily worker and prove one complete run
         if: >-
           github.event_name == 'push' &&
-          contains(github.event.head_commit.message, '[publish-ti-worker]')
+          (contains(github.event.head_commit.message, '[publish-ti-worker]') ||
+          contains(github.event.head_commit.message, '[verify-ti-worker]'))
         timeout-minutes: 180
         shell: bash
         run: |
           set -euo pipefail
 
           image="$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:${{ github.sha }}"
+          publish_mode="${{ contains(github.event.head_commit.message, '[publish-ti-worker]') }}"
 
-          running_execution="$(az containerapp job execution list \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --name "$AZURE_JOB_NAME" \
-            --query "[?properties.status=='Running'].name | [0]" \
-            --output tsv 2>/dev/null || true)"
-          if [[ -n "$running_execution" ]]; then
-            echo "Refusing to publish while execution $running_execution is still running." >&2
-            exit 1
+          if [[ "$publish_mode" == "true" ]]; then
+            running_execution="$(az containerapp job execution list \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --query "[?properties.status=='Running'].name | [0]" \
+              --output tsv 2>/dev/null || true)"
+            if [[ -n "$running_execution" ]]; then
+              echo "Refusing to publish while execution $running_execution is still running." >&2
+              exit 1
+            fi
+
+            az containerapp job update \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --image "$image" \
+              --cron-expression "0 7 * * *" \
+              --set-env-vars \
+                HELMONIC_SCHEDULE_GUARD_ENABLED=false \
+                NODE_OPTIONS=--experimental-strip-types \
+              --command node \
+              --args scripts/tender_intelligence/run-daily-automation.mjs \
+              --only-show-errors >/dev/null
           fi
-
-          az containerapp job update \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --name "$AZURE_JOB_NAME" \
-            --image "$image" \
-            --cron-expression "0 7 * * *" \
-            --set-env-vars \
-              HELMONIC_SCHEDULE_GUARD_ENABLED=false \
-              NODE_OPTIONS=--experimental-strip-types \
-            --command node \
-            --args scripts/tender_intelligence/run-daily-automation.mjs \
-            --only-show-errors >/dev/null
 
           deployed_image="$(az containerapp job show \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -372,10 +376,10 @@ jobs:
             --query "properties.template.containers[0].env[?name=='HELMONIC_SCHEDULE_GUARD_ENABLED'] | [0].value" \
             --output tsv)"
 
-          [[ "$deployed_image" == "$image" ]] || {
+          if [[ "$publish_mode" == "true" && "$deployed_image" != "$image" ]]; then
             echo "Published image mismatch: expected $image, found $deployed_image" >&2
             exit 1
-          }
+          fi
           [[ "$deployed_cron" == "0 7 * * *" ]] || {
             echo "Published cron mismatch: expected 0 7 * * *, found $deployed_cron" >&2
             exit 1
@@ -385,17 +389,29 @@ jobs:
             exit 1
           }
 
-          execution_name="$(az containerapp job start \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --name "$AZURE_JOB_NAME" \
-            --query name \
-            --output tsv)"
+          if [[ "$publish_mode" == "true" ]]; then
+            execution_name="$(az containerapp job start \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --query name \
+              --output tsv)"
+          else
+            execution_name="$(az containerapp job execution list \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --query 'sort_by(@, &properties.startTime)[-1].name' \
+              --output tsv)"
+          fi
           if [[ -z "$execution_name" ]]; then
             echo "Azure did not return a validation execution name." >&2
             exit 1
           fi
 
-          echo "Started full published-worker validation: $execution_name"
+          if [[ "$publish_mode" == "true" ]]; then
+            echo "Started full published-worker validation: $execution_name"
+          else
+            echo "Read-only verification of completed published-worker execution: $execution_name"
+          fi
           status=""
           for attempt in {1..360}; do
             status="$(az containerapp job execution show \
@@ -431,7 +447,7 @@ jobs:
             --execution "$execution_name" \
             --container "$container_name" \
             --format text \
-            --tail 500 2>&1 || true)"
+            --tail 300 2>&1 || true)"
           printf '%s\n' "$validation_logs"
 
           [[ "$status" == "Succeeded" ]] || {
