@@ -13,6 +13,7 @@ const durableFiles = [
   "automation-runs/latest-health.json",
 ] as const;
 const checkpointFiles = ["document-proven/pipeline-state.json"] as const;
+const healthReceiptPath = "automation-runs/latest-health.json";
 
 type BlobConfig = {
   accountName: string;
@@ -167,6 +168,27 @@ export async function hydrateTenderArtifacts(artifactRoot: string) {
   return { enabled: true, downloaded, buildingInfoCsvFiles };
 }
 
+/**
+ * Hydrate only the small durable health receipt. The watchdog must not pull the
+ * full lead ledger and audit corpus merely to prove that the daily run is
+ * healthy; doing so needlessly couples a lightweight check to ledger size.
+ */
+export async function hydrateTenderHealthReceipt(artifactRoot: string) {
+  const config = configuration();
+  if (!config) return { enabled: false, downloaded: 0 };
+  const token = await accessToken(config);
+  const namespace = blobNamespace();
+  const response = await request(config, token, `${namespace}current/${healthReceiptPath}`);
+  if (response.status === 404) return { enabled: true, downloaded: 0 };
+  if (!response.ok) {
+    throw new Error(`Tender health receipt download failed with status ${response.status}.`);
+  }
+  const target = path.join(artifactRoot, ...healthReceiptPath.split("/"));
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, new Uint8Array(await response.arrayBuffer()));
+  return { enabled: true, downloaded: 1 };
+}
+
 async function uploadFile(config: BlobConfig, token: string, localPath: string, blobName: string) {
   const body = await readFile(localPath);
   const response = await request(config, token, blobName, {
@@ -214,6 +236,18 @@ export async function persistTenderArtifacts(artifactRoot: string, runId: string
     }
   }
   return { enabled: true, uploaded };
+}
+
+/** Persist only the repaired health receipt, both as an audit copy and current. */
+export async function persistTenderHealthReceipt(artifactRoot: string, runId: string) {
+  const config = configuration();
+  if (!config) return { enabled: false, uploaded: 0 };
+  const token = await accessToken(config);
+  const namespace = blobNamespace();
+  const localPath = path.join(artifactRoot, ...healthReceiptPath.split("/"));
+  await uploadFile(config, token, localPath, `${namespace}runs/${runId}/${healthReceiptPath}`);
+  await uploadFile(config, token, localPath, `${namespace}current/${healthReceiptPath}`);
+  return { enabled: true, uploaded: 2 };
 }
 
 /**

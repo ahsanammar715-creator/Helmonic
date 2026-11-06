@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { hydrateTenderArtifacts } from "../../src/lib/tender-intelligence/blob-artifacts.ts";
+import { hydrateTenderHealthReceipt } from "../../src/lib/tender-intelligence/blob-artifacts.ts";
 
 const maximumAgeHours = Math.max(
   1,
@@ -11,7 +11,7 @@ const maximumAgeHours = Math.max(
 const root = await mkdtemp(path.join(os.tmpdir(), "helmonic-ti-watchdog-"));
 
 try {
-  await hydrateTenderArtifacts(root);
+  await hydrateTenderHealthReceipt(root);
   const healthPath = path.join(root, "automation-runs", "latest-health.json");
   const health = JSON.parse(await readFile(healthPath, "utf8"));
   const completedAt = new Date(health.completedAt);

@@ -3,14 +3,14 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-  hydrateTenderArtifacts,
-  persistTenderArtifacts,
+  hydrateTenderHealthReceipt,
+  persistTenderHealthReceipt,
 } from "../../src/lib/tender-intelligence/blob-artifacts.ts";
 
 const root = await mkdtemp(path.join(os.tmpdir(), "helmonic-ti-health-repair-"));
 
 try {
-  await hydrateTenderArtifacts(root);
+  await hydrateTenderHealthReceipt(root);
   const healthPath = path.join(root, "automation-runs", "latest-health.json");
   const health = JSON.parse(await readFile(healthPath, "utf8"));
   const requiredTrueChecks = [
@@ -58,7 +58,7 @@ try {
   };
   await writeFile(healthPath, `${JSON.stringify(repaired, null, 2)}\n`, "utf8");
   const repairRunId = `health-repair-${repairedAt.toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z")}`;
-  const persistence = await persistTenderArtifacts(root, repairRunId);
+  const persistence = await persistTenderHealthReceipt(root, repairRunId);
   console.log(`TENDER_INTELLIGENCE_HEALTH_REPAIR_JSON=${JSON.stringify({ repaired, persistence })}`);
 } catch (error) {
   console.error(`Tender Intelligence health repair failed: ${error instanceof Error ? error.message : error}`);
