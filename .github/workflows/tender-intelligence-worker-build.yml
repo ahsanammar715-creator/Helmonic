@@ -369,7 +369,7 @@ jobs:
           deployed_guard="$(az containerapp job show \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_JOB_NAME" \
-            --query \"properties.template.containers[0].env[?name=='HELMONIC_SCHEDULE_GUARD_ENABLED'] | [0].value\" \
+            --query "properties.template.containers[0].env[?name=='HELMONIC_SCHEDULE_GUARD_ENABLED'] | [0].value" \
             --output tsv)"
 
           [[ "$deployed_image" == "$image" ]] || {
