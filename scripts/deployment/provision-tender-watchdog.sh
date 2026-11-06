@@ -134,12 +134,42 @@ wait_for_execution() {
       Succeeded) return 0 ;;
       Failed)
         echo "$label failed: $execution_name" >&2
+        echo "Execution state:" >&2
+        az containerapp job execution show \
+          --resource-group "$AZURE_RESOURCE_GROUP" \
+          --name "$AZURE_WATCHDOG_JOB_NAME" \
+          --job-execution-name "$execution_name" \
+          --output jsonc >&2 || true
+        echo "Execution replicas:" >&2
+        az containerapp job replica list \
+          --resource-group "$AZURE_RESOURCE_GROUP" \
+          --name "$AZURE_WATCHDOG_JOB_NAME" \
+          --execution "$execution_name" \
+          --output jsonc >&2 || true
         az containerapp job logs show \
           --resource-group "$AZURE_RESOURCE_GROUP" \
           --name "$AZURE_WATCHDOG_JOB_NAME" \
           --execution "$execution_name" \
           --container tender-intelligence-watchdog \
           --tail 300 >&2 || true
+        environment_id="$(az containerapp job show \
+          --resource-group "$AZURE_RESOURCE_GROUP" \
+          --name "$AZURE_WATCHDOG_JOB_NAME" \
+          --query properties.environmentId \
+          --output tsv 2>/dev/null || true)"
+        environment_name="${environment_id##*/}"
+        workspace_customer_id="$(az containerapp env show \
+          --resource-group "$AZURE_RESOURCE_GROUP" \
+          --name "$environment_name" \
+          --query properties.appLogsConfiguration.logAnalyticsConfiguration.customerId \
+          --output tsv 2>/dev/null || true)"
+        if [[ -n "$workspace_customer_id" ]]; then
+          echo "Recent replica-scoped system events:" >&2
+          az monitor log-analytics query \
+            --workspace "$workspace_customer_id" \
+            --analytics-query "ContainerAppSystemLogs_CL | where TimeGenerated > ago(2h) | where ContainerGroupName_s contains '$execution_name' or Log_s contains '$execution_name' or _ResourceId contains '$AZURE_WATCHDOG_JOB_NAME' | project TimeGenerated, ContainerGroupName_s, ReplicaName_s, Reason_s, Log_s | order by TimeGenerated desc | take 100" \
+            --output table >&2 || true
+        fi
         return 1
         ;;
       *) sleep 15 ;;
