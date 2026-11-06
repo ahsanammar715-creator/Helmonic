@@ -470,6 +470,43 @@ jobs:
               validation_logs="${validation_logs}"$'\n'"${archived_health}"
             fi
           fi
+
+          if ! grep -F 'TENDER_INTELLIGENCE_HEALTH_JSON=' <<<"$validation_logs" >/dev/null; then
+            storage_account="$(az containerapp job show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --query "properties.template.containers[0].env[?name=='AZURE_TENDER_STORAGE_ACCOUNT'] | [0].value" \
+              --output tsv)"
+            storage_container="$(az containerapp job show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --query "properties.template.containers[0].env[?name=='AZURE_TENDER_STORAGE_CONTAINER'] | [0].value" \
+              --output tsv)"
+            storage_namespace="$(az containerapp job show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --query "properties.template.containers[0].env[?name=='HELMONIC_TENDER_BLOB_NAMESPACE'] | [0].value" \
+              --output tsv)"
+            storage_namespace="${storage_namespace#/}"
+            storage_namespace="${storage_namespace%/}"
+            if [[ -n "$storage_namespace" ]]; then
+              health_blob_name="$storage_namespace/automation-runs/latest-health.json"
+            else
+              health_blob_name="automation-runs/latest-health.json"
+            fi
+            health_file="${RUNNER_TEMP}/tender-intelligence-latest-health.json"
+            if az storage blob download \
+              --auth-mode login \
+              --account-name "$storage_account" \
+              --container-name "$storage_container" \
+              --name "$health_blob_name" \
+              --file "$health_file" \
+              --overwrite true \
+              --only-show-errors >/dev/null 2>&1; then
+              durable_health="$(tr -d '\r\n' < "$health_file")"
+              validation_logs="${validation_logs}"$'\n'"TENDER_INTELLIGENCE_HEALTH_JSON=${durable_health}"
+            fi
+          fi
           printf '%s\n' "$validation_logs"
 
           [[ "$status" == "Succeeded" ]] || {
