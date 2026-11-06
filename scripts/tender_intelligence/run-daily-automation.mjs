@@ -7,6 +7,7 @@ import {
   hydrateTenderArtifacts,
   persistTenderArtifacts,
 } from "../../src/lib/tender-intelligence/blob-artifacts.ts";
+import { buildTenderAutomationHealth } from "../../src/lib/tender-intelligence/automation-health.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -20,6 +21,7 @@ const startedAt = new Date();
 const runId = startedAt.toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z");
 const outputDirectory = path.join(automationRoot, runId);
 const summaryPath = path.join(outputDirectory, "summary.json");
+const latestHealthPath = path.join(automationRoot, "latest-health.json");
 const summarizeOnly = process.argv.includes("--summarize-only");
 const buildingInfoRun = process.argv.includes("--buildinginfo-run");
 const odooMigrationOnly = process.env.HELMONIC_ODOO_MIGRATION_ONLY === "true";
@@ -101,7 +103,12 @@ function runScript(script, args = []) {
       ...args,
     ], {
       cwd: repoRoot,
-      env: { ...process.env, HELMONIC_TENDER_ARTIFACT_ROOT: artifactRoot },
+      env: {
+        ...process.env,
+        HELMONIC_TENDER_ARTIFACT_ROOT: artifactRoot,
+        HELMONIC_AUTOMATION_RUN_ID: runId,
+        HELMONIC_AUTOMATION_STARTED_AT: startedAt.toISOString(),
+      },
       stdio: "inherit",
     });
     child.once("error", reject);
@@ -117,6 +124,7 @@ const dailyCollectionSteps = [
     ? [{ script: "scripts/tender_intelligence/collect-buildinginfo-browser.mjs", args: [] }]
     : []),
   { script: "scripts/tender_intelligence/run-document-proven-pipeline.mjs", args: summarizeOnly ? ["--summarize-only"] : [] },
+  { script: "scripts/tender_intelligence/audit-rfi-ledger.mjs", args: [] },
   { script: "scripts/tender_intelligence/export-review-artifacts.mjs", args: [] },
   { script: "scripts/tender_intelligence/generate-review-digest.mjs", args: [] },
   { script: "scripts/tender_intelligence/build-odoo-dry-run.mjs", args: [] },
@@ -187,6 +195,24 @@ try {
   summary.completedAt = new Date().toISOString();
   await writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
   await unlink(lockPath).catch(() => undefined);
+  const readJsonIfPresent = async (filePath) => {
+    try {
+      return JSON.parse(await readFile(filePath, "utf8"));
+    } catch (error) {
+      if (error?.code === "ENOENT") return undefined;
+      throw error;
+    }
+  };
+  const health = buildTenderAutomationHealth({
+    workerSummary: summary,
+    audit: await readJsonIfPresent(path.join(artifactRoot, "document-proven", "latest-audit.json")),
+    rfiAudit: await readJsonIfPresent(path.join(artifactRoot, "document-proven", "latest-rfi-audit.json")),
+    odooSync: await readJsonIfPresent(path.join(artifactRoot, "odoo-sync-runs", "latest-summary.json")),
+    state: await readJsonIfPresent(path.join(artifactRoot, "document-proven", "pipeline-state.json")),
+    completedAt: new Date(summary.completedAt),
+  });
+  await writeFile(latestHealthPath, `${JSON.stringify(health, null, 2)}\n`, "utf8");
+  summary.operationalHealth = health;
   try {
     summary.artifactPersistence = await persistTenderArtifacts(artifactRoot, runId);
   } catch (error) {
@@ -196,5 +222,6 @@ try {
     process.exitCode = 1;
   }
   await writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+  console.log(`TENDER_INTELLIGENCE_HEALTH_JSON=${JSON.stringify(health)}`);
   console.log(JSON.stringify({ ...summary, artifactHydration: hydration }, null, 2));
 }

@@ -76,6 +76,7 @@ import {
   syncOdooLeads,
 } from "../../src/lib/tender-intelligence/odoo-client.ts";
 import { ODOO_TENDER_FIELD_TYPES } from "../../src/lib/tender-intelligence/odoo-field-contract.ts";
+import { buildTenderAutomationHealth } from "../../src/lib/tender-intelligence/automation-health.ts";
 import {
   buildBuildingInfoPageUrl,
   collectBuildingInfoProjects,
@@ -4291,4 +4292,106 @@ test("completed-ledger Odoo sync ignores a partial scan only when ledger and aud
     audit: { totals: { qualifiedWorkingList: 2 } },
     useCompletedLedger: true,
   }), /Completed-ledger Odoo sync refused/);
+});
+
+test("automation health proves the document audit and Odoo population completed in the same run", () => {
+  const startedAt = "2026-11-06T07:00:00.000Z";
+  const completedAt = new Date("2026-11-06T07:42:00.000Z");
+  const health = buildTenderAutomationHealth({
+    workerSummary: {
+      status: "completed",
+      runId: "2026-11-06T07-00-00Z",
+      startedAt,
+      odooSyncEnabled: true,
+    },
+    audit: {
+      completedAt: "2026-11-06T07:30:00.000Z",
+      acceptanceRule: "authoritative document text and exact excerpt required",
+      sources: [{ sourceSystem: "national-planning-register", candidates: 100 }],
+      totals: {
+        candidates: 100,
+        officialDocumentsInspected: 80,
+        qualifiedWorkingList: 25,
+        evidenceUnavailable: 4,
+        duplicateSourceRecords: 2,
+      },
+    },
+    rfiAudit: {
+      auditGeneratedAt: "2026-11-06T07:32:00.000Z",
+      rfiStatus: { live: 60 },
+      acousticFinding: {
+        liveAcousticallyConfirmedRfis: 7,
+        liveGeneralRfisWithoutConfirmedAcousticWording: 53,
+      },
+    },
+    odooSync: {
+      status: "completed",
+      completedAt: "2026-11-06T07:40:00.000Z",
+      attempted: 25,
+      created: 3,
+      updated: 22,
+      unchanged: 0,
+      failures: [],
+    },
+    state: {
+      opportunities: [
+        { id: "new", firstSeenAt: "2026-11-06T07:05:00.000Z", cycleStatus: "confirmed-this-cycle", leadDisposition: "active" },
+        { id: "changed", firstSeenAt: "2026-10-01T07:00:00.000Z", sourceMajorUpdatedAt: "2026-11-06T07:06:00.000Z", cycleStatus: "confirmed-this-cycle", leadDisposition: "active" },
+      ],
+    },
+    completedAt,
+  });
+
+  assert.equal(health.status, "healthy");
+  assert.equal(health.counts.newlyDetected, 1);
+  assert.equal(health.counts.materiallyUpdated, 1);
+  assert.equal(health.counts.liveConfirmedAcousticRfis, 7);
+  assert.equal(health.counts.odooCreated, 3);
+  assert.match(health.message, /completed at 07:42/);
+});
+
+test("automation health fails closed when a same-run audit or Odoo proof is missing", () => {
+  const health = buildTenderAutomationHealth({
+    workerSummary: {
+      status: "completed",
+      runId: "stale-run",
+      startedAt: "2026-11-06T07:00:00.000Z",
+      odooSyncEnabled: true,
+    },
+    audit: { completedAt: "2026-11-05T07:30:00.000Z", totals: {} },
+    rfiAudit: { auditGeneratedAt: "2026-11-05T07:31:00.000Z" },
+    odooSync: { status: "completed", completedAt: "2026-11-05T07:40:00.000Z", failures: [] },
+    state: { opportunities: [] },
+    completedAt: new Date("2026-11-06T07:42:00.000Z"),
+  });
+
+  assert.equal(health.status, "degraded");
+  assert.equal(health.checks.authoritativeAuditFresh, false);
+  assert.equal(health.checks.rfiDocumentAuditFresh, false);
+  assert.equal(health.checks.odooSyncFresh, false);
+  assert.match(health.message, /inspect checks and failure/);
+});
+
+test("automation health reports a source failure even when the worker process exits cleanly", () => {
+  const health = buildTenderAutomationHealth({
+    workerSummary: {
+      status: "completed",
+      runId: "source-failure",
+      startedAt: "2026-11-06T07:00:00.000Z",
+      odooSyncEnabled: false,
+    },
+    audit: {
+      completedAt: "2026-11-06T07:20:00.000Z",
+      totals: {},
+      sources: [{ name: "TED", fetchStatus: "timeout", fetchError: "request timed out" }],
+    },
+    rfiAudit: { auditGeneratedAt: "2026-11-06T07:21:00.000Z" },
+    state: { opportunities: [] },
+    completedAt: new Date("2026-11-06T07:22:00.000Z"),
+  });
+
+  assert.equal(health.status, "degraded");
+  assert.equal(health.checks.noSourceFailures, false);
+  assert.equal(health.counts.sourceFailures, 1);
+  assert.equal(health.sources[0].fetchStatus, "timeout");
 });

@@ -59,15 +59,16 @@ const timestamp = new Date().toISOString().replaceAll(":", "-").replace(/\.\d{3}
 const outputDirectory = path.join(artifactRoot, "odoo-sync-runs", timestamp);
 await mkdir(outputDirectory, { recursive: true });
 const outputPath = path.join(outputDirectory, "summary.json");
-await writeFile(outputPath, `${JSON.stringify({
+const latestOutputPath = path.join(artifactRoot, "odoo-sync-runs", "latest-summary.json");
+const syncSummary = {
   ...result,
   source: completedLedgerSyncOnly ? "completed-confirmed-ledger" : "pipeline-state",
   sourceRecords: sourceRecords.length,
   outputPath,
-}, null, 2)}\n`, "utf8");
-console.log(JSON.stringify({
-  ...result,
-  source: completedLedgerSyncOnly ? "completed-confirmed-ledger" : "pipeline-state",
-  sourceRecords: sourceRecords.length,
-  outputPath,
-}, null, 2));
+  completedAt: new Date().toISOString(),
+};
+await Promise.all([
+  writeFile(outputPath, `${JSON.stringify(syncSummary, null, 2)}\n`, "utf8"),
+  writeFile(latestOutputPath, `${JSON.stringify(syncSummary, null, 2)}\n`, "utf8"),
+]);
+console.log(JSON.stringify({ ...syncSummary, latestOutputPath }, null, 2));
