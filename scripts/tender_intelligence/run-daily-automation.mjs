@@ -213,6 +213,12 @@ try {
   });
   await writeFile(latestHealthPath, `${JSON.stringify(health, null, 2)}\n`, "utf8");
   summary.operationalHealth = health;
+  if (!health.healthy) {
+    summary.status = "failed";
+    summary.failedStep = "operational-health";
+    summary.error = health.message;
+    process.exitCode = 1;
+  }
   try {
     summary.artifactPersistence = await persistTenderArtifacts(artifactRoot, runId);
   } catch (error) {

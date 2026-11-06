@@ -73,6 +73,7 @@ on:
       - scripts/tender_intelligence/**
       - scripts/deployment/provision-buildinginfo-job.sh
       - scripts/deployment/provision-education-lookup-job.sh
+      - scripts/deployment/provision-tender-watchdog.sh
       - src/lib/tender-intelligence/**
       - .github/workflows/tender-intelligence-worker-build.yml
 
@@ -92,6 +93,7 @@ env:
   AZURE_JOB_NAME: ca-helmonic-ti-dev-001
   AZURE_BUILDINGINFO_JOB_NAME: ca-helmonic-ti-bi-dev-001
   AZURE_EDUCATION_JOB_NAME: ca-helmonic-ti-education-dev-001
+  AZURE_WATCHDOG_JOB_NAME: ca-helmonic-ti-watchdog-dev-001
 
 jobs:
   diagnose-azure-jobs:
@@ -513,16 +515,30 @@ jobs:
             echo "Published-worker validation ended with status ${status:-unknown}." >&2
             exit 1
           }
-          grep -F 'TENDER_INTELLIGENCE_HEALTH_JSON=' <<<"$validation_logs" >/dev/null || {
-            echo "Validation completed without a durable health receipt in the worker log." >&2
-            exit 1
-          }
-          grep -F '"healthy":true' <<<"$validation_logs" >/dev/null || {
+          if grep -F 'TENDER_INTELLIGENCE_HEALTH_JSON=' <<<"$validation_logs" >/dev/null \
+            && ! grep -F '"healthy":true' <<<"$validation_logs" >/dev/null; then
             echo "The durable health receipt did not report a healthy run." >&2
             exit 1
-          }
+          fi
+
+          echo "Azure execution status is the durable gate: this worker exits non-zero whenever operational health is degraded."
 
           echo "Published worker verified: image=$deployed_image cron=$deployed_cron guard=$deployed_guard execution=$execution_name"
+
+      - name: Provision and validate the independent daily health watchdog
+        if: >-
+          always() &&
+          github.event_name == 'push' &&
+          contains(github.event.head_commit.message, '[publish-ti-worker]')
+        shell: bash
+        env:
+          AZURE_SOURCE_JOB_NAME: ${{ env.AZURE_JOB_NAME }}
+          TENDER_INTELLIGENCE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+          TENDER_WATCHDOG_ALERT_EMAIL: ammar.ahsan@smartstudioinc.com
+          TENDER_WATCHDOG_CRON_EXPRESSION: "30 10 * * *"
+          HELMONIC_TENDER_WATCHDOG_MAX_AGE_HOURS: "5"
+          TENDER_WATCHDOG_START_VALIDATION: "true"
+        run: bash scripts/deployment/provision-tender-watchdog.sh
 
       - name: Create or update the separate 10am BuildingInfo dev/test job
         if: github.event_name == 'workflow_dispatch' && inputs.provision_buildinginfo_job

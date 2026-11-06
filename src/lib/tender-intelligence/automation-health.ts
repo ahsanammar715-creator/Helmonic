@@ -86,14 +86,15 @@ export function buildTenderAutomationHealth({
   return {
     schemaVersion: 1,
     status,
+    healthy: status === "healthy" || status === "healthy-no-odoo-write",
     runId: workerSummary.runId,
     startedAt: startedAt.toISOString(),
     completedAt: completedAt.toISOString(),
     completedAtDublin: localCompletion,
     durationSeconds: Math.max(0, Math.round((completedAt.getTime() - startedAt.getTime()) / 1_000)),
     schedule: {
-      intendedRun: "07:00 Europe/Dublin",
-      timeZone: "Europe/Dublin",
+      intendedRun: "07:00 UTC",
+      timeZone: "UTC",
       reviewOrdering: "new document-confirmed acoustic RFIs first, then other live RFIs, then remaining qualified leads",
     },
     checks: {

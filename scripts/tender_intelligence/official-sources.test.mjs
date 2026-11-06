@@ -4343,6 +4343,7 @@ test("automation health proves the document audit and Odoo population completed 
   });
 
   assert.equal(health.status, "healthy");
+  assert.equal(health.healthy, true);
   assert.equal(health.counts.newlyDetected, 1);
   assert.equal(health.counts.materiallyUpdated, 1);
   assert.equal(health.counts.liveConfirmedAcousticRfis, 7);
@@ -4366,6 +4367,7 @@ test("automation health fails closed when a same-run audit or Odoo proof is miss
   });
 
   assert.equal(health.status, "degraded");
+  assert.equal(health.healthy, false);
   assert.equal(health.checks.authoritativeAuditFresh, false);
   assert.equal(health.checks.rfiDocumentAuditFresh, false);
   assert.equal(health.checks.odooSyncFresh, false);
@@ -4391,6 +4393,7 @@ test("automation health reports a source failure even when the worker process ex
   });
 
   assert.equal(health.status, "degraded");
+  assert.equal(health.healthy, false);
   assert.equal(health.checks.noSourceFailures, false);
   assert.equal(health.counts.sourceFailures, 1);
   assert.equal(health.sources[0].fetchStatus, "timeout");
