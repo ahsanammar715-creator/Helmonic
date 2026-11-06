@@ -448,6 +448,28 @@ jobs:
             --container "$container_name" \
             --format text \
             --tail 300 2>&1 || true)"
+
+          if ! grep -F 'TENDER_INTELLIGENCE_HEALTH_JSON=' <<<"$validation_logs" >/dev/null; then
+            environment_id="$(az containerapp job show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --query 'properties.environmentId' \
+              --output tsv)"
+            environment_name="${environment_id##*/}"
+            workspace_customer_id="$(az containerapp env show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$environment_name" \
+              --query 'properties.appLogsConfiguration.logAnalyticsConfiguration.customerId' \
+              --output tsv)"
+            archived_health="$(az monitor log-analytics query \
+              --workspace "$workspace_customer_id" \
+              --analytics-query "ContainerAppConsoleLogs_CL | where TimeGenerated > ago(6h) | where Log_s contains 'TENDER_INTELLIGENCE_HEALTH_JSON=' | top 1 by TimeGenerated desc | project Log_s" \
+              --query 'tables[0].rows[0][0]' \
+              --output tsv 2>/dev/null || true)"
+            if [[ -n "$archived_health" ]]; then
+              validation_logs="${validation_logs}"$'\n'"${archived_health}"
+            fi
+          fi
           printf '%s\n' "$validation_logs"
 
           [[ "$status" == "Succeeded" ]] || {
