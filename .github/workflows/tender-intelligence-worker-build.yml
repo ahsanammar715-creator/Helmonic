@@ -38,6 +38,11 @@ on:
         required: true
         default: false
         type: boolean
+      validate_watchdog_only:
+        description: Run and validate only the already-provisioned health watchdog; do not scan sources or write Odoo
+        required: true
+        default: false
+        type: boolean
       recover_stuck_odoo_execution:
         description: Exact dev/test execution name to stop after capturing its logs; leave blank for normal runs
         required: false
@@ -159,6 +164,55 @@ jobs:
               --tail 300 2>&1 || true
             echo "::endgroup::"
           fi
+
+  validate-watchdog:
+    name: Validate the independent Tender Intelligence health watchdog
+    if: github.event_name == 'workflow_dispatch' && inputs.validate_watchdog_only
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sign in to Azure with GitHub OIDC
+        uses: azure/login@v2
+        with:
+          client-id: d265e55d-f8b6-421a-9a82-064183cab7e6
+          tenant-id: 360eacb5-68c3-400c-a366-0382ec3a7b4a
+          subscription-id: 14f94f77-4e71-4b80-b6c9-e09b192fcf42
+
+      - name: Prove the scheduled watchdog succeeds without touching sources or Odoo
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_image="$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$GITHUB_SHA"
+          actual_trigger="$(az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WATCHDOG_JOB_NAME" --query properties.configuration.triggerType --output tsv)"
+          actual_cron="$(az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WATCHDOG_JOB_NAME" --query properties.configuration.scheduleTriggerConfig.cronExpression --output tsv)"
+          actual_image="$(az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WATCHDOG_JOB_NAME" --query properties.template.containers[0].image --output tsv)"
+          actual_args="$(az containerapp job show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WATCHDOG_JOB_NAME" --query 'join(` `, properties.template.containers[0].args)' --output tsv)"
+          if [[ "$actual_trigger" != "Schedule" \
+            || "$actual_cron" != "30 10 * * *" \
+            || "$actual_image" != "$expected_image" \
+            || "$actual_args" != "scripts/tender_intelligence/verify-daily-automation-health.mjs" ]]; then
+            echo "Watchdog configuration verification failed: trigger=$actual_trigger cron=$actual_cron image=$actual_image args=$actual_args" >&2
+            exit 1
+          fi
+
+          execution_name="$(az containerapp job start --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WATCHDOG_JOB_NAME" --query name --output tsv)"
+          status=""
+          for attempt in {1..40}; do
+            status="$(az containerapp job execution show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WATCHDOG_JOB_NAME" --job-execution-name "$execution_name" --query properties.status --output tsv 2>/dev/null || true)"
+            case "$status" in
+              Succeeded) break ;;
+              Failed)
+                az containerapp job replica list --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WATCHDOG_JOB_NAME" --execution "$execution_name" --output jsonc >&2 || true
+                az containerapp job logs show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WATCHDOG_JOB_NAME" --execution "$execution_name" --container tender-intelligence-watchdog --tail 300 >&2 || true
+                exit 1
+                ;;
+              *) sleep 15 ;;
+            esac
+          done
+          if [[ "$status" != "Succeeded" ]]; then
+            echo "Watchdog validation did not succeed within 10 minutes: ${status:-unknown}" >&2
+            exit 1
+          fi
+          echo "Watchdog validated: execution=$execution_name status=$status cron=$actual_cron image=$actual_image"
 
   suspend-buildinginfo-job:
     name: Switch the BuildingInfo job to manual-only
@@ -297,7 +351,7 @@ jobs:
     name: Build and publish immutable worker image
     if: >-
       github.event_name != 'workflow_dispatch' ||
-      (!inputs.diagnose_azure_jobs_only && !inputs.suspend_buildinginfo_job && inputs.recover_stuck_odoo_execution == '')
+      (!inputs.diagnose_azure_jobs_only && !inputs.validate_watchdog_only && !inputs.suspend_buildinginfo_job && inputs.recover_stuck_odoo_execution == '')
     runs-on: ubuntu-latest
     steps:
       - name: Check out the selected commit
