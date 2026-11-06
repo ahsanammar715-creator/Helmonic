@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { hasConfirmedCurrentAcousticEvidence } from "../../src/lib/tender-intelligence/acoustic-evidence-guard.ts";
 import { isSalesRouteable } from "../../src/lib/tender-intelligence/lead-qualification.ts";
 import { isRfiClassification } from "../../src/lib/tender-intelligence/rfi.ts";
+import { compareReviewLeadPriority } from "../../src/lib/tender-intelligence/review-export-qualification.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -97,7 +98,8 @@ const owners = ["Glen", "Owen"];
 const sections = owners.map((owner) => {
   const owned = records
     .filter((record) => record.routedTo === owner)
-    .sort((left, right) => urgencyRank(left) - urgencyRank(right)
+    .sort((left, right) => compareReviewLeadPriority(left, right)
+      || urgencyRank(left) - urgencyRank(right)
       || freshnessRank(left) - freshnessRank(right)
       || left.sourceSystem.localeCompare(right.sourceSystem)
       || left.sourceRecordId.localeCompare(right.sourceRecordId));

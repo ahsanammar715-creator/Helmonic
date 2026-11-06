@@ -2,7 +2,10 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isQualifiedReviewRecord } from "../../src/lib/tender-intelligence/review-export-qualification.ts";
+import {
+  compareReviewLeadPriority,
+  isQualifiedReviewRecord,
+} from "../../src/lib/tender-intelligence/review-export-qualification.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -192,7 +195,8 @@ const headers = [
 ];
 
 const rows = qualified
-  .sort((left, right) => urgencyWeight(right) - urgencyWeight(left)
+  .sort((left, right) => compareReviewLeadPriority(left, right)
+    || urgencyWeight(right) - urgencyWeight(left)
     || qualityWeight(right) - qualityWeight(left)
     || freshnessWeight(right) - freshnessWeight(left)
     || left.sourceSystem.localeCompare(right.sourceSystem)
@@ -250,7 +254,8 @@ const rows = qualified
 
 const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
 const allLeadRows = authoritativeInventory
-  .sort((left, right) => qualityWeight(right) - qualityWeight(left)
+  .sort((left, right) => compareReviewLeadPriority(left, right)
+    || qualityWeight(right) - qualityWeight(left)
     || freshnessWeight(right) - freshnessWeight(left)
     || left.sourceSystem.localeCompare(right.sourceSystem)
     || left.sourceRecordId.localeCompare(right.sourceRecordId))

@@ -19,7 +19,11 @@ import {
   parseTedNotices,
 } from "../../src/lib/tender-intelligence/official-sources.ts";
 import { classifyPlanningEvidence, matchedAcousticTerms } from "../../src/lib/tender-intelligence/policy.ts";
-import { isQualifiedReviewRecord } from "../../src/lib/tender-intelligence/review-export-qualification.ts";
+import {
+  compareReviewLeadPriority,
+  isQualifiedReviewRecord,
+  reviewLeadPriorityTier,
+} from "../../src/lib/tender-intelligence/review-export-qualification.ts";
 import { recordsForOdooSync } from "../../src/lib/tender-intelligence/odoo-record-source.ts";
 import {
   classifyDccDocumentText,
@@ -4186,6 +4190,58 @@ test("review export follows the pipeline rule that keeps every live RFI without 
   assert.equal(isQualifiedReviewRecord(duplicateRfi), false);
   assert.equal(isQualifiedReviewRecord(weakPotential), false);
   assert.equal(isQualifiedReviewRecord(acousticGrant), true);
+});
+
+test("every human-facing lead list starts with document-confirmed live acoustic RFIs", () => {
+  const now = new Date("2026-11-06T07:00:00.000Z");
+  const confirmedSooner = planningLead({
+    id: "confirmed-acoustic-rfi-sooner",
+    classification: "noise-related-rfi",
+    evidenceStatus: "official-text",
+    evidenceExcerpt: "Submit an acoustic assessment prepared by a qualified acoustician.",
+    matchedTerms: ["acoustic", "acoustician"],
+    responseDeadline: "2026-11-10",
+    cycleStatus: "confirmed-this-cycle",
+    leadQuality: "good",
+    leadDisposition: "active",
+  });
+  const confirmedLater = {
+    ...confirmedSooner,
+    id: "confirmed-acoustic-rfi-later",
+    responseDeadline: "2026-11-20",
+  };
+  const generalRfi = planningLead({
+    id: "general-live-rfi",
+    classification: "further-information-request",
+    evidenceStatus: "discovery-only",
+    responseDeadline: "2026-11-08",
+    cycleStatus: "confirmed-this-cycle",
+    leadQuality: "excellent",
+    leadDisposition: "active",
+  });
+  const acousticGrant = planningLead({
+    id: "confirmed-acoustic-grant",
+    classification: "granted-with-noise-conditions",
+    evidenceStatus: "official-text",
+    evidenceExcerpt: "The development shall comply with the stated acoustic noise limits.",
+    matchedTerms: ["acoustic", "noise"],
+    cycleStatus: "confirmed-this-cycle",
+    leadQuality: "excellent",
+    leadDisposition: "active",
+  });
+
+  assert.equal(reviewLeadPriorityTier(confirmedSooner, now), 0);
+  assert.equal(reviewLeadPriorityTier(generalRfi, now), 1);
+  assert.equal(reviewLeadPriorityTier(acousticGrant, now), 2);
+
+  const ordered = [acousticGrant, generalRfi, confirmedLater, confirmedSooner]
+    .sort((left, right) => compareReviewLeadPriority(left, right, now));
+  assert.deepEqual(ordered.map((record) => record.id), [
+    "confirmed-acoustic-rfi-sooner",
+    "confirmed-acoustic-rfi-later",
+    "general-live-rfi",
+    "confirmed-acoustic-grant",
+  ]);
 });
 
 test("completed-ledger Odoo sync ignores a partial scan only when ledger and audit agree", () => {
