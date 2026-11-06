@@ -55,9 +55,12 @@ export function buildTenderAutomationHealth({
   const odooCompleted = !odooEnabled || odooSync?.status === "completed";
   const odooFailures = Array.isArray(odooSync?.failures) ? odooSync.failures.length : 0;
   const sourceRows = Array.isArray(audit?.sources) ? audit.sources : [];
-  const sourceFailures = sourceRows.filter((source: JsonObject) =>
-    Boolean(source?.fetchError)
-    || /fail|error|timeout|unauthor|rate.?limit/i.test(String(source?.fetchStatus ?? "")));
+  const sourceFailures = sourceRows.filter((source: JsonObject) => {
+    const fetchStatus = String(source?.fetchStatus ?? "");
+    if (fetchStatus === "not-configured") return false;
+    return Boolean(source?.fetchError)
+      || /fail|error|timeout|unauthor|rate.?limit/i.test(fetchStatus);
+  });
   const workerCompleted = workerSummary.status === "completed";
   const criticalChecksPassed = workerCompleted
     && auditFresh

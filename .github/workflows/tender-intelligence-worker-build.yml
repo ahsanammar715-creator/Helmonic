@@ -63,6 +63,11 @@ on:
         required: true
         default: false
         type: boolean
+      repair_completed_health_and_watchdog:
+        description: Re-evaluate the completed healthy ledger after a validation-only bug and provision the watchdog without rerunning sources or Odoo
+        required: true
+        default: false
+        type: boolean
   push:
     branches:
       - codex/tender-intelligence-release
@@ -539,6 +544,36 @@ jobs:
           HELMONIC_TENDER_WATCHDOG_MAX_AGE_HOURS: "5"
           TENDER_WATCHDOG_START_VALIDATION: "true"
         run: bash scripts/deployment/provision-tender-watchdog.sh
+
+      - name: Repair the completed health receipt and validate the watchdog without rerunning sources
+        if: github.event_name == 'workflow_dispatch' && inputs.repair_completed_health_and_watchdog
+        shell: bash
+        env:
+          AZURE_SOURCE_JOB_NAME: ${{ env.AZURE_JOB_NAME }}
+          TENDER_INTELLIGENCE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+          TENDER_WATCHDOG_ALERT_EMAIL: ammar.ahsan@smartstudioinc.com
+          TENDER_WATCHDOG_CRON_EXPRESSION: "30 10 * * *"
+          HELMONIC_TENDER_WATCHDOG_MAX_AGE_HOURS: "5"
+          TENDER_WATCHDOG_REPAIR_LATEST_HEALTH: "true"
+          TENDER_WATCHDOG_START_VALIDATION: "true"
+        run: |
+          set -euo pipefail
+          az containerapp job update \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --image "$TENDER_INTELLIGENCE_IMAGE" \
+            --only-show-errors \
+            --output none
+          deployed_image="$(az containerapp job show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query properties.template.containers[0].image \
+            --output tsv)"
+          if [[ "$deployed_image" != "$TENDER_INTELLIGENCE_IMAGE" ]]; then
+            echo "Daily worker image update verification failed." >&2
+            exit 1
+          fi
+          bash scripts/deployment/provision-tender-watchdog.sh
 
       - name: Create or update the separate 10am BuildingInfo dev/test job
         if: github.event_name == 'workflow_dispatch' && inputs.provision_buildinginfo_job

@@ -21,6 +21,7 @@ maximum_age_hours="${HELMONIC_TENDER_WATCHDOG_MAX_AGE_HOURS:-5}"
 action_group_name="${TENDER_WATCHDOG_ACTION_GROUP_NAME:-ag-helmonic-ti-watchdog}"
 alert_name="${TENDER_WATCHDOG_ALERT_NAME:-alert-helmonic-ti-watchdog-failed}"
 start_validation="${TENDER_WATCHDOG_START_VALIDATION:-false}"
+repair_latest_health="${TENDER_WATCHDOG_REPAIR_LATEST_HEALTH:-false}"
 
 work_dir="$(mktemp -d)"
 trap 'rm -rf -- "$work_dir"' EXIT
@@ -109,14 +110,65 @@ jq \
     }
 ' "$source_job" >"$target_body"
 
-storage_env_count="$(jq '[.properties.template.containers[0].env[] | select(.name == "AZURE_TENDER_STORAGE_ACCOUNT" or .name == "AZURE_TENDER_STORAGE_CONTAINER" or .name == "AZURE_TENDER_STORAGE_CLIENT_ID" or .name == "HELMONIC_TENDER_BLOB_NAMESPACE")] | length' "$target_body")"
-if [[ "$storage_env_count" != "4" ]]; then
-  echo "Refusing to provision: the source worker does not expose all four required storage settings." >&2
+required_storage_env_count="$(jq '[.properties.template.containers[0].env[] | select(.name == "AZURE_TENDER_STORAGE_ACCOUNT" or .name == "AZURE_TENDER_STORAGE_CONTAINER" or .name == "AZURE_TENDER_STORAGE_CLIENT_ID")] | length' "$target_body")"
+if [[ "$required_storage_env_count" != "3" ]]; then
+  echo "Refusing to provision: the source worker does not expose the required storage account, container and managed-identity settings." >&2
   exit 1
 fi
 
 source_id="$(jq -r '.id' "$source_job")"
 target_id="${source_id%/*}/$AZURE_WATCHDOG_JOB_NAME"
+
+wait_for_execution() {
+  local execution_name="$1"
+  local label="$2"
+  local status=""
+  for attempt in {1..40}; do
+    status="$(az containerapp job execution show \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --name "$AZURE_WATCHDOG_JOB_NAME" \
+      --job-execution-name "$execution_name" \
+      --query properties.status \
+      --output tsv 2>/dev/null || true)"
+    case "$status" in
+      Succeeded) return 0 ;;
+      Failed)
+        echo "$label failed: $execution_name" >&2
+        az containerapp job logs show \
+          --resource-group "$AZURE_RESOURCE_GROUP" \
+          --name "$AZURE_WATCHDOG_JOB_NAME" \
+          --execution "$execution_name" \
+          --container tender-intelligence-watchdog \
+          --tail 300 >&2 || true
+        return 1
+        ;;
+      *) sleep 15 ;;
+    esac
+  done
+  echo "$label did not succeed within 10 minutes: ${status:-unknown}" >&2
+  return 1
+}
+
+if [[ "$repair_latest_health" == "true" ]]; then
+  repair_body="$work_dir/repair-job.json"
+  jq '
+    .properties.configuration.triggerType = "Manual"
+    | del(.properties.configuration.scheduleTriggerConfig)
+    | .properties.template.containers[0].args = ["scripts/tender_intelligence/repair-latest-health-receipt.mjs"]
+  ' "$target_body" >"$repair_body"
+  az rest \
+    --method put \
+    --uri "https://management.azure.com${target_id}?api-version=2025-07-01" \
+    --body "@$repair_body" \
+    --only-show-errors \
+    --output none
+  repair_execution="$(az containerapp job start \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --name "$AZURE_WATCHDOG_JOB_NAME" \
+    --query name \
+    --output tsv)"
+  wait_for_execution "$repair_execution" "Health-receipt repair"
+fi
 
 az rest \
   --method put \

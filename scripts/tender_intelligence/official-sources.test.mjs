@@ -4398,3 +4398,32 @@ test("automation health reports a source failure even when the worker process ex
   assert.equal(health.counts.sourceFailures, 1);
   assert.equal(health.sources[0].fetchStatus, "timeout");
 });
+
+test("automation health does not treat an intentionally unconfigured optional source as a failure", () => {
+  const health = buildTenderAutomationHealth({
+    workerSummary: {
+      status: "completed",
+      runId: "optional-source-disabled",
+      startedAt: "2026-11-06T07:00:00.000Z",
+      odooSyncEnabled: false,
+    },
+    audit: {
+      completedAt: "2026-11-06T07:20:00.000Z",
+      totals: {},
+      sources: [{
+        name: "BuildingInfo",
+        fetchStatus: "not-configured",
+        fetchError: "BuildingInfo API and emailed-CSV intake are disabled",
+      }],
+    },
+    rfiAudit: { auditGeneratedAt: "2026-11-06T07:21:00.000Z" },
+    state: { opportunities: [] },
+    completedAt: new Date("2026-11-06T07:22:00.000Z"),
+  });
+
+  assert.equal(health.status, "healthy-no-odoo-write");
+  assert.equal(health.healthy, true);
+  assert.equal(health.checks.noSourceFailures, true);
+  assert.equal(health.counts.sourceFailures, 0);
+  assert.equal(health.counts.sourcesChecked, 0);
+});
