@@ -323,6 +323,132 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
+      - name: Publish the approved daily worker and prove one complete run
+        if: >-
+          github.event_name == 'push' &&
+          contains(github.event.head_commit.message, '[publish-ti-worker]')
+        timeout-minutes: 180
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image="$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:${{ github.sha }}"
+
+          running_execution="$(az containerapp job execution list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query "[?properties.status=='Running'].name | [0]" \
+            --output tsv 2>/dev/null || true)"
+          if [[ -n "$running_execution" ]]; then
+            echo "Refusing to publish while execution $running_execution is still running." >&2
+            exit 1
+          fi
+
+          az containerapp job update \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --image "$image" \
+            --cron-expression "0 7 * * *" \
+            --set-env-vars \
+              HELMONIC_SCHEDULE_GUARD_ENABLED=false \
+              NODE_OPTIONS=--experimental-strip-types \
+            --command node \
+            --args scripts/tender_intelligence/run-daily-automation.mjs \
+            --only-show-errors >/dev/null
+
+          deployed_image="$(az containerapp job show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query 'properties.template.containers[0].image' \
+            --output tsv)"
+          deployed_cron="$(az containerapp job show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query 'properties.configuration.scheduleTriggerConfig.cronExpression' \
+            --output tsv)"
+          deployed_guard="$(az containerapp job show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query \"properties.template.containers[0].env[?name=='HELMONIC_SCHEDULE_GUARD_ENABLED'] | [0].value\" \
+            --output tsv)"
+
+          [[ "$deployed_image" == "$image" ]] || {
+            echo "Published image mismatch: expected $image, found $deployed_image" >&2
+            exit 1
+          }
+          [[ "$deployed_cron" == "0 7 * * *" ]] || {
+            echo "Published cron mismatch: expected 0 7 * * *, found $deployed_cron" >&2
+            exit 1
+          }
+          [[ "$deployed_guard" == "false" ]] || {
+            echo "Schedule guard mismatch: expected false, found $deployed_guard" >&2
+            exit 1
+          }
+
+          execution_name="$(az containerapp job start \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query name \
+            --output tsv)"
+          if [[ -z "$execution_name" ]]; then
+            echo "Azure did not return a validation execution name." >&2
+            exit 1
+          fi
+
+          echo "Started full published-worker validation: $execution_name"
+          status=""
+          for attempt in {1..360}; do
+            status="$(az containerapp job execution show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$AZURE_JOB_NAME" \
+              --job-execution-name "$execution_name" \
+              --query properties.status \
+              --output tsv 2>/dev/null || true)"
+            case "$status" in
+              Succeeded)
+                echo "Full published-worker validation succeeded."
+                break
+                ;;
+              Failed)
+                echo "Full published-worker validation failed: $execution_name" >&2
+                break
+                ;;
+              *)
+                echo "Validation status: ${status:-starting} (check $attempt/360)"
+                sleep 30
+                ;;
+            esac
+          done
+
+          container_name="$(az containerapp job show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --query 'properties.template.containers[0].name' \
+            --output tsv)"
+          validation_logs="$(az containerapp job logs show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_JOB_NAME" \
+            --execution "$execution_name" \
+            --container "$container_name" \
+            --format text \
+            --tail 500 2>&1 || true)"
+          printf '%s\n' "$validation_logs"
+
+          [[ "$status" == "Succeeded" ]] || {
+            echo "Published-worker validation ended with status ${status:-unknown}." >&2
+            exit 1
+          }
+          grep -F 'TENDER_INTELLIGENCE_HEALTH_JSON=' <<<"$validation_logs" >/dev/null || {
+            echo "Validation completed without a durable health receipt in the worker log." >&2
+            exit 1
+          }
+          grep -F '"healthy":true' <<<"$validation_logs" >/dev/null || {
+            echo "The durable health receipt did not report a healthy run." >&2
+            exit 1
+          }
+
+          echo "Published worker verified: image=$deployed_image cron=$deployed_cron guard=$deployed_guard execution=$execution_name"
+
       - name: Create or update the separate 10am BuildingInfo dev/test job
         if: github.event_name == 'workflow_dispatch' && inputs.provision_buildinginfo_job
         shell: bash
