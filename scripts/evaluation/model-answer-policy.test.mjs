@@ -19,6 +19,8 @@ test("system prompt enforces the professional acoustician register and citation 
     allowGeneralKnowledge: false,
   });
   assert.match(prompt, /acoustician-to-acoustician/);
+  assert.match(prompt, /Every nonblank response block must end with at least one applicable/i);
+  assert.match(prompt, /Avoid standalone headings, labels, lead-ins/i);
   assert.match(prompt, /Rw versus DnT,w/);
   assert.match(prompt, /C and Ctr/);
   assert.match(prompt, /one-third-octave-band/);
