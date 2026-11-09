@@ -7,6 +7,7 @@ import {
   buildGroundedReportPlan,
   filterUngroundedReportContent,
   reportPayloadClaimText,
+  reportEvidenceBoundaryInstruction,
   reportModelEvidenceCharacterBudget,
   reportExecutiveSummaryMaximumParagraphCharacters,
   reportExecutiveSummaryMaximumParagraphs,
@@ -14,6 +15,12 @@ import {
   reportModelReasoningEffort,
   selectReportModelCitations,
 } from "../../src/lib/consult/reports/policy.ts";
+
+test("administrative report fields cannot masquerade as evidence", () => {
+  assert.match(reportEvidenceBoundaryInstruction, /metadata.*not evidence/i);
+  assert.match(reportEvidenceBoundaryInstruction, /revisions or dates/i);
+  assert.match(reportEvidenceBoundaryInstruction, /Never expand, normalize or infer an address/i);
+});
 
 const headings = [
   "Executive Summary",

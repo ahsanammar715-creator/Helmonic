@@ -14,6 +14,8 @@ export const reportModelMaximumCompletionTokens = 4_800;
 export const reportModelReasoningEffort = "low" as const;
 export const reportExecutiveSummaryMaximumParagraphs = 2;
 export const reportExecutiveSummaryMaximumParagraphCharacters = 430;
+export const reportEvidenceBoundaryInstruction =
+  "Administrative report metadata and the request instruction are selection and formatting controls, not evidence. Do not repeat or derive project names, addresses, client details, document numbers, revisions or dates in section paragraphs or tables unless the same fact is explicitly supported by the supplied Evidence and cited there. Never expand, normalize or infer an address or other project fact.";
 
 export type GroundedContentFilterResult = {
   payload: unknown;

@@ -7,6 +7,7 @@ import {
   buildGroundedReportPlan,
   filterUngroundedReportContent,
   reportPayloadClaimText,
+  reportEvidenceBoundaryInstruction,
   reportModelMaximumCompletionTokens,
   reportModelReasoningEffort,
   selectReportModelCitations,
@@ -46,7 +47,6 @@ async function createSectionPayload(input: {
   config: RuntimeConfig;
   requestId: string;
   instruction: string;
-  metadata: unknown;
   citations: ConsultCitation[];
 }) {
   if (!input.config.model.endpoint || !input.config.model.deployment) throw new Error("report-model-not-configured");
@@ -68,11 +68,11 @@ async function createSectionPayload(input: {
           {
             role: "system",
             content:
-              "Prepare a technically exact acoustic report plan for a practising acoustic consultant. Use correct acoustic notation and terminology without explaining elementary concepts. Use only supplied evidence. Every factual paragraph must end with one or more exact supplied citation markers. The Executive Summary must contain no more than two concise paragraphs, each no more than 430 characters, and its tables array must be empty. In later sections, use tables only when the evidence contains genuinely comparable criteria, schedules, measurements or constructions; every factual table row must contain at least one exact supplied citation marker. Never invent values, clauses, measurements, standards or project facts. Return empty paragraphs and tables arrays where evidence is absent. Do not write placeholder prose about missing evidence.",
+              `Prepare a technically exact acoustic report plan for a practising acoustic consultant. Use correct acoustic notation and terminology without explaining elementary concepts. Use only supplied evidence. ${reportEvidenceBoundaryInstruction} Every factual paragraph must end with one or more exact supplied citation markers. The Executive Summary must contain no more than two concise paragraphs, each no more than 430 characters, and its tables array must be empty. In later sections, use tables only when the evidence contains genuinely comparable criteria, schedules, measurements or constructions; every factual table row must contain at least one exact supplied citation marker. Never invent values, clauses, measurements, standards or project facts. Return empty paragraphs and tables arrays where evidence is absent. Do not write placeholder prose about missing evidence.`,
           },
           {
             role: "user",
-            content: `Instruction:\n${input.instruction}\n\nProject metadata:\n${JSON.stringify(input.metadata)}\n\nRequired section headings:\n${reportSectionHeadings.join("\n")}\n\nEvidence:\n${evidenceText(modelCitations)}`,
+            content: `Instruction (not evidence):\n${input.instruction}\n\nRequired section headings:\n${reportSectionHeadings.join("\n")}\n\nEvidence:\n${evidenceText(modelCitations)}`,
           },
         ],
         reasoning_effort: reportModelReasoningEffort,
@@ -181,7 +181,6 @@ export async function generateAndStoreReport(input: {
     config: input.config,
     requestId: input.requestId,
     instruction: input.instruction,
-    metadata,
     citations: input.citations,
   });
   const filteredContent = filterUngroundedReportContent(sectionPayload, input.citations);
