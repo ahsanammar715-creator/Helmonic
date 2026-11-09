@@ -41,10 +41,16 @@ type SearchDocument = {
   chunk_kind?: string;
   citation_namespace?: string;
   document_id?: string;
+  project_context?: string;
 };
 
 type SearchResponse = {
   value?: SearchDocument[];
+};
+
+type ProjectSearchScope = {
+  sourceIds: string[];
+  contextBySourceId: Map<string, string>;
 };
 
 function requireSearchConfig(config: RuntimeConfig) {
@@ -65,6 +71,10 @@ function controlledCitationsFromDocuments(documents: SearchDocument[], requestId
     .map<ConsultCitation>((document, index) => {
       const citationNamespace = controlledCitationNamespace(document.citation_namespace);
       const marker = nextControlledMarker(citationNamespace, markerCounters);
+      const passage = buildControlledEvidenceExcerpt(document.content ?? "", document.chunk_kind);
+      const projectContext = document.project_context
+        ? buildControlledEvidenceExcerpt(document.project_context)
+        : undefined;
       const citation: ConsultCitation = {
         id: document.chunk_id ?? `citation-${index + 1}`,
         title: document.title ?? document.source_id ?? `Source ${index + 1}`,
@@ -72,7 +82,10 @@ function controlledCitationsFromDocuments(documents: SearchDocument[], requestId
         section: document.section || undefined,
         pageNumber:
           typeof document.page_number === "number" ? document.page_number : undefined,
-        excerpt: buildControlledEvidenceExcerpt(document.content ?? "", document.chunk_kind),
+        excerpt:
+          projectContext && projectContext !== passage
+            ? `Project identity evidence: ${projectContext} Passage: ${passage}`
+            : passage,
         sourceUri: document.source_uri || undefined,
         score:
           typeof document["@search.score"] === "number"
@@ -96,7 +109,9 @@ async function findProjectSourceIds(
   config: RuntimeConfig,
 ) {
   const projectCodes = extractProjectCodes(question);
-  if (projectCodes.length === 0) return [];
+  if (projectCodes.length === 0) {
+    return { sourceIds: [], contextBySourceId: new Map<string, string>() };
+  }
 
   const { endpoint, indexName } = requireSearchConfig(config);
   const token = await getAzureAccessToken("https://search.azure.com/.default");
@@ -121,7 +136,7 @@ async function findProjectSourceIds(
             searchFields: "title,section,content",
             filter: `permission_scope eq '${scope}'`,
             top: 50,
-            select: "source_id",
+            select: "source_id,content,title,section,page_number",
           }),
           cache: "no-store",
           signal: AbortSignal.timeout(8_000),
@@ -137,8 +152,19 @@ async function findProjectSourceIds(
     }),
   );
 
-  return [...new Set(responses.flat().map((document) => document.source_id).filter(Boolean))]
-    .slice(0, 12) as string[];
+  const contextBySourceId = new Map<string, string>();
+  for (const document of responses.flat()) {
+    if (document.source_id && document.content && !contextBySourceId.has(document.source_id)) {
+      contextBySourceId.set(document.source_id, document.content);
+    }
+  }
+  const sourceIds = [...contextBySourceId.keys()].slice(0, 12);
+  return {
+    sourceIds,
+    contextBySourceId: new Map(
+      sourceIds.map((sourceId) => [sourceId, contextBySourceId.get(sourceId) ?? ""]),
+    ),
+  };
 }
 
 async function searchControlledDocuments(
@@ -146,14 +172,15 @@ async function searchControlledDocuments(
   requestId: string,
   config: RuntimeConfig,
   top = config.search.top,
-  projectSourceIds?: string[],
+  projectScope?: ProjectSearchScope,
 ) {
   const { endpoint, indexName } = requireSearchConfig(config);
-  const scopedProjectSourceIds = projectSourceIds ?? await findProjectSourceIds(
+  const scopedProject = projectScope ?? await findProjectSourceIds(
     question,
     requestId,
     config,
   );
+  const scopedProjectSourceIds = scopedProject.sourceIds;
   const queryEmbedding = config.search.hybridEnabled
     ? await import("@/lib/server/embeddings").then(({ createQueryEmbedding }) =>
         createQueryEmbedding(question, requestId, config),
@@ -261,7 +288,11 @@ async function searchControlledDocuments(
     });
   }
 
-  return relevantDocuments;
+  return relevantDocuments.map((document) => ({
+    ...document,
+    project_context:
+      (document.source_id && scopedProject.contextBySourceId.get(document.source_id)) || undefined,
+  }));
 }
 
 export async function searchConsultEvidence(
@@ -280,17 +311,17 @@ export async function searchReportEvidence(
   requestId: string,
   config: RuntimeConfig,
 ) {
-  const projectSourceIds = await findProjectSourceIds(question, requestId, config);
+  const projectScope = await findProjectSourceIds(question, requestId, config);
   const initial = await searchControlledDocuments(
     question,
     requestId,
     config,
     Math.max(config.search.top, 12),
-    projectSourceIds,
+    projectScope,
   );
   const sourceIds = (
-    projectSourceIds.length > 0
-      ? projectSourceIds
+    projectScope.sourceIds.length > 0
+      ? projectScope.sourceIds
       : [...new Set(initial.map((document) => document.source_id).filter(Boolean))]
   ).slice(0, 12) as string[];
   if (sourceIds.length === 0) return [];
@@ -336,8 +367,14 @@ export async function searchReportEvidence(
   );
   const unique = new Map<string, SearchDocument>();
   for (const document of [...initial, ...expanded.flat()]) {
+    const contextualDocument = {
+      ...document,
+      project_context:
+        (document.source_id && projectScope.contextBySourceId.get(document.source_id)) ||
+        document.project_context,
+    };
     const key = document.chunk_id ?? `${document.source_id}:${document.page_number}:${document.section}`;
-    if (!unique.has(key)) unique.set(key, document);
+    if (!unique.has(key)) unique.set(key, contextualDocument);
   }
   return controlledCitationsFromDocuments([...unique.values()], requestId);
 }
