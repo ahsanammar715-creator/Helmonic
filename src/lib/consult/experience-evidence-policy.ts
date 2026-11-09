@@ -65,6 +65,11 @@ export function deidentifyExperienceText(
     .replace(/\bhttps?:\/\/\S+|\bwww\.\S+/gi, "[private link]")
     .replace(/\b(?:\+?353[\s().-]?|0)\d(?:[\s().-]?\d){7,10}\b/g, "[private contact]")
     .replace(/\b(?:J|P|IAC)[-_ ]?\d{3,8}\b/gi, "[private project]")
+    .replace(/\b[A-Z]{1,6}[-_ ]?\d{2,8}(?:[._-][A-Z0-9]+)*\b/g, "[private project]")
+    .replace(/\b[A-Z]{2,8}(?:[-_][A-Z0-9]{1,8})+\b/g, "[private project]")
+    .replace(/\b[A-Z][a-z]+,\s*[A-Z][a-z]+\b/g, "[private detail]")
+    .replace(/\b[A-Z0-9._-]+\.(?:pdf|docx?|xlsx?|dwg|dxf)\b/gi, "[private document]")
+    .replace(/\b(?:D\d{2}|A\d{2})\s?[A-Z0-9]{4}\b/gi, "[private address]")
     .replace(/\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/g, "[private date]")
     .replace(
       /\b(?:\d{1,2}\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{2,4}\b/gi,
@@ -75,6 +80,25 @@ export function deidentifyExperienceText(
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 700);
+}
+
+function safeTechnicalExperienceExcerpt(excerpt: string) {
+  if (
+    /\b(?:email|e-mail|mailbox|view online|unsubscribe|reply to|newsletter|assigned to|attachments?|talking points|positioning strategy|suggested statement|upcoming meeting)\b/i.test(
+      excerpt,
+    )
+  ) {
+    return false;
+  }
+  if (
+    !/\b(?:acoustic|sound|noise|vibration|partition|riser|penetration|flanking|façade|facade|glazing|door|duct|plant|reverber|insulation|commission|testing|construction|coordination)\w*/i.test(
+      excerpt,
+    )
+  ) {
+    return false;
+  }
+  const privateMarkers = excerpt.match(/\[private [^\]]+\]/g)?.length ?? 0;
+  return privateMarkers <= 8;
 }
 
 function projectKey(document: ExperienceEvidenceDocument) {
@@ -109,7 +133,9 @@ export function buildDeidentifiedExperienceEvidence(
       ]);
       return { document, excerpt };
     })
-    .filter(({ excerpt }) => excerpt.length >= 80);
+    .filter(
+      ({ excerpt }) => excerpt.length >= 80 && safeTechnicalExperienceExcerpt(excerpt),
+    );
 
   if (selected.length < minimumExperienceProjectCount) {
     return { citations: [] as ConsultCitation[], auditSources: [] as PrivateExperienceAuditSource[] };
@@ -131,6 +157,21 @@ export function buildDeidentifiedExperienceEvidence(
     projectNames: document.projectNames,
   }));
   return { citations, auditSources };
+}
+
+export function toPublicExperienceCitations(citations: ConsultCitation[]) {
+  return citations.map((citation) =>
+    citation.sourceType === "experience"
+      ? {
+          ...citation,
+          excerpt:
+            "De-identified cross-project experience; identifying detail and private provenance are retained only in the restricted audit.",
+          sourceUri: undefined,
+          section: undefined,
+          score: undefined,
+        }
+      : citation,
+  );
 }
 
 export function validateDeidentifiedExperienceAnswer(

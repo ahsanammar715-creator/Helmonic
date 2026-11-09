@@ -8,6 +8,7 @@ import {
   actorMayReadRestrictedEmailEvidence,
   emailEvidenceConfigurationErrors,
 } from "@/lib/consult/email-evidence-policy";
+import { toPublicExperienceCitations } from "@/lib/consult/experience-evidence-policy";
 import {
   getQueryConfigurationErrors,
   getRuntimeConfig,
@@ -188,6 +189,7 @@ export async function POST(request: Request) {
       ...experienceCitations,
     ];
     const allowGeneralKnowledge = generalKnowledgeEnabled(includeGeneralContext, config);
+    const publicCitations = toPublicExperienceCitations(citations);
 
     if (citations.length === 0 && !allowGeneralKnowledge) {
       const response: ConsultQueryResponse = {
@@ -204,11 +206,11 @@ export async function POST(request: Request) {
     if (!config.model.endpoint || !config.model.deployment) {
       const response: ConsultQueryResponse = {
         answer: null,
-        citations,
+        citations: publicCitations,
         mode: "retrieval-only",
         requestId,
         generalKnowledgeUsed: false,
-        documentAnswer: { status: "retrieval-only", text: null, citations },
+        documentAnswer: { status: "retrieval-only", text: null, citations: publicCitations },
       };
       return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
     }
@@ -232,11 +234,11 @@ export async function POST(request: Request) {
         });
         const response: ConsultQueryResponse = {
           answer: null,
-          citations,
+          citations: publicCitations,
           mode: "retrieval-only",
           requestId,
           generalKnowledgeUsed: false,
-          documentAnswer: { status: "retrieval-only", text: null, citations },
+          documentAnswer: { status: "retrieval-only", text: null, citations: publicCitations },
         };
         return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
       }
@@ -245,14 +247,14 @@ export async function POST(request: Request) {
     const generalKnowledgeUsed = /\[G\d+\]/.test(answer);
     const response: ConsultQueryResponse = {
       answer,
-      citations,
+      citations: publicCitations,
       mode: "generated",
       requestId,
       generalKnowledgeUsed,
       documentAnswer: {
         status: citations.length > 0 ? "generated" : "no-evidence",
         text: citations.length > 0 ? answer : null,
-        citations,
+        citations: publicCitations,
       },
     };
 

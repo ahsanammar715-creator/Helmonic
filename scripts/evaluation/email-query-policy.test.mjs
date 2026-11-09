@@ -10,6 +10,7 @@ import {
   buildDeidentifiedExperienceEvidence,
   deidentifyExperienceText,
   minimumExperienceProjectCount,
+  toPublicExperienceCitations,
   validateDeidentifiedExperienceAnswer,
 } from "../../src/lib/consult/experience-evidence-policy.ts";
 
@@ -126,6 +127,27 @@ test("experience evidence exposes generic cases while retaining private traceabi
     "message-2",
     "message-3",
   ]);
+});
+
+test("experience passages are never returned to the browser", () => {
+  const privateCitation = {
+    id: "experience-case-1",
+    title: "De-identified experience case 1",
+    sourceId: "experience-case-1",
+    excerpt: "A private technical passage that the model may use.",
+    sourceType: "experience",
+    citationNamespace: "E",
+    marker: "E1",
+    sourceUri: "private://must-not-leak",
+    section: "private section",
+    score: 4,
+  };
+  const [publicCitation] = toPublicExperienceCitations([privateCitation]);
+
+  assert.doesNotMatch(JSON.stringify(publicCitation), /private technical passage|must-not-leak|private section/);
+  assert.equal(publicCitation.sourceUri, undefined);
+  assert.equal(publicCitation.section, undefined);
+  assert.equal(publicCitation.score, undefined);
 });
 
 test("experience answers require three cases and prohibit evidence-channel disclosure", () => {
