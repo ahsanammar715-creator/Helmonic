@@ -16,7 +16,6 @@
     "test:standing-worker-proof": "node --test --experimental-test-isolation=none scripts/ingestion/standing-worker-proof-contract.test.mjs",
     "test:corpus-pilot": "node --test --experimental-test-isolation=none scripts/ingestion/corpus-pilot-contract.test.mjs",
     "test:corpus-hardening": "python -m unittest scripts/corpus_audit/test_corpus_pilot_payload.py",
-    "test:azure-diagnostics": "node --experimental-strip-types --test --experimental-test-isolation=none scripts/evaluation/azure-request-error.test.mjs",
     "verify:runtime": "node scripts/verify-runtime-hardening.mjs",
     "test:e2e": "playwright test"
   },

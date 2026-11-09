@@ -8,7 +8,6 @@ import {
   retainRelevantHybridDocuments,
 } from "@/lib/consult/search-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
-import { azureRequestError } from "@/lib/server/azure-request-error";
 import type { RuntimeConfig } from "@/lib/server/config";
 
 type SearchDocument = {
@@ -84,10 +83,7 @@ export async function searchConsultEvidence(
   );
 
   if (!response.ok) {
-    throw await azureRequestError(response, {
-      service: "Azure AI Search",
-      stage: "search",
-    });
+    throw new Error(`Azure AI Search query failed with status ${response.status}`);
   }
 
   const payload = (await response.json()) as SearchResponse;
@@ -216,10 +212,7 @@ export async function countSearchDocuments(config: RuntimeConfig) {
   );
 
   if (!response.ok) {
-    throw await azureRequestError(response, {
-      service: "Azure AI Search",
-      stage: "search-count",
-    });
+    throw new Error(`Azure AI Search count failed with status ${response.status}`);
   }
 
   return Number.parseInt(await response.text(), 10);

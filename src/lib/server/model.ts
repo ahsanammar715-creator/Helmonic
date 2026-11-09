@@ -5,7 +5,6 @@ import {
   validateDocumentAnswerCitations,
 } from "@/lib/consult/model-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
-import { azureRequestError } from "@/lib/server/azure-request-error";
 import type { RuntimeConfig } from "@/lib/server/config";
 import {
   ModelGatewayValidationError,
@@ -94,10 +93,7 @@ async function createDocumentAnswer(
   );
 
   if (!response.ok) {
-    throw await azureRequestError(response, {
-      service: "Azure OpenAI",
-      stage: "model",
-    });
+    throw new Error(`Azure model request failed with status ${response.status}`);
   }
 
   const payload = (await response.json()) as ChatCompletionResponse;
