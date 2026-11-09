@@ -1,0 +1,27 @@
+{
+  "extraction": {
+    "version": 2,
+    "tableStrategy": "atomic-markdown-or-key-value"
+  },
+  "documents": [
+    {
+      "sourceId": "approved-source-01",
+      "title": "Approved source document 1",
+      "fileName": "approved-source-01.pdf",
+      "permissionScope": "iAcoustics",
+      "tablePageNumbers": [],
+      "chunks": [
+        {
+          "chunkId": "approved-source-01-p001-c001",
+          "pageNumber": 1,
+          "section": "Introduction",
+          "kind": "text",
+          "contentFormat": "plain_text",
+          "atomic": false,
+          "content": "Extracted source text goes here.",
+          "contentHash": "sha256-hex-value"
+        }
+      ]
+    }
+  ]
+}

@@ -21,11 +21,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify container runtime hardening
+        run: npm run verify:runtime
+
       - name: Type check
         run: npm run typecheck
 
       - name: Lint
         run: npm run lint
+
+      - name: Validate model answer policy
+        run: npm run test:model-policy
+
+      - name: Validate bounded audio pilot policy
+        run: npm run test:audio-pilot
+
+      - name: Validate standing worker proof policy
+        run: npm run test:standing-worker-proof
+
+      - name: Validate corpus pilot policy
+        run: npm run test:corpus-pilot
+
+      - name: Validate per-document corpus hardening
+        run: npm run test:corpus-hardening
 
       - name: Build
         run: npm run build

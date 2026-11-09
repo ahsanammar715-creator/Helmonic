@@ -6,9 +6,13 @@ import { UploadCloud, FileText, X } from "lucide-react";
 export default function AttachPopover({
   onClose,
   onAttach,
+  accept = ".pdf,.doc,.docx,.csv",
+  formats = "PDF, DOCX or CSV · up to 40 MB",
 }: {
   onClose: () => void;
-  onAttach: (name: string) => void;
+  onAttach: (file: File) => void;
+  accept?: string;
+  formats?: string;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -24,7 +28,7 @@ export default function AttachPopover({
 
   function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
-    onAttach(files[0].name);
+    onAttach(files[0]);
     onClose();
   }
 
@@ -59,12 +63,12 @@ export default function AttachPopover({
       >
         <UploadCloud size={22} strokeWidth={1.6} className="text-primary" />
         <span className="text-[13px] font-medium">Drag files here, or click to browse</span>
-        <span className="text-[11px] text-faint">PDF, DOCX or CSV · up to 40 MB</span>
+        <span className="text-[11px] text-faint">{formats}</span>
       </button>
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.doc,.docx,.csv"
+        accept={accept}
         className="hidden"
         onChange={(e) => handleFiles(e.target.files)}
       />
