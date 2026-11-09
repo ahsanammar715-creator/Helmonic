@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   AzureRequestError,
   azureRequestError,
+  isSemanticSearchQuotaError,
   safeAzureRequestDiagnostic,
 } from "../../src/lib/server/azure-request-error.ts";
 
@@ -49,4 +50,32 @@ test("handles non-JSON Azure failures", async () => {
     code: undefined,
     azureRequestId: undefined,
   });
+});
+
+test("recognizes only the semantic Search quota exhaustion eligible for fallback", async () => {
+  const semanticQuotaError = await azureRequestError(
+    new Response(
+      JSON.stringify({
+        error: {
+          code: "InvalidRequestParameter",
+          message:
+            "Free Query Semantic Usage exceeded for the month. Please enable semantic billing to continue using semantic search.",
+        },
+      }),
+      { status: 402 },
+    ),
+    { service: "Azure AI Search", stage: "search" },
+  );
+  const unrelatedPaymentError = await azureRequestError(
+    new Response("Payment required", { status: 402 }),
+    { service: "Azure AI Search", stage: "search" },
+  );
+  const authorizationError = await azureRequestError(
+    new Response("Forbidden", { status: 403 }),
+    { service: "Azure AI Search", stage: "search" },
+  );
+
+  assert.equal(isSemanticSearchQuotaError(semanticQuotaError), true);
+  assert.equal(isSemanticSearchQuotaError(unrelatedPaymentError), false);
+  assert.equal(isSemanticSearchQuotaError(authorizationError), false);
 });

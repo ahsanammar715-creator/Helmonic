@@ -19,7 +19,11 @@ import {
   getAzureAccessToken,
   getAzureAccessTokenForClient,
 } from "@/lib/server/azure-credential";
-import { azureRequestError } from "@/lib/server/azure-request-error";
+import {
+  azureRequestError,
+  isSemanticSearchQuotaError,
+  safeAzureRequestDiagnostic,
+} from "@/lib/server/azure-request-error";
 import type { RuntimeConfig } from "@/lib/server/config";
 import type { AuthenticatedActor } from "@/lib/server/identity";
 
@@ -112,36 +116,73 @@ async function searchControlledDocuments(
       )
     : buildControlledSearchRequest(question, config.profile, top);
   const token = await getAzureAccessToken("https://search.azure.com/.default");
-  const response = await fetch(
-    `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(
-      config.search.apiVersion,
-    )}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "x-ms-client-request-id": requestId,
+  const executeSearch = async (request: typeof searchRequest) => {
+    const response = await fetch(
+      `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(
+        config.search.apiVersion,
+      )}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "x-ms-client-request-id": requestId,
+        },
+        body: JSON.stringify(request),
+        cache: "no-store",
+        signal: AbortSignal.timeout(8_000),
       },
-      body: JSON.stringify(searchRequest),
-      cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
-    },
-  );
+    );
 
-  if (!response.ok) {
-    throw await azureRequestError(response, {
-      service: "Azure AI Search",
-      stage: "search",
-    });
+    if (!response.ok) {
+      throw await azureRequestError(response, {
+        service: "Azure AI Search",
+        stage: "search",
+      });
+    }
+
+    return (await response.json()) as SearchResponse;
+  };
+
+  let effectiveScoreKind: "semantic" | "rrf" =
+    searchRequest.queryType === "semantic" ? "semantic" : "rrf";
+  let semanticFallbackUsed = false;
+  let payload: SearchResponse;
+  try {
+    payload = await executeSearch(searchRequest);
+  } catch (error) {
+    if (
+      !queryEmbedding ||
+      searchRequest.queryType !== "semantic" ||
+      !isSemanticSearchQuotaError(error)
+    ) {
+      throw error;
+    }
+
+    const fallbackRequest = buildControlledHybridSearchRequest(
+      question,
+      config.profile,
+      top,
+      queryEmbedding,
+      { vectorK: config.search.vectorK },
+    );
+    console.warn(
+      "Helmonic semantic retrieval quota unavailable; using grounded hybrid fallback",
+      {
+        requestId,
+        azureDiagnostic: safeAzureRequestDiagnostic(error),
+      },
+    );
+    payload = await executeSearch(fallbackRequest);
+    effectiveScoreKind = "rrf";
+    semanticFallbackUsed = true;
   }
 
-  const payload = (await response.json()) as SearchResponse;
   const retrievedDocuments = payload.value ?? [];
   const relevantDocuments = config.search.hybridEnabled
     ? retainRelevantHybridDocuments(retrievedDocuments, {
-        scoreKind: config.search.semanticEnabled ? "semantic" : "rrf",
-        minimumScore: config.search.semanticEnabled
+        scoreKind: effectiveScoreKind,
+        minimumScore: effectiveScoreKind === "semantic"
           ? config.search.minimumSemanticScore
           : config.search.minimumRrfScore,
       })
@@ -151,10 +192,11 @@ async function searchControlledDocuments(
       requestId,
       retrievedCount: retrievedDocuments.length,
       retainedCount: relevantDocuments.length,
-      scoreKind: config.search.semanticEnabled ? "semantic" : "rrf",
-      minimumScore: config.search.semanticEnabled
+      scoreKind: effectiveScoreKind,
+      minimumScore: effectiveScoreKind === "semantic"
         ? config.search.minimumSemanticScore
         : config.search.minimumRrfScore,
+      semanticFallbackUsed,
     });
   }
 

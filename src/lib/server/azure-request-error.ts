@@ -99,3 +99,19 @@ export function safeAzureRequestDiagnostic(error: unknown) {
     azureRequestId: error.azureRequestId,
   };
 }
+
+export function isSemanticSearchQuotaError(error: unknown) {
+  if (!(error instanceof AzureRequestError)) return false;
+  if (
+    error.service !== "Azure AI Search" ||
+    error.stage !== "search" ||
+    error.status !== 402
+  ) {
+    return false;
+  }
+
+  return (
+    /semantic/i.test(error.message) &&
+    /(billing|exceed|quota|usage)/i.test(error.message)
+  );
+}

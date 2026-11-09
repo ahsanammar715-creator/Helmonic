@@ -49,6 +49,23 @@ test("hybrid request applies permission scope before HNSW scoring", () => {
   assert.equal(request.vectorQueries[0].k, 50);
 });
 
+test("hybrid request remains grounded when semantic reranking is unavailable", () => {
+  const request = buildControlledHybridSearchRequest(
+    "How did the project perform?",
+    "scope",
+    4,
+    [0.25, -0.5],
+    { vectorK: 50 },
+  );
+
+  assert.equal(request.queryType, "simple");
+  assert.equal(request.semanticConfiguration, undefined);
+  assert.equal(request.vectorFilterMode, "preFilter");
+  assert.equal(request.vectorQueries[0].fields, "content_vector");
+  assert.match(request.select, /source_uri/);
+  assert.match(request.select, /citation_namespace/);
+});
+
 test("hybrid request rejects empty or malformed embeddings", () => {
   assert.throws(
     () =>
