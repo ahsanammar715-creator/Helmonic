@@ -15,7 +15,7 @@ import type {
   ConsultQueryResponse,
 } from "@/lib/consult/types";
 import {
-  CONTROLLED_SOURCE_DOCUMENT_COUNT,
+  CONTROLLED_SOURCE_PROMPT,
   CONTROLLED_SOURCE_SET_LABEL,
 } from "@/lib/consult/corpus";
 import type { ComposerAttachment, SessionDocumentUploadResponse } from "@/lib/consult/uploads";
@@ -192,9 +192,9 @@ export default function ConsultWorkspace() {
                     <WaveDivider color="var(--color-primary)" />
                   </div>
                   <p className="m-0 text-[15px] leading-[1.6] text-muted max-w-[520px]">
-                    Ask a question against the controlled Phase 1A document set. Helmonic only
-                    returns source evidence the server retrieved, with the page or section when
-                    available.
+                    Ask across the approved Helmonic project and reference knowledge base.
+                    Helmonic only returns evidence the server retrieved, with the page or section
+                    when available.
                   </p>
                 </div>
 
@@ -336,8 +336,8 @@ export default function ConsultWorkspace() {
 
         <ChatComposer
           inputId="consult-question"
-          placeholder={`Ask Helmonic about the ${CONTROLLED_SOURCE_DOCUMENT_COUNT} source documents…`}
-          helper="Phase 1A demo: fixed iAcoustics profile, controlled documents, server-authoritative citations."
+          placeholder={CONTROLLED_SOURCE_PROMPT}
+          helper="Approved project and reference evidence with server-authoritative citations."
           onSend={ask}
           disabled={pending}
           showAttach

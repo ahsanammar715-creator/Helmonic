@@ -14,6 +14,7 @@ import {
 } from "@/lib/server/config";
 import { safeAzureRequestDiagnostic } from "@/lib/server/azure-request-error";
 import { getAuthenticatedActor } from "@/lib/server/identity";
+import { ModelGatewayValidationError } from "@/lib/server/model-gateway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -188,12 +189,32 @@ export async function POST(request: Request) {
 
     const { createConsultModelGateway } = await import("@/lib/server/model");
     const gateway = createConsultModelGateway(config);
-    const answer = await gateway.createAnswer({
-      requestId,
-      question: trimmedQuestion,
-      evidence: citations,
-      allowGeneralKnowledge,
-    });
+    let answer: string;
+    try {
+      answer = await gateway.createAnswer({
+        requestId,
+        question: trimmedQuestion,
+        evidence: citations,
+        allowGeneralKnowledge,
+      });
+    } catch (error) {
+      if (error instanceof ModelGatewayValidationError) {
+        console.warn("Helmonic withheld an answer that failed claim-to-evidence validation", {
+          requestId,
+          message: error.message,
+        });
+        const response: ConsultQueryResponse = {
+          answer: null,
+          citations,
+          mode: "retrieval-only",
+          requestId,
+          generalKnowledgeUsed: false,
+          documentAnswer: { status: "retrieval-only", text: null, citations },
+        };
+        return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
+      }
+      throw error;
+    }
     const generalKnowledgeUsed = /\[G\d+\]/.test(answer);
     const response: ConsultQueryResponse = {
       answer,

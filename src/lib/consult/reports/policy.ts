@@ -121,6 +121,36 @@ export function filterUngroundedReportContent(
   };
 }
 
+export function reportPayloadClaimText(sectionPayload: unknown) {
+  if (!sectionPayload || typeof sectionPayload !== "object") return "";
+  const candidate = sectionPayload as { sections?: unknown };
+  if (!Array.isArray(candidate.sections)) return "";
+
+  const claims: string[] = [];
+  for (const section of candidate.sections) {
+    if (!section || typeof section !== "object") continue;
+    const item = section as { paragraphs?: unknown; tables?: unknown };
+    if (Array.isArray(item.paragraphs)) {
+      claims.push(
+        ...item.paragraphs.filter(
+          (paragraph): paragraph is string => typeof paragraph === "string",
+        ),
+      );
+    }
+    if (!Array.isArray(item.tables)) continue;
+    for (const table of item.tables) {
+      if (!table || typeof table !== "object") continue;
+      const rows = (table as { rows?: unknown }).rows;
+      if (!Array.isArray(rows)) continue;
+      for (const row of rows) {
+        if (!Array.isArray(row) || row.some((cell) => typeof cell !== "string")) continue;
+        claims.push(row.join(" | "));
+      }
+    }
+  }
+  return claims.filter((claim) => claim.trim().length > 0).join("\n\n");
+}
+
 function limitedText(value: unknown, label: string, maximum: number, required = false) {
   const normalized = String(value ?? "").replace(/\s+/g, " ").trim();
   if (required && !normalized) throw new Error(`report-${label}-required`);

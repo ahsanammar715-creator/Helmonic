@@ -14,7 +14,8 @@ export type AzureRequestStage =
   | "search-session"
   | "search-email"
   | "search-count"
-  | "model";
+  | "model"
+  | "claim-evidence-audit";
 
 function boundedString(value: unknown, maximumLength = 600) {
   if (typeof value !== "string") return undefined;

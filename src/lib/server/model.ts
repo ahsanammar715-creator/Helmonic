@@ -6,6 +6,7 @@ import {
 } from "@/lib/consult/model-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
 import { azureRequestError } from "@/lib/server/azure-request-error";
+import { verifyClaimEvidenceSupport } from "@/lib/server/claim-evidence-audit";
 import type { RuntimeConfig } from "@/lib/server/config";
 import {
   ModelGatewayValidationError,
@@ -111,6 +112,14 @@ async function createDocumentAnswer(
   if (!validation.valid) {
     throw new ModelGatewayValidationError(validation.errors.join(" "));
   }
+
+  await verifyClaimEvidenceSupport({
+    requestId: request.requestId,
+    answer,
+    citations: request.evidence,
+    allowGeneralKnowledge: request.allowGeneralKnowledge,
+    config,
+  });
 
   console.info("Helmonic model usage", {
     requestId: request.requestId,

@@ -6,6 +6,12 @@ import {
   NO_DOCUMENT_EVIDENCE_NOTICE,
   validateDocumentAnswerCitations,
 } from "../../src/lib/consult/model-policy.ts";
+import {
+  buildClaimEvidenceAudit,
+  extractCitedClaimBlocks,
+  validateClaimCitationCoverage,
+  validateClaimSupportVerdicts,
+} from "../../src/lib/consult/claim-evidence-policy.ts";
 
 test("system prompt enforces the professional acoustician register and citation taxonomy", () => {
   const prompt = buildConsultSystemPrompt({
@@ -158,4 +164,52 @@ test("restricted email markers are accepted only when supplied as evidence", () 
   assert.equal(accepted.valid, true);
   assert.equal(rejected.valid, false);
   assert.match(rejected.errors.join(" "), /unsupported markers/);
+});
+
+test("claim coverage rejects an uncited factual paragraph", () => {
+  const result = validateClaimCitationCoverage({
+    answer: "The tested wall achieved 52 dB.\n\nFurther testing is required. [D1]",
+    allowGeneralKnowledge: false,
+  });
+
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(" "), /C1.*without a retrieved evidence marker/);
+});
+
+test("claim coverage keeps general knowledge separate from retrieved evidence", () => {
+  const result = validateClaimCitationCoverage({
+    answer: "The report records a 52 dB result [D1], while general practice suggests a margin [G1].",
+    allowGeneralKnowledge: true,
+  });
+
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(" "), /mixes retrieved evidence and general knowledge/);
+});
+
+test("claim audit exposes only the excerpts cited by each claim", () => {
+  const claims = extractCitedClaimBlocks(
+    "The report records a 52 dB result. [D1]\n\nThe standard defines the method. [S1]",
+  );
+  const audit = buildClaimEvidenceAudit({ claims, citations: mixedCitations });
+
+  assert.deepEqual(audit.claims[0].evidence, [
+    { marker: "D1", excerpt: "A controlled passage." },
+  ]);
+  assert.deepEqual(audit.claims[1].evidence, [
+    { marker: "S1", excerpt: "Field measurement method." },
+  ]);
+});
+
+test("claim audit fails closed on an unsupported verdict or omitted claim", () => {
+  const claims = extractCitedClaimBlocks(
+    "The report records a 52 dB result. [D1]\n\nThe standard defines the method. [S1]",
+  );
+  const result = validateClaimSupportVerdicts({
+    claims,
+    verdicts: [{ claimId: "C1", supported: false, reason: "The excerpt contains no value." }],
+  });
+
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(" "), /C1 is not supported/);
+  assert.match(result.errors.join(" "), /omitted C2/);
 });

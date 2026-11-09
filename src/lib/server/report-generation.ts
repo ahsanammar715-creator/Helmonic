@@ -6,6 +6,7 @@ import { buildGroundedReportDocx } from "@/lib/consult/reports/docx";
 import {
   buildGroundedReportPlan,
   filterUngroundedReportContent,
+  reportPayloadClaimText,
   reportModelMaximumCompletionTokens,
   reportModelReasoningEffort,
   selectReportModelCitations,
@@ -15,6 +16,7 @@ import {
 import { reportSectionHeadings } from "@/lib/consult/reports/types";
 import type { ConsultCitation } from "@/lib/consult/types";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
+import { verifyClaimEvidenceSupport } from "@/lib/server/claim-evidence-audit";
 import type { RuntimeConfig } from "@/lib/server/config";
 import { putImmutableReportBlob } from "@/lib/server/report-output-blob";
 import { loadConfiguredReportTemplate } from "@/lib/server/report-template-blob";
@@ -193,6 +195,16 @@ export async function generateAndStoreReport(input: {
       removedParagraphCount: filteredContent.removedParagraphCount,
       removedTableRowCount: filteredContent.removedTableRowCount,
       removedTableCount: filteredContent.removedTableCount,
+    });
+  }
+  const reportClaims = reportPayloadClaimText(filteredContent.payload);
+  if (reportClaims) {
+    await verifyClaimEvidenceSupport({
+      requestId: input.requestId,
+      answer: reportClaims,
+      citations: input.citations,
+      allowGeneralKnowledge: false,
+      config: input.config,
     });
   }
   const plan = buildGroundedReportPlan({

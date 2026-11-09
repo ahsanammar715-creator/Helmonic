@@ -6,6 +6,7 @@ import { buildGroundedReportDocx } from "../../src/lib/consult/reports/docx.ts";
 import {
   buildGroundedReportPlan,
   filterUngroundedReportContent,
+  reportPayloadClaimText,
   reportModelEvidenceCharacterBudget,
   reportExecutiveSummaryMaximumParagraphCharacters,
   reportExecutiveSummaryMaximumParagraphs,
@@ -177,6 +178,34 @@ test("report generation omits uncited model content without weakening the eviden
   assert.deepEqual(result.sections[0].paragraphs, ["Grounded statement. [D1]"]);
   assert.deepEqual(result.sections[3].tables[0].rows, [["Grounded item", "45 dB LAr,T [D1]"]]);
   assert.equal(result.sections[3].tables.length, 1);
+});
+
+test("report claim audit input includes every retained paragraph and factual table row", () => {
+  const text = reportPayloadClaimText({
+    sections: [
+      {
+        heading: "Executive Summary",
+        paragraphs: ["Grounded summary. [D1]"],
+        tables: [],
+      },
+      {
+        heading: "Acoustic Performance Specification",
+        paragraphs: ["Grounded criterion. [D2]"],
+        tables: [
+          {
+            title: "Criteria",
+            columns: ["Item", "Requirement"],
+            rows: [["Bedroom partition", "45 dB Rw [D3]"]],
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(
+    text,
+    "Grounded summary. [D1]\n\nGrounded criterion. [D2]\n\nBedroom partition | 45 dB Rw [D3]",
+  );
 });
 
 test("report model evidence is bounded and remains balanced across project sources", () => {

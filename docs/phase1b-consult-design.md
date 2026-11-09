@@ -1955,3 +1955,48 @@ The approved PDF is retained as a separate visual cross-check, while the Word ma
 the final authority for generated reports. Production traffic and production feature
 activation remain separate approval gates.
 
+## 25. 2026-11-09 — full-RAG production release and claim-to-excerpt gate
+
+The production target is the complete approved Helmonic RAG, not the historical
+16-document Phase 1A demonstration set. The release candidate is configured against
+`consult-candidate-consolidated-1860-v1`, whose last verified inventory was 25,301
+project-document `[D]` records and 4,521 approved-book `[B]` records. The index contains
+no real `[S]` records yet, so standards retrieval must remain an implemented but
+unpopulated namespace until approved standards are ingested. Restricted email `[E]`
+evidence remains in its separate index and identity boundary; session attachments remain
+`[A]`. Raw duplicates, held extractions, incomplete OCR and sources without approved
+permission scope are not part of the searchable production corpus merely because they
+exist in storage.
+
+The browser no longer describes Consult as a 16-document demo. It describes the approved
+project and reference knowledge base without publishing a misleading source-document
+count. Consult and editable Word report generation remain two authenticated workflows in
+the same application. Report generation still clones the immutable approved Word master
+and does not alter its protected shell.
+
+Marker validation is now followed by a separate claim-to-excerpt audit for both Consult
+answers and generated-report content. Every substantive answer block, retained report
+paragraph and retained factual table row must carry one or more exact markers supplied by
+retrieval. The audit receives each claim only with the excerpts cited by that claim and is
+instructed to use no outside knowledge. It accepts a claim only when every project fact,
+number, metric, material, standard, relationship and evidence-attributed recommendation
+is directly stated or necessarily entailed by those excerpts. Missing, duplicate,
+unknown, unsupported or omitted verdicts fail closed. A rejected Consult synthesis is
+withheld while the retrieved source passages remain available in `retrieval-only` mode; a
+rejected report synthesis produces no Word output or Blob write.
+
+General model knowledge remains disabled for the production release. If enabled in a
+future separately approved change, `[G]` passages must occupy separate paragraphs from
+retrieved evidence and remain visibly unverified. `[G]` can never satisfy the
+claim-to-excerpt gate.
+
+The audit adds one low-reasoning Azure model call to each successful generated Consult
+answer and each report plan. This cost and latency are deliberate production controls;
+the existing Azure budget alerts remain the operational guard. The release does not
+change Search indexes, production traffic, Entra membership, MFA policy or Blob content
+until the zero-traffic candidate passes the full live gate and a separate promotion is
+approved. Required live evidence is: health/readiness, unauthorised rejection,
+authenticated `[D]` and `[B]` retrieval, private `[B]` identity handling, unsupported
+claim withholding, restricted `[E]` isolation, editable Word generation from a real
+project, and unchanged immutable-master structure.
+
