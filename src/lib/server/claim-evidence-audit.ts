@@ -8,7 +8,10 @@ import {
 } from "@/lib/consult/claim-evidence-policy";
 import type { ConsultCitation } from "@/lib/consult/types";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
-import { azureRequestError } from "@/lib/server/azure-request-error";
+import {
+  azureRequestError,
+  azureRetryDelayMilliseconds,
+} from "@/lib/server/azure-request-error";
 import type { RuntimeConfig } from "@/lib/server/config";
 import { ModelGatewayValidationError } from "@/lib/server/model-gateway";
 
@@ -47,11 +50,10 @@ export async function verifyClaimEvidenceSupport(input: {
     citations: input.citations,
   });
   const token = await getAzureAccessToken("https://cognitiveservices.azure.com/.default");
-  const response = await fetch(
-    `${endpoint}/openai/deployments/${encodeURIComponent(
-      deployment,
-    )}/chat/completions?api-version=${encodeURIComponent(input.config.model.apiVersion)}`,
-    {
+  const requestUrl = `${endpoint}/openai/deployments/${encodeURIComponent(
+    deployment,
+  )}/chat/completions?api-version=${encodeURIComponent(input.config.model.apiVersion)}`;
+  const requestInit: Omit<RequestInit, "signal"> = {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -99,9 +101,25 @@ export async function verifyClaimEvidenceSupport(input: {
         max_completion_tokens: 1_200,
       }),
       cache: "no-store",
+  };
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await fetch(requestUrl, {
+      ...requestInit,
       signal: AbortSignal.timeout(input.config.model.timeoutMilliseconds),
-    },
-  );
+    });
+    if (response.status !== 429 || attempt === 2) break;
+
+    const retryDelayMilliseconds = azureRetryDelayMilliseconds(response, attempt);
+    console.warn("Helmonic claim audit throttled; retrying within the bounded gate", {
+      requestId: input.requestId,
+      attempt: attempt + 1,
+      retryDelayMilliseconds,
+    });
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMilliseconds));
+  }
+
+  if (!response) throw new Error("The claim-evidence audit did not execute.");
 
   if (!response.ok) {
     throw await azureRequestError(response, {

@@ -18,6 +18,26 @@ export type AzureRequestStage =
   | "model"
   | "claim-evidence-audit";
 
+export function azureRetryDelayMilliseconds(
+  response: Pick<Response, "headers">,
+  attempt: number,
+) {
+  const millisecondHeader =
+    response.headers.get("x-ms-retry-after-ms") ??
+    response.headers.get("retry-after-ms");
+  const millisecondValue = Number(millisecondHeader);
+  if (Number.isFinite(millisecondValue) && millisecondValue > 0) {
+    return Math.min(60_000, Math.max(1_000, Math.ceil(millisecondValue)));
+  }
+
+  const secondsValue = Number(response.headers.get("retry-after"));
+  if (Number.isFinite(secondsValue) && secondsValue > 0) {
+    return Math.min(60_000, Math.max(1_000, Math.ceil(secondsValue * 1_000)));
+  }
+
+  return Math.min(60_000, 20_000 * (2 ** Math.max(0, attempt)));
+}
+
 function boundedString(value: unknown, maximumLength = 600) {
   if (typeof value !== "string") return undefined;
   const compact = value.replace(/\s+/g, " ").trim();

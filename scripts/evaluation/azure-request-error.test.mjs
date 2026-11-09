@@ -2,11 +2,31 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  azureRetryDelayMilliseconds,
   AzureRequestError,
   azureRequestError,
   isSemanticSearchQuotaError,
   safeAzureRequestDiagnostic,
 } from "../../src/lib/server/azure-request-error.ts";
+
+test("uses Azure retry headers and bounds claim-audit backoff", () => {
+  assert.equal(
+    azureRetryDelayMilliseconds(
+      { headers: new Headers({ "x-ms-retry-after-ms": "2500" }) },
+      0,
+    ),
+    2500,
+  );
+  assert.equal(
+    azureRetryDelayMilliseconds(
+      { headers: new Headers({ "retry-after": "90" }) },
+      0,
+    ),
+    60_000,
+  );
+  assert.equal(azureRetryDelayMilliseconds({ headers: new Headers() }, 0), 20_000);
+  assert.equal(azureRetryDelayMilliseconds({ headers: new Headers() }, 1), 40_000);
+});
 
 test("captures safe Azure failure metadata without retaining the response body", async () => {
   const error = await azureRequestError(
