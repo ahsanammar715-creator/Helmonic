@@ -4,9 +4,31 @@ import test from "node:test";
 import {
   buildControlledEvidenceExcerpt,
   buildControlledHybridSearchRequest,
+  extractProjectCodes,
   normalizeControlledSearchQuery,
   retainRelevantHybridDocuments,
 } from "../../src/lib/consult/search-policy.ts";
+
+test("extracts stable project codes for exact project scoping", () => {
+  assert.deepEqual(
+    extractProjectCodes("For J2701 Goatstown and UDL01, compare J2701 criteria"),
+    ["J2701", "UDL01"],
+  );
+});
+
+test("scopes hybrid retrieval to the resolved project source set", () => {
+  const request = buildControlledHybridSearchRequest(
+    "J2701 internal ambient noise limits",
+    "iAcoustics",
+    4,
+    [0.1, 0.2],
+    { vectorK: 50, sourceIds: ["src-one", "src-two"] },
+  );
+  assert.equal(
+    request.filter,
+    "permission_scope eq 'iAcoustics' and search.in(source_id, 'src-one,src-two', ',')",
+  );
+});
 
 test("semantic relevance threshold fails closed on missing or weak scores", () => {
   const retained = retainRelevantHybridDocuments(

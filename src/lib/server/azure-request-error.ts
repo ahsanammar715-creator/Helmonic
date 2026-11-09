@@ -10,6 +10,7 @@ type AzureErrorPayload = {
 export type AzureRequestStage =
   | "embedding"
   | "search"
+  | "search-project-anchor"
   | "search-report-expansion"
   | "search-session"
   | "search-email"

@@ -13,6 +13,7 @@ import {
   buildControlledEvidenceExcerpt,
   buildControlledHybridSearchRequest,
   buildControlledSearchRequest,
+  extractProjectCodes,
   retainRelevantHybridDocuments,
 } from "@/lib/consult/search-policy";
 import {
@@ -89,13 +90,70 @@ function controlledCitationsFromDocuments(documents: SearchDocument[], requestId
     });
 }
 
+async function findProjectSourceIds(
+  question: string,
+  requestId: string,
+  config: RuntimeConfig,
+) {
+  const projectCodes = extractProjectCodes(question);
+  if (projectCodes.length === 0) return [];
+
+  const { endpoint, indexName } = requireSearchConfig(config);
+  const token = await getAzureAccessToken("https://search.azure.com/.default");
+  const scope = config.profile.replace(/'/g, "''");
+  const responses = await Promise.all(
+    projectCodes.map(async (projectCode) => {
+      const response = await fetch(
+        `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(
+          config.search.apiVersion,
+        )}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "x-ms-client-request-id": requestId,
+          },
+          body: JSON.stringify({
+            search: projectCode,
+            queryType: "simple",
+            searchMode: "all",
+            searchFields: "title,section,content",
+            filter: `permission_scope eq '${scope}'`,
+            top: 50,
+            select: "source_id",
+          }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(8_000),
+        },
+      );
+      if (!response.ok) {
+        throw await azureRequestError(response, {
+          service: "Azure AI Search",
+          stage: "search-project-anchor",
+        });
+      }
+      return ((await response.json()) as SearchResponse).value ?? [];
+    }),
+  );
+
+  return [...new Set(responses.flat().map((document) => document.source_id).filter(Boolean))]
+    .slice(0, 12) as string[];
+}
+
 async function searchControlledDocuments(
   question: string,
   requestId: string,
   config: RuntimeConfig,
   top = config.search.top,
+  projectSourceIds?: string[],
 ) {
   const { endpoint, indexName } = requireSearchConfig(config);
+  const scopedProjectSourceIds = projectSourceIds ?? await findProjectSourceIds(
+    question,
+    requestId,
+    config,
+  );
   const queryEmbedding = config.search.hybridEnabled
     ? await import("@/lib/server/embeddings").then(({ createQueryEmbedding }) =>
         createQueryEmbedding(question, requestId, config),
@@ -109,12 +167,13 @@ async function searchControlledDocuments(
         queryEmbedding,
         {
           vectorK: config.search.vectorK,
+          sourceIds: scopedProjectSourceIds,
           semanticConfiguration: config.search.semanticEnabled
             ? config.search.semanticConfiguration
             : undefined,
         },
       )
-    : buildControlledSearchRequest(question, config.profile, top);
+    : buildControlledSearchRequest(question, config.profile, top, scopedProjectSourceIds);
   const token = await getAzureAccessToken("https://search.azure.com/.default");
   const executeSearch = async (request: typeof searchRequest) => {
     const response = await fetch(
@@ -164,7 +223,7 @@ async function searchControlledDocuments(
       config.profile,
       top,
       queryEmbedding,
-      { vectorK: config.search.vectorK },
+      { vectorK: config.search.vectorK, sourceIds: scopedProjectSourceIds },
     );
     console.warn(
       "Helmonic semantic retrieval quota unavailable; using grounded hybrid fallback",
@@ -197,6 +256,8 @@ async function searchControlledDocuments(
         ? config.search.minimumSemanticScore
         : config.search.minimumRrfScore,
       semanticFallbackUsed,
+      projectScoped: scopedProjectSourceIds.length > 0,
+      projectSourceCount: scopedProjectSourceIds.length,
     });
   }
 
@@ -219,14 +280,19 @@ export async function searchReportEvidence(
   requestId: string,
   config: RuntimeConfig,
 ) {
+  const projectSourceIds = await findProjectSourceIds(question, requestId, config);
   const initial = await searchControlledDocuments(
     question,
     requestId,
     config,
     Math.max(config.search.top, 12),
+    projectSourceIds,
   );
-  const sourceIds = [...new Set(initial.map((document) => document.source_id).filter(Boolean))]
-    .slice(0, 2) as string[];
+  const sourceIds = (
+    projectSourceIds.length > 0
+      ? projectSourceIds
+      : [...new Set(initial.map((document) => document.source_id).filter(Boolean))]
+  ).slice(0, 12) as string[];
   if (sourceIds.length === 0) return [];
 
   const { endpoint, indexName } = requireSearchConfig(config);

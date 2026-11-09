@@ -91,10 +91,27 @@ function searchFilterValue(value: string) {
   return value.replace(/'/g, "''");
 }
 
+export function extractProjectCodes(value: string) {
+  const matches = value.toUpperCase().match(/\b[A-Z]{1,5}\d{2,6}\b/g) ?? [];
+  return [...new Set(matches)];
+}
+
+function controlledSearchFilter(permissionScope: string, sourceIds: string[] = []) {
+  const scope = `permission_scope eq '${searchFilterValue(permissionScope)}'`;
+  const uniqueSourceIds = [...new Set(sourceIds.map((value) => value.trim()).filter(Boolean))];
+  if (uniqueSourceIds.length === 0) return scope;
+
+  const delimitedSourceIds = uniqueSourceIds
+    .map((value) => searchFilterValue(value.replace(/,/g, "")))
+    .join(",");
+  return `${scope} and search.in(source_id, '${delimitedSourceIds}', ',')`;
+}
+
 export function buildControlledSearchRequest(
   question: string,
   permissionScope: string,
   top: number,
+  sourceIds: string[] = [],
 ): ControlledSearchRequest {
   return {
     search: normalizeControlledSearchQuery(question),
@@ -104,7 +121,7 @@ export function buildControlledSearchRequest(
     // generic words from a broad natural-language question.
     searchMode: "all",
     searchFields: "title,section,content",
-    filter: `permission_scope eq '${searchFilterValue(permissionScope)}'`,
+    filter: controlledSearchFilter(permissionScope, sourceIds),
     top,
     select: "chunk_id,source_id,source_uri,title,section,page_number,content,citation_namespace",
   };
@@ -118,6 +135,7 @@ export function buildControlledHybridSearchRequest(
   options: {
     vectorK: number;
     semanticConfiguration?: string;
+    sourceIds?: string[];
   },
 ): ControlledHybridSearchRequest {
   if (vector.length === 0 || vector.some((value) => !Number.isFinite(value))) {
@@ -129,7 +147,7 @@ export function buildControlledHybridSearchRequest(
     queryType: options.semanticConfiguration ? "semantic" : "simple",
     searchMode: "all",
     searchFields: "title,section,content",
-    filter: `permission_scope eq '${searchFilterValue(permissionScope)}'`,
+    filter: controlledSearchFilter(permissionScope, options.sourceIds),
     top,
     select: "chunk_id,source_id,source_uri,title,section,page_number,content,chunk_kind,citation_namespace",
     vectorFilterMode: "preFilter",
