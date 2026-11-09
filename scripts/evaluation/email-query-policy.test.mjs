@@ -69,7 +69,7 @@ test("email search is bounded and requests only the evidence fields needed by Co
 test("experience sanitizer removes direct identifiers while retaining technical substance", () => {
   const text = deidentifyExperienceText(
     "From: Jane Architect <jane@example.com>\nSubject: J2701 Goatstown PBSA\nJane Architect at Example Design confirmed that the riser detail required an acoustic seal on 12/09/2026. Call 086 200 8748.",
-    ["Jane Architect", "Example Design", "Goatstown PBSA", "J2701"],
+    ["Jane Architect", "Example Design", "Goatstown PBSA", "J2701", { unexpected: "shape" }],
   );
 
   assert.doesNotMatch(text, /Jane|Example Design|Goatstown|J2701|jane@example|086 200 8748|12\/09\/2026/i);

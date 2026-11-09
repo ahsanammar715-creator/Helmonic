@@ -25,11 +25,12 @@ export type PrivateExperienceAuditSource = {
   projectNames: string[];
 };
 
-function normalizedArray(values: Array<string | undefined>) {
+function normalizedArray(values: unknown[]) {
   return [
     ...new Set(
       values
-        .map((value) => value?.replace(/\s+/g, " ").trim())
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.replace(/\s+/g, " ").trim())
         .filter((value): value is string => Boolean(value)),
     ),
   ];
@@ -41,7 +42,7 @@ function escaped(value: string) {
 
 export function deidentifyExperienceText(
   bodyText: string,
-  identifiers: Array<string | undefined>,
+  identifiers: unknown[],
 ) {
   let value = bodyText
     .split(/\r?\n/)
