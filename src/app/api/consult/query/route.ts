@@ -81,6 +81,10 @@ export async function POST(request: Request) {
     typeof body === "object" && body !== null && "includeEmailEvidence" in body
       ? (body as { includeEmailEvidence?: unknown }).includeEmailEvidence === true
       : false;
+  const includeDeidentifiedExperience =
+    typeof body === "object" && body !== null && "includeDeidentifiedExperience" in body
+      ? (body as { includeDeidentifiedExperience?: unknown }).includeDeidentifiedExperience === true
+      : false;
   const conversationId =
     typeof body === "object" && body !== null && "conversationId" in body
       ? (body as { conversationId?: unknown }).conversationId
@@ -97,6 +101,13 @@ export async function POST(request: Request) {
 
   if (typeof question !== "string" || !question.trim()) {
     return errorResponse("Enter a question for Helmonic Consult.", requestId, 400);
+  }
+  if (includeEmailEvidence && includeDeidentifiedExperience) {
+    return errorResponse(
+      "Choose either restricted email evidence or de-identified project experience, not both.",
+      requestId,
+      400,
+    );
   }
 
   const trimmedQuestion = question.trim();
@@ -127,12 +138,19 @@ export async function POST(request: Request) {
       searchConsultEvidence,
       searchSessionEvidence,
       searchRestrictedEmailEvidence,
+      searchDeidentifiedExperienceEvidence,
     } = await import("@/lib/server/search");
-    const actor = conversationId || includeEmailEvidence ? getAuthenticatedActor(request) : null;
-    if ((conversationId || includeEmailEvidence) && !actor) {
-      return errorResponse("Sign in to query uploaded or restricted evidence.", requestId, 401);
+    const actor = conversationId || includeEmailEvidence || includeDeidentifiedExperience
+      ? getAuthenticatedActor(request)
+      : null;
+    if ((conversationId || includeEmailEvidence || includeDeidentifiedExperience) && !actor) {
+      return errorResponse(
+        "Sign in to query uploaded, restricted, or de-identified experience evidence.",
+        requestId,
+        401,
+      );
     }
-    if (includeEmailEvidence) {
+    if (includeEmailEvidence || includeDeidentifiedExperience) {
       const emailConfigurationErrors = emailEvidenceConfigurationErrors(config);
       if (emailConfigurationErrors.length > 0) {
         console.error("Restricted email evidence configuration is incomplete", {
@@ -141,11 +159,11 @@ export async function POST(request: Request) {
         });
         return errorResponse("Restricted email evidence is not available.", requestId, 503);
       }
-      if (!actorMayReadRestrictedEmailEvidence(actor, config)) {
+      if (includeEmailEvidence && !actorMayReadRestrictedEmailEvidence(actor, config)) {
         return errorResponse("You are not permitted to query restricted email evidence.", requestId, 403);
       }
     }
-    const [controlledCitations, attachmentCitations, emailCitations] = await Promise.all([
+    const [controlledCitations, attachmentCitations, emailCitations, experienceCitations] = await Promise.all([
       searchConsultEvidence(trimmedQuestion, requestId, config),
       conversationId && actor && config.phase1b.uploadsEnabled
         ? searchSessionEvidence(
@@ -159,8 +177,16 @@ export async function POST(request: Request) {
       includeEmailEvidence && actor
         ? searchRestrictedEmailEvidence(trimmedQuestion, actor, requestId, config)
         : Promise.resolve([]),
+      includeDeidentifiedExperience && actor
+        ? searchDeidentifiedExperienceEvidence(trimmedQuestion, actor, requestId, config)
+        : Promise.resolve([]),
     ]);
-    const citations = [...controlledCitations, ...attachmentCitations, ...emailCitations];
+    const citations = [
+      ...controlledCitations,
+      ...attachmentCitations,
+      ...emailCitations,
+      ...experienceCitations,
+    ];
     const allowGeneralKnowledge = generalKnowledgeEnabled(includeGeneralContext, config);
 
     if (citations.length === 0 && !allowGeneralKnowledge) {
@@ -196,6 +222,7 @@ export async function POST(request: Request) {
         question: trimmedQuestion,
         evidence: citations,
         allowGeneralKnowledge,
+        experienceMode: includeDeidentifiedExperience,
       });
     } catch (error) {
       if (error instanceof ModelGatewayValidationError) {

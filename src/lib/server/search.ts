@@ -8,6 +8,10 @@ import {
 } from "@/lib/consult/citation-policy";
 import { actorMayReadRestrictedEmailEvidence } from "@/lib/consult/email-evidence-policy";
 import { buildRestrictedEmailSearchRequest } from "@/lib/consult/email-search-policy";
+import {
+  buildDeidentifiedExperienceEvidence,
+  type ExperienceEvidenceDocument,
+} from "@/lib/consult/experience-evidence-policy";
 import type { ConsultCitation } from "@/lib/consult/types";
 import {
   buildControlledEvidenceExcerpt,
@@ -458,18 +462,28 @@ type EmailSearchDocument = {
   body_text?: string;
   mailbox_owner?: string;
   source_uri?: string;
+  participants?: unknown;
+  participant_names?: unknown;
+  firm?: string;
+  project_names?: unknown;
+  relationship_people?: unknown;
 };
 
-export async function searchRestrictedEmailEvidence(
+function emailStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.split(/[;,|]/).map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+async function fetchRestrictedEmailDocuments(
   question: string,
-  actor: AuthenticatedActor,
   requestId: string,
   config: RuntimeConfig,
 ) {
-  if (!actorMayReadRestrictedEmailEvidence(actor, config)) {
-    throw new Error("restricted-email-evidence-forbidden");
-  }
-
   const { endpoint, indexName, managedIdentityClientId } = config.emailEvidence;
   if (!endpoint || !indexName || !managedIdentityClientId) {
     throw new Error("restricted-email-evidence-not-configured");
@@ -503,8 +517,21 @@ export async function searchRestrictedEmailEvidence(
     });
   }
 
-  const payload = (await response.json()) as { value?: EmailSearchDocument[] };
-  return (payload.value ?? [])
+  return ((await response.json()) as { value?: EmailSearchDocument[] }).value ?? [];
+}
+
+export async function searchRestrictedEmailEvidence(
+  question: string,
+  actor: AuthenticatedActor,
+  requestId: string,
+  config: RuntimeConfig,
+) {
+  if (!actorMayReadRestrictedEmailEvidence(actor, config)) {
+    throw new Error("restricted-email-evidence-forbidden");
+  }
+
+  const documents = await fetchRestrictedEmailDocuments(question, requestId, config);
+  return documents
     .filter((document) => document.body_text && document.message_id)
     .map<ConsultCitation>((document, index) => ({
       id: document.chunk_id ?? `email-citation-${index + 1}`,
@@ -521,6 +548,43 @@ export async function searchRestrictedEmailEvidence(
       citationNamespace: "E",
       marker: `E${index + 1}`,
     }));
+}
+
+export async function searchDeidentifiedExperienceEvidence(
+  question: string,
+  actor: AuthenticatedActor,
+  requestId: string,
+  config: RuntimeConfig,
+) {
+  const documents = await fetchRestrictedEmailDocuments(question, requestId, config);
+  const experienceDocuments = documents
+    .filter((document) => document.body_text && document.message_id)
+    .map<ExperienceEvidenceDocument>((document) => ({
+      score: document["@search.score"],
+      chunkId: document.chunk_id,
+      messageId: document.message_id ?? "",
+      evidenceRef: document.evidence_ref,
+      bodyText: document.body_text ?? "",
+      subject: document.subject,
+      mailboxOwner: document.mailbox_owner,
+      participants: emailStringArray(document.participants),
+      participantNames: emailStringArray(document.participant_names),
+      firm: document.firm,
+      projectNames: emailStringArray(document.project_names),
+      relationshipPeople: emailStringArray(document.relationship_people),
+    }));
+  const { citations, auditSources } = buildDeidentifiedExperienceEvidence(experienceDocuments);
+
+  if (auditSources.length > 0) {
+    console.info("Helmonic private de-identified experience audit", {
+      requestId,
+      requestedByObjectId: actor.objectId,
+      minimumProjectCount: 3,
+      sources: auditSources,
+    });
+  }
+
+  return citations;
 }
 
 export async function countSearchDocuments(config: RuntimeConfig) {

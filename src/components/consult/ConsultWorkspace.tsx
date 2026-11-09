@@ -70,6 +70,7 @@ export default function ConsultWorkspace() {
   const [pending, setPending] = useState(false);
   const [conversationId, setConversationId] = useState<string>();
   const [includeGeneralContext, setIncludeGeneralContext] = useState(false);
+  const [includeDeidentifiedExperience, setIncludeDeidentifiedExperience] = useState(false);
   const latestSources = exchanges.at(-1)?.citations ?? [];
 
   async function ask(question: string) {
@@ -83,7 +84,12 @@ export default function ConsultWorkspace() {
       const response = await fetch("/api/consult/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, conversationId, includeGeneralContext }),
+        body: JSON.stringify({
+          question,
+          conversationId,
+          includeGeneralContext,
+          includeDeidentifiedExperience,
+        }),
       });
       const payload = (await response.json()) as ConsultQueryResponse | ConsultErrorResponse;
 
@@ -308,6 +314,15 @@ export default function ConsultWorkspace() {
                             audit record and is not exposed in the answer.
                           </p>
                         )}
+                        {exchange.citations.some(
+                          (citation) => citation.sourceType === "experience",
+                        ) && (
+                          <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
+                            [E] marks a pattern supported across at least three de-identified
+                            project cases. Identifying details and private provenance are not
+                            exposed here.
+                          </p>
+                        )}
                         {exchange.citations.length > 0 && (
                           <div className="border-t border-line pt-3 text-[12px] text-muted">
                             {exchange.citations.length} server-verified source passage
@@ -324,15 +339,26 @@ export default function ConsultWorkspace() {
           )}
         </div>
 
-        <label className="px-6 md:px-10 pt-3 flex items-center gap-2 text-[12px] text-muted">
-          <input
-            type="checkbox"
-            checked={includeGeneralContext}
-            onChange={(event) => setIncludeGeneralContext(event.target.checked)}
-            className="accent-primary"
-          />
-          Allow clearly marked general knowledge in the same answer
-        </label>
+        <div className="px-6 md:px-10 pt-3 flex flex-col gap-2 text-[12px] text-muted">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={includeDeidentifiedExperience}
+              onChange={(event) => setIncludeDeidentifiedExperience(event.target.checked)}
+              className="accent-primary"
+            />
+            Include de-identified experience from at least three comparable projects
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={includeGeneralContext}
+              onChange={(event) => setIncludeGeneralContext(event.target.checked)}
+              className="accent-primary"
+            />
+            Allow clearly marked general knowledge in the same answer
+          </label>
+        </div>
 
         <ChatComposer
           inputId="consult-question"

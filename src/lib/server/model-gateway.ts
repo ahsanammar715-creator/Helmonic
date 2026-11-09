@@ -7,6 +7,7 @@ export type DocumentModelRequest = {
   question: string;
   evidence: ConsultCitation[];
   allowGeneralKnowledge: boolean;
+  experienceMode?: boolean;
 };
 
 export interface ConsultModelGateway {

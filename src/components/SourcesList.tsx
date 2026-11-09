@@ -15,7 +15,9 @@ export default function SourcesList({ sources }: { sources?: ConsultCitation[] }
           id: source.id,
           title: `${source.marker ? `[${source.marker}] ` : ""}${source.title}`,
           meta: [
-            source.citationNamespace === "S"
+            source.sourceType === "experience"
+              ? "De-identified project experience · private provenance retained"
+              : source.citationNamespace === "S"
               ? "Standard"
               : source.citationNamespace === "B"
                 ? "Approved book · identity held privately"

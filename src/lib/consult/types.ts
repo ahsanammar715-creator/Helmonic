@@ -7,7 +7,7 @@ export type ConsultCitation = {
   excerpt: string;
   sourceUri?: string;
   score?: number;
-  sourceType?: "controlled" | "attachment" | "email";
+  sourceType?: "controlled" | "attachment" | "email" | "experience";
   citationNamespace?: "D" | "S" | "B" | "A" | "E";
   marker?: `D${number}` | `S${number}` | `B${number}` | `A${number}` | `E${number}`;
 };

@@ -1,4 +1,5 @@
 import type { ConsultCitation } from "@/lib/consult/types";
+import { validateDeidentifiedExperienceAnswer } from "./experience-evidence-policy.ts";
 
 export type DocumentAnswerValidation = {
   valid: boolean;
@@ -14,12 +15,17 @@ export const NO_DOCUMENT_EVIDENCE_NOTICE =
 export function buildConsultSystemPrompt(input: {
   profile: string;
   allowGeneralKnowledge: boolean;
+  experienceMode?: boolean;
 }) {
   const answerPolicy = input.allowGeneralKnowledge
     ? `Write one natural, flowing answer. Claims supported by supplied project documents, standards, approved books, attachments, or separately authorised email evidence must use their exact [D#], [S#], [B#], [A#], or [E#] marker. You may add useful background from your own general knowledge only in separate paragraphs, and every such paragraph must use sequential markers starting at [G1]. Never mix a [G#] marker with a retrieved-evidence marker in the same paragraph. [G] markers are disclosure labels only: they are not verified sources and must never be described as document citations. Never identify or infer the hidden title, author, publisher, filename, URI, or section behind an approved-book [B#] marker. Email evidence may be used only when the separate restricted index has authorised the caller; never infer an email relationship from ordinary document evidence. Do not invent a source, URL, standard, clause, measurement, page, or marker. If no evidence was supplied, begin with this exact sentence: "${NO_DOCUMENT_EVIDENCE_NOTICE}" You may then provide clearly marked general knowledge, or say that you do not know enough to answer reliably. Never let general knowledge conceal missing or conflicting document evidence.`
     : "Answer only from the supplied evidence. Cite every factual paragraph with one or more supplied project-document [D#], standard [S#], approved-book [B#], attachment [A#], or separately authorised email [E#] markers. Never identify or infer the hidden title, author, publisher, filename, URI, or section behind an approved-book [B#] marker. Email evidence may be used only when the separate restricted index has authorised the caller; never infer an email relationship from ordinary document evidence. Never invent a source, clause, page, measurement, marker, or general-knowledge claim. If the evidence conflicts, identify the conflict and cite both sides. If it is insufficient, say so clearly and do not fill the gap from general knowledge.";
 
-  return `You are Helmonic Consult for the fixed ${input.profile} evidence set, writing acoustician-to-acoustician. ${answerPolicy} Every nonblank response block must end with at least one applicable evidence or disclosure marker. Avoid standalone headings, labels, lead-ins, table headers, and uncited conclusions; use short cited paragraphs instead. Use the technical register of a practising acoustic consultant: preserve distinctions such as Rw versus DnT,w, use C and Ctr only where supported, state frequency-dependent findings in octave- or one-third-octave-band terms, retain measurement conditions and uncertainty, and do not expand elementary acoustics concepts unless the question asks for it. Keep the answer concise, technically exact, and commercially usable.`;
+  const experiencePolicy = input.experienceMode
+    ? ` Any [E#] passages are deterministically de-identified case evidence. Use them only for a pattern independently supported by at least three distinct [E#] cases. Every paragraph using [E#] must begin with "Based on experience across comparable projects" and cite at least three distinct [E#] markers. Never call this material email, correspondence, messages, client conversations, quotations, or sources. Never reveal or infer names, firms, projects, addresses, dates, contact details, document identifiers, or relationships. If fewer than three cases support a point, do not state it.`
+    : "";
+
+  return `You are Helmonic Consult for the fixed ${input.profile} evidence set, writing acoustician-to-acoustician. ${answerPolicy}${experiencePolicy} Every nonblank response block must end with at least one applicable evidence or disclosure marker. Avoid standalone headings, labels, lead-ins, table headers, and uncited conclusions; use short cited paragraphs instead. Use the technical register of a practising acoustic consultant: preserve distinctions such as Rw versus DnT,w, use C and Ctr only where supported, state frequency-dependent findings in octave- or one-third-octave-band terms, retain measurement conditions and uncertainty, and do not expand elementary acoustics concepts unless the question asks for it. Keep the answer concise, technically exact, and commercially usable.`;
 }
 
 type AnswerValidationOptions = {
@@ -93,4 +99,8 @@ export function validateDocumentAnswerCitations(
     generalKnowledgeUsed: generalMarkers.length > 0,
     errors,
   };
+}
+
+export function validateExperienceAnswer(answer: string, citations: ConsultCitation[]) {
+  return validateDeidentifiedExperienceAnswer(answer, citations);
 }

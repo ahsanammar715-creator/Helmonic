@@ -6,6 +6,12 @@ import {
   emailEvidenceConfigurationErrors,
 } from "../../src/lib/consult/email-evidence-policy.ts";
 import { buildRestrictedEmailSearchRequest } from "../../src/lib/consult/email-search-policy.ts";
+import {
+  buildDeidentifiedExperienceEvidence,
+  deidentifyExperienceText,
+  minimumExperienceProjectCount,
+  validateDeidentifiedExperienceAnswer,
+} from "../../src/lib/consult/experience-evidence-policy.ts";
 
 function config() {
   return {
@@ -58,4 +64,94 @@ test("email search is bounded and requests only the evidence fields needed by Co
   assert.match(request.searchFields, /relationship_people/);
   assert.match(request.select, /evidence_ref/);
   assert.doesNotMatch(request.select, /attachment/);
+});
+
+test("experience sanitizer removes direct identifiers while retaining technical substance", () => {
+  const text = deidentifyExperienceText(
+    "From: Jane Architect <jane@example.com>\nSubject: J2701 Goatstown PBSA\nJane Architect at Example Design confirmed that the riser detail required an acoustic seal on 12/09/2026. Call 086 200 8748.",
+    ["Jane Architect", "Example Design", "Goatstown PBSA", "J2701"],
+  );
+
+  assert.doesNotMatch(text, /Jane|Example Design|Goatstown|J2701|jane@example|086 200 8748|12\/09\/2026/i);
+  assert.match(text, /riser detail required an acoustic seal/i);
+});
+
+function experienceDocument(projectName, number) {
+  return {
+    score: 10 - number,
+    chunkId: `chunk-${number}`,
+    messageId: `message-${number}`,
+    evidenceRef: `[E:glen:${number}]`,
+    bodyText:
+      "The consultant coordination record identified a recurring need to close service penetrations and confirm the junction detail before installation to avoid acoustic leakage during construction.",
+    subject: `${projectName} coordination`,
+    mailboxOwner: "glen.plunkett@iacoustics.net",
+    participants: [`person${number}@example.com`],
+    participantNames: [`Person ${number}`],
+    firm: `Firm ${number}`,
+    projectNames: [projectName],
+    relationshipPeople: [`Person ${number}`],
+  };
+}
+
+test("experience evidence fails closed with fewer than three distinct projects", () => {
+  const result = buildDeidentifiedExperienceEvidence([
+    experienceDocument("Project Alpha", 1),
+    experienceDocument("Project Beta", 2),
+  ]);
+
+  assert.equal(minimumExperienceProjectCount, 3);
+  assert.deepEqual(result.citations, []);
+  assert.deepEqual(result.auditSources, []);
+});
+
+test("experience evidence exposes generic cases while retaining private traceability", () => {
+  const result = buildDeidentifiedExperienceEvidence([
+    experienceDocument("Project Alpha", 1),
+    experienceDocument("Project Beta", 2),
+    experienceDocument("Project Gamma", 3),
+  ]);
+
+  assert.equal(result.citations.length, 3);
+  assert.equal(result.auditSources.length, 3);
+  assert.deepEqual(result.citations.map((citation) => citation.marker), ["E1", "E2", "E3"]);
+  for (const citation of result.citations) {
+    assert.equal(citation.sourceType, "experience");
+    assert.match(citation.title, /^De-identified experience case \d+$/);
+    assert.equal(citation.sourceUri, undefined);
+    assert.doesNotMatch(JSON.stringify(citation), /message-|Project Alpha|Project Beta|Project Gamma|example\.com/i);
+  }
+  assert.deepEqual(result.auditSources.map((source) => source.messageId), [
+    "message-1",
+    "message-2",
+    "message-3",
+  ]);
+});
+
+test("experience answers require three cases and prohibit evidence-channel disclosure", () => {
+  const citations = [1, 2, 3].map((number) => ({
+    id: `experience-case-${number}`,
+    title: `De-identified experience case ${number}`,
+    sourceId: `experience-case-${number}`,
+    excerpt: "A generic technical pattern.",
+    sourceType: "experience",
+    citationNamespace: "E",
+    marker: `E${number}`,
+  }));
+  const accepted = validateDeidentifiedExperienceAnswer(
+    "Based on experience across comparable projects, early coordination of junction details reduced rework during construction. [E1] [E2] [E3]",
+    citations,
+  );
+  const tooFew = validateDeidentifiedExperienceAnswer(
+    "Based on experience across comparable projects, early coordination reduced rework. [E1] [E2]",
+    citations,
+  );
+  const disclosed = validateDeidentifiedExperienceAnswer(
+    "Based on experience across comparable projects, the client conversation confirms the point. [E1] [E2] [E3]",
+    citations,
+  );
+
+  assert.equal(accepted.valid, true);
+  assert.equal(tooFew.valid, false);
+  assert.equal(disclosed.valid, false);
 });

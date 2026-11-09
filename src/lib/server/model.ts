@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   buildConsultSystemPrompt,
+  validateExperienceAnswer,
   validateDocumentAnswerCitations,
 } from "@/lib/consult/model-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
@@ -76,6 +77,7 @@ async function createDocumentAnswer(
             content: buildConsultSystemPrompt({
               profile: config.profile,
               allowGeneralKnowledge: request.allowGeneralKnowledge,
+              experienceMode: request.experienceMode,
             }),
           },
           {
@@ -111,6 +113,12 @@ async function createDocumentAnswer(
   });
   if (!validation.valid) {
     throw new ModelGatewayValidationError(validation.errors.join(" "));
+  }
+  if (request.experienceMode) {
+    const experienceValidation = validateExperienceAnswer(answer, request.evidence);
+    if (!experienceValidation.valid) {
+      throw new ModelGatewayValidationError(experienceValidation.errors.join(" "));
+    }
   }
 
   await verifyClaimEvidenceSupport({

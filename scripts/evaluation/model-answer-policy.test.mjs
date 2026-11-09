@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildConsultSystemPrompt,
   NO_DOCUMENT_EVIDENCE_NOTICE,
+  validateExperienceAnswer,
   validateDocumentAnswerCitations,
 } from "../../src/lib/consult/model-policy.ts";
 import {
@@ -28,6 +29,34 @@ test("system prompt enforces the professional acoustician register and citation 
   assert.match(prompt, /\[B#\]/);
   assert.match(prompt, /\[E#\]/);
   assert.match(prompt, /hidden title, author, publisher, filename, URI, or section/);
+});
+
+test("experience mode requires a three-project de-identified pattern", () => {
+  const prompt = buildConsultSystemPrompt({
+    profile: "iAcoustics",
+    allowGeneralKnowledge: false,
+    experienceMode: true,
+  });
+  const experienceCitations = [1, 2, 3].map((number) => ({
+    id: `experience-case-${number}`,
+    title: `De-identified experience case ${number}`,
+    sourceId: `experience-case-${number}`,
+    excerpt: "Generic technical pattern.",
+    sourceType: "experience",
+    citationNamespace: "E",
+    marker: `E${number}`,
+  }));
+
+  assert.match(prompt, /at least three distinct \[E#\] cases/i);
+  assert.match(prompt, /Based on experience across comparable projects/);
+  assert.match(prompt, /Never reveal or infer names, firms, projects, addresses, dates/i);
+  assert.equal(
+    validateExperienceAnswer(
+      "Based on experience across comparable projects, early coordination reduced rework. [E1] [E2] [E3]",
+      experienceCitations,
+    ).valid,
+    true,
+  );
 });
 
 const citations = [
