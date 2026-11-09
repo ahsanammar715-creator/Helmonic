@@ -19,6 +19,7 @@ import {
   getAzureAccessToken,
   getAzureAccessTokenForClient,
 } from "@/lib/server/azure-credential";
+import { azureRequestError } from "@/lib/server/azure-request-error";
 import type { RuntimeConfig } from "@/lib/server/config";
 import type { AuthenticatedActor } from "@/lib/server/identity";
 
@@ -129,7 +130,10 @@ async function searchControlledDocuments(
   );
 
   if (!response.ok) {
-    throw new Error(`Azure AI Search query failed with status ${response.status}`);
+    throw await azureRequestError(response, {
+      service: "Azure AI Search",
+      stage: "search",
+    });
   }
 
   const payload = (await response.json()) as SearchResponse;
@@ -213,7 +217,12 @@ export async function searchReportEvidence(
           signal: AbortSignal.timeout(12_000),
         },
       );
-      if (!response.ok) throw new Error(`Azure AI Search report expansion failed with status ${response.status}`);
+      if (!response.ok) {
+        throw await azureRequestError(response, {
+          service: "Azure AI Search",
+          stage: "search-report-expansion",
+        });
+      }
       return ((await response.json()) as SearchResponse).value ?? [];
     }),
   );
@@ -267,7 +276,10 @@ export async function searchSessionEvidence(
     },
   );
   if (!response.ok) {
-    throw new Error(`Azure AI Search session query failed with status ${response.status}`);
+    throw await azureRequestError(response, {
+      service: "Azure AI Search",
+      stage: "search-session",
+    });
   }
 
   const payload = (await response.json()) as SearchResponse;
@@ -340,7 +352,10 @@ export async function searchRestrictedEmailEvidence(
   );
 
   if (!response.ok) {
-    throw new Error(`Restricted email evidence query failed with status ${response.status}`);
+    throw await azureRequestError(response, {
+      service: "Azure AI Search",
+      stage: "search-email",
+    });
   }
 
   const payload = (await response.json()) as { value?: EmailSearchDocument[] };
@@ -381,7 +396,10 @@ export async function countSearchDocuments(config: RuntimeConfig) {
   );
 
   if (!response.ok) {
-    throw new Error(`Azure AI Search count failed with status ${response.status}`);
+    throw await azureRequestError(response, {
+      service: "Azure AI Search",
+      stage: "search-count",
+    });
   }
 
   return Number.parseInt(await response.text(), 10);

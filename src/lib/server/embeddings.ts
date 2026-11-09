@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
+import { azureRequestError } from "@/lib/server/azure-request-error";
 import type { RuntimeConfig } from "@/lib/server/config";
 
 type EmbeddingResponse = {
@@ -41,7 +42,10 @@ export async function createQueryEmbedding(
   );
 
   if (!response.ok) {
-    throw new Error(`Azure embedding request failed with status ${response.status}`);
+    throw await azureRequestError(response, {
+      service: "Azure OpenAI",
+      stage: "embedding",
+    });
   }
 
   const payload = (await response.json()) as EmbeddingResponse;
