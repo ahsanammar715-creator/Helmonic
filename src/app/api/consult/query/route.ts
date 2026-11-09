@@ -8,6 +8,7 @@ import {
   getQueryConfigurationErrors,
   getRuntimeConfig,
 } from "@/lib/server/config";
+import { safeAzureRequestDiagnostic } from "@/lib/server/azure-request-error";
 import { getAuthenticatedActor } from "@/lib/server/identity";
 
 export const runtime = "nodejs";
@@ -181,9 +182,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    const azureDiagnostic = safeAzureRequestDiagnostic(error);
     console.error("Helmonic Consult request failed", {
       requestId,
       errorType: error instanceof Error ? error.name : "UnknownError",
+      message: error instanceof Error ? error.message : "unknown",
+      azureDiagnostic,
     });
     return errorResponse(
       "Helmonic could not complete this request. Please retry with the prepared demo question.",
