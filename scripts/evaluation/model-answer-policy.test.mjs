@@ -8,11 +8,24 @@ import {
   validateDocumentAnswerCitations,
 } from "../../src/lib/consult/model-policy.ts";
 import {
+  batchClaimEvidenceAudit,
   buildClaimEvidenceAudit,
   extractCitedClaimBlocks,
   validateClaimCitationCoverage,
   validateClaimSupportVerdicts,
 } from "../../src/lib/consult/claim-evidence-policy.ts";
+
+test("claim-to-evidence audits are split into bounded complete batches", () => {
+  const claims = Array.from({ length: 13 }, (_, index) => ({
+    id: `C${index + 1}`,
+    text: `Claim ${index + 1}. [D1]`,
+    markers: ["D1"],
+  }));
+
+  const batches = batchClaimEvidenceAudit(claims);
+  assert.deepEqual(batches.map((batch) => batch.length), [6, 6, 1]);
+  assert.deepEqual(batches.flat().map((claim) => claim.id), claims.map((claim) => claim.id));
+});
 
 test("system prompt enforces the professional acoustician register and citation taxonomy", () => {
   const prompt = buildConsultSystemPrompt({

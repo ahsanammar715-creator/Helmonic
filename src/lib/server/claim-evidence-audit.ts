@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  batchClaimEvidenceAudit,
   buildClaimEvidenceAudit,
   validateClaimCitationCoverage,
   validateClaimSupportVerdicts,
@@ -45,15 +46,19 @@ export async function verifyClaimEvidenceSupport(input: {
   const controlledClaims = coverage.claims.filter((claim) => claim.markers.length > 0);
   if (controlledClaims.length === 0) return;
 
-  const audit = buildClaimEvidenceAudit({
-    claims: controlledClaims,
-    citations: input.citations,
-  });
   const token = await getAzureAccessToken("https://cognitiveservices.azure.com/.default");
   const requestUrl = `${endpoint}/openai/deployments/${encodeURIComponent(
     deployment,
   )}/chat/completions?api-version=${encodeURIComponent(input.config.model.apiVersion)}`;
-  const requestInit: Omit<RequestInit, "signal"> = {
+  const batches = batchClaimEvidenceAudit(controlledClaims);
+  const verdicts: ClaimSupportVerdict[] = [];
+
+  for (const [batchIndex, batchClaims] of batches.entries()) {
+    const audit = buildClaimEvidenceAudit({
+      claims: batchClaims,
+      citations: input.citations,
+    });
+    const requestInit: Omit<RequestInit, "signal"> = {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -101,50 +106,63 @@ export async function verifyClaimEvidenceSupport(input: {
         max_completion_tokens: 1_200,
       }),
       cache: "no-store",
-  };
-  let response: Response | undefined;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    response = await fetch(requestUrl, {
-      ...requestInit,
-      signal: AbortSignal.timeout(input.config.model.timeoutMilliseconds),
-    });
-    if (response.status !== 429 || attempt === 2) break;
+    };
+    let response: Response | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      response = await fetch(requestUrl, {
+        ...requestInit,
+        signal: AbortSignal.timeout(input.config.model.timeoutMilliseconds),
+      });
+      if (response.status !== 429 || attempt === 2) break;
 
-    const retryDelayMilliseconds = azureRetryDelayMilliseconds(response, attempt);
-    console.warn("Helmonic claim audit throttled; retrying within the bounded gate", {
-      requestId: input.requestId,
-      attempt: attempt + 1,
-      retryDelayMilliseconds,
-    });
-    await new Promise((resolve) => setTimeout(resolve, retryDelayMilliseconds));
+      const retryDelayMilliseconds = azureRetryDelayMilliseconds(response, attempt);
+      console.warn("Helmonic claim audit throttled; retrying within the bounded gate", {
+        requestId: input.requestId,
+        batch: batchIndex + 1,
+        batchCount: batches.length,
+        attempt: attempt + 1,
+        retryDelayMilliseconds,
+      });
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMilliseconds));
+    }
+
+    if (!response) throw new Error("The claim-evidence audit did not execute.");
+
+    if (!response.ok) {
+      throw await azureRequestError(response, {
+        service: "Azure OpenAI",
+        stage: "claim-evidence-audit",
+      });
+    }
+
+    const payload = (await response.json()) as ChatCompletionResponse;
+    const content = payload.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      throw new ModelGatewayValidationError(
+        `The claim-evidence audit was empty for batch ${batchIndex + 1} of ${batches.length}.`,
+      );
+    }
+
+    let parsed: ClaimAuditResponse;
+    try {
+      parsed = JSON.parse(content) as ClaimAuditResponse;
+    } catch {
+      throw new ModelGatewayValidationError(
+        `The claim-evidence audit was not valid JSON for batch ${batchIndex + 1} of ${batches.length}.`,
+      );
+    }
+
+    if (!Array.isArray(parsed.verdicts)) {
+      throw new ModelGatewayValidationError(
+        `The claim-evidence audit did not return verdicts for batch ${batchIndex + 1} of ${batches.length}.`,
+      );
+    }
+    verdicts.push(...parsed.verdicts);
   }
 
-  if (!response) throw new Error("The claim-evidence audit did not execute.");
-
-  if (!response.ok) {
-    throw await azureRequestError(response, {
-      service: "Azure OpenAI",
-      stage: "claim-evidence-audit",
-    });
-  }
-
-  const payload = (await response.json()) as ChatCompletionResponse;
-  const content = payload.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new ModelGatewayValidationError("The claim-evidence audit was empty.");
-
-  let parsed: ClaimAuditResponse;
-  try {
-    parsed = JSON.parse(content) as ClaimAuditResponse;
-  } catch {
-    throw new ModelGatewayValidationError("The claim-evidence audit was not valid JSON.");
-  }
-
-  if (!Array.isArray(parsed.verdicts)) {
-    throw new ModelGatewayValidationError("The claim-evidence audit did not return verdicts.");
-  }
   const validation = validateClaimSupportVerdicts({
     claims: controlledClaims,
-    verdicts: parsed.verdicts,
+    verdicts,
   });
   if (!validation.valid) {
     throw new ModelGatewayValidationError(validation.errors.join(" "));
@@ -153,6 +171,7 @@ export async function verifyClaimEvidenceSupport(input: {
   console.info("Helmonic claim-to-evidence audit", {
     requestId: input.requestId,
     claimCount: controlledClaims.length,
+    batchCount: batches.length,
     supported: true,
   });
 }

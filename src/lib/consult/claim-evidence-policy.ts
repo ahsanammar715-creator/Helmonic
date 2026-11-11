@@ -14,6 +14,16 @@ export type ClaimSupportVerdict = {
   reason: string;
 };
 
+export const claimEvidenceAuditBatchSize = 6;
+
+export function batchClaimEvidenceAudit(claims: CitedClaimBlock[]) {
+  const batches: CitedClaimBlock[][] = [];
+  for (let index = 0; index < claims.length; index += claimEvidenceAuditBatchSize) {
+    batches.push(claims.slice(index, index + claimEvidenceAuditBatchSize));
+  }
+  return batches;
+}
+
 const controlledMarkerPattern = /\[([DSBAE]\d+)\]/g;
 const generalMarkerPattern = /\[(G\d+)\]/g;
 
