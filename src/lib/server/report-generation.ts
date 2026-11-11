@@ -14,7 +14,10 @@ import {
   sha256Attachment,
   validateReportMetadata,
 } from "@/lib/consult/reports/policy";
-import { reportSectionHeadings } from "@/lib/consult/reports/types";
+import {
+  reportSectionHeadings,
+  type SupplementaryAttachment,
+} from "@/lib/consult/reports/types";
 import type { ConsultCitation } from "@/lib/consult/types";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
 import { verifyClaimEvidenceSupport } from "@/lib/server/claim-evidence-audit";
@@ -22,7 +25,12 @@ import type { RuntimeConfig } from "@/lib/server/config";
 import { putImmutableReportBlob } from "@/lib/server/report-output-blob";
 import { loadConfiguredReportTemplate } from "@/lib/server/report-template-blob";
 
-type ReportInputFile = { name: string; type: string; bytes: Uint8Array };
+type ReportInputFile = {
+  name: string;
+  type: string;
+  bytes: Uint8Array;
+  evidenceStatus?: SupplementaryAttachment["evidenceStatus"];
+};
 
 export class ReportModelRequestError extends Error {
   constructor(
@@ -175,7 +183,7 @@ export async function generateAndStoreReport(input: {
     contentType: file.type || "application/octet-stream",
     byteLength: file.bytes.byteLength,
     sha256: sha256Attachment(file.bytes),
-    evidenceStatus: "stored-only" as const,
+    evidenceStatus: file.evidenceStatus ?? ("stored-only" as const),
   }));
   const sectionPayload = await createSectionPayload({
     config: input.config,

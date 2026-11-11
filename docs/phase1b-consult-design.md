@@ -2000,3 +2000,17 @@ authenticated `[D]` and `[B]` retrieval, private `[B]` identity handling, unsupp
 claim withholding, restricted `[E]` isolation, editable Word generation from a real
 project, and unchanged immutable-master structure.
 
+### Report supplementary evidence
+
+The report form may accept PDF supplementary documents into an owner-scoped project
+evidence conversation. A selected PDF is uploaded through the same private session
+ingestion route as a Consult attachment, stored outside the immutable master and generated
+report containers, and polled until its extraction is `ready` (or an approved duplicate is
+resolved) before report generation starts. The report request carries the private
+conversation identifier so verified passages can be retrieved as `[A]` evidence. The same
+project evidence conversation is reused by exact project number/name on later report runs,
+allowing previously verified attachments to support future reports without promoting them
+into the controlled corpus. A raw attachment is still copied into the immutable report
+package for audit, but remains `stored-only` unless its indexed document identifier is
+verified; unsupported attachment content cannot bypass the claim-to-excerpt gate.
+

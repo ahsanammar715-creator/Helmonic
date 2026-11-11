@@ -35,6 +35,19 @@ export async function POST(request: Request) {
     const attachmentValues = form
       .getAll("attachments")
       .filter((value): value is File => value instanceof File);
+    let attachmentDocumentIds: string[] = [];
+    try {
+      const parsed = JSON.parse(String(form.get("attachmentDocumentIds") ?? "[]")) as unknown;
+      if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string" || !/^[0-9a-f-]{36}$/i.test(value))) {
+        return fail("The supplementary evidence identifiers are invalid.", requestId, 400);
+      }
+      attachmentDocumentIds = parsed;
+    } catch {
+      return fail("The supplementary evidence identifiers are invalid.", requestId, 400);
+    }
+    if (attachmentDocumentIds.length !== 0 && attachmentDocumentIds.length !== attachmentValues.length) {
+      return fail("The supplementary evidence does not match the attached files.", requestId, 400);
+    }
     if (attachmentValues.length > config.reportGeneration.maximumAttachmentCount) {
       return fail("Too many supplementary documents were attached.", requestId, 413);
     }
@@ -61,6 +74,15 @@ export async function POST(request: Request) {
         ? searchSessionEvidence(instruction, actor.objectId, conversationId, requestId, config)
         : Promise.resolve([]),
     ]);
+    const sessionSourceIds = new Set(session.map((citation) => citation.sourceId));
+    const reportFiles = files.map((file, index) => ({
+      ...file,
+      evidenceStatus: attachmentDocumentIds[index]
+        ? sessionSourceIds.has(attachmentDocumentIds[index])
+          ? "included-as-text-evidence" as const
+          : "already-indexed" as const
+        : "stored-only" as const,
+    }));
     const { generateAndStoreReport } = await import("@/lib/server/report-generation");
     const result = await generateAndStoreReport({
       config,
@@ -69,7 +91,7 @@ export async function POST(request: Request) {
       instruction,
       metadata,
       citations: [...controlled, ...session],
-      files,
+      files: reportFiles,
     });
     return NextResponse.json({ ...result, requestId }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {

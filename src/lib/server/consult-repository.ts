@@ -4,6 +4,7 @@ import type {
   ConsultConversationSummary,
   ConsultFolder,
 } from "@/lib/consult/organization";
+import type { SessionDocument } from "@/lib/consult/uploads";
 import type { RuntimeConfig } from "@/lib/server/config";
 import { withPostgresClient } from "@/lib/server/postgres";
 
@@ -170,6 +171,35 @@ export async function markSessionUploadFailed(
       await client.query("rollback");
       throw error;
     }
+  });
+}
+
+export async function getSessionDocument(
+  config: RuntimeConfig,
+  input: { documentId: string; ownerObjectId: string },
+) {
+  return withPostgresClient(config, "helmonic-consult-document-status", async (client) => {
+    const result = await client.query(
+      `select d.id, cd.conversation_id, d.display_name, d.state, d.size_bytes, d.created_at
+       from consult.documents d
+       join consult.conversation_documents cd
+         on cd.document_id = d.id and cd.owner_object_id = d.owner_object_id
+       where d.id = $1 and d.owner_object_id = $2 and d.classification = 'session'
+         and d.deleted_at is null`,
+      [input.documentId, input.ownerObjectId],
+    );
+    if (result.rowCount !== 1) {
+      throw new ConsultRepositoryError("Document not found", "not-found");
+    }
+    const row = result.rows[0];
+    return {
+      id: String(row.id),
+      conversationId: String(row.conversation_id),
+      displayName: String(row.display_name),
+      state: String(row.state) as SessionDocument["state"],
+      sizeBytes: Number(row.size_bytes),
+      createdAt: new Date(row.created_at).toISOString(),
+    } satisfies SessionDocument;
   });
 }
 
