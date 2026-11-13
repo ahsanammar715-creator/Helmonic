@@ -916,12 +916,10 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
       .map((node, index) => ({ node, index }))
       .filter(({ node, index }) => index > position && index < rangeEnd && node.startsWith("<w:tbl"))
       .map(({ index }) => index);
-    if (section.tables.length > tableSlots.length) {
-      throw new Error(`report-template-section-capacity-exceeded:${section.heading}:tables`);
-    }
     for (const slot of tableSlots) rebuilt[slot] = emptyBody;
     for (const [tableIndex, table] of section.tables.entries()) {
       const slot = tableSlots[tableIndex];
+      if (slot === undefined) continue;
       const values = [...table.columns, ...table.rows.flat()];
       rebuilt[slot] = tableCellCount(nodes[slot]) === values.length
         ? replaceTableCells(nodes[slot], values)
@@ -931,7 +929,18 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
       if (captionIndex >= 0) {
         rebuilt[captionIndex] = normalizeCaption(replaceVisibleText(nodes[captionIndex], table.title));
         preservedCaptionIndices.add(captionIndex);
+      } else {
+        rebuilt[slot] = `${captionParagraph(table.title)}${rebuilt[slot]}`;
       }
+    }
+
+    const overflowTables = section.tables.slice(tableSlots.length);
+    if (overflowTables.length > 0) {
+      const overflowAnchor = tableSlots.at(-1) ?? paragraphSlots.at(-1) ?? position;
+      rebuilt[overflowAnchor] = `${rebuilt[overflowAnchor]}${overflowTables
+        .map((table) => `${captionParagraph(table.title)}${reportTable(table)}`)
+        .join("")}`;
+      generatedContentIndices.add(overflowAnchor);
     }
 
     for (let index = position + 1; index < rangeEnd; index += 1) {

@@ -401,6 +401,38 @@ test("grounded section text is inserted even when the master starts with an empt
   assert.match(documentXml, /Grounded introduction text\. \[D1\]/);
 });
 
+test("grounded tables flow into a report section even when the master has no table slot", () => {
+  const groundedPlan = plan();
+  groundedPlan.sections = groundedPlan.sections.map((section) =>
+    section.heading === "Internal Sound Insulation"
+      ? {
+          ...section,
+          paragraphs: ["The measured rating level was 45 dB LAr,T. [D1]"],
+          tables: [
+            {
+              title: "Airborne sound insulation criteria",
+              columns: ["Element", "Criterion"],
+              rows: [["Partition", "45 dB Rw [D1]"]],
+            },
+            {
+              title: "Impact sound insulation criteria",
+              columns: ["Element", "Criterion"],
+              rows: [["Floor", "45 dB LAr,T [D1]"]],
+            },
+          ],
+        }
+      : section,
+  );
+
+  const output = unzipSync(buildGroundedReportDocx(template(), groundedPlan));
+  const documentXml = strFromU8(output["word/document.xml"]);
+
+  assert.match(documentXml, /Airborne sound insulation criteria/);
+  assert.match(documentXml, /Impact sound insulation criteria/);
+  assert.match(documentXml, /Partition/);
+  assert.match(documentXml, /Floor/);
+});
+
 test("grounded report content may use a term that also appears in the master sample table", () => {
   const groundedPlan = plan();
   groundedPlan.sections = groundedPlan.sections.map((section) =>
