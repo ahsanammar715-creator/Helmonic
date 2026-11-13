@@ -46,7 +46,11 @@ export async function searchPublicWebEvidence(input: {
     body: JSON.stringify({
       model: deployment,
       tools: [webTool],
-      tool_choice: "auto",
+      // An eligible public consultant question must actually use the web tool.
+      // Leaving this as `auto` allowed the retrieval model to occasionally
+      // answer from memory, producing no traceable URL annotations. Fail-closed
+      // validation then rejected the otherwise useful request.
+      tool_choice: "required",
       // The web lane only produces a short evidence digest and URL citations.
       // Keep its token reservation below the deliberately small Azure rate-limit
       // ceiling used for this cost-controlled deployment.
