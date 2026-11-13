@@ -559,6 +559,17 @@ function replaceTableCells(node: string, values: string[]) {
   );
 }
 
+function clearTableCells(node: string) {
+  return replaceTableCells(node, Array.from({ length: tableCellCount(node) }, () => ""));
+}
+
+function isProtectedTemplateParagraph(node: string) {
+  const text = textOf(node);
+  return /^(?:Figure|Table)\s+\d+(?:[.\-]\d+)?\b/i.test(text)
+    || /<w:drawing\b/.test(node)
+    || /<w:sectPr\b/.test(node);
+}
+
 function maskVisibleText(xml: string) {
   return xml.replace(/(<w:t\b[^>]*>)[\s\S]*?(<\/w:t>)/g, "$1__DYNAMIC_TEXT__$2");
 }
@@ -739,15 +750,20 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     (node, index) => index > executiveStart && index < projectStart && node.startsWith("<w:tbl"),
   );
   const executive = plan.sections.find((section) => section.heading === "Executive Summary")!;
-  const executiveBody = nodes.findIndex(
-    (node, index) =>
-      index > executiveStart
-      && index < projectStart
-      && node.startsWith("<w:p")
-      && paragraphStyle(node) === "BodyText"
-      && Boolean(textOf(node)),
-  );
-  if (executiveBody < 0) throw new Error("report-template-executive-body-slot-missing");
+  const executiveBodySlots = nodes
+    .map((node, index) => ({ node, index }))
+    .filter(
+      ({ node, index }) =>
+        index > executiveStart
+        && index < projectStart
+        && node.startsWith("<w:p")
+        && paragraphStyle(node) === "BodyText"
+        && !isProtectedTemplateParagraph(node),
+    )
+    .map(({ index }) => index);
+  const executiveBody = executiveBodySlots[0];
+  if (executiveBody === undefined) throw new Error("report-template-executive-body-slot-missing");
+  for (const slot of executiveBodySlots) rebuilt[slot] = bodyParagraph(nodes[slot], "");
   rebuilt[executiveBody] = bodyParagraph(nodes[executiveBody], executive.paragraphs.join(" "));
 
   const executiveTopics = plan.sections
@@ -757,18 +773,23 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   const executiveCells = ["TOPIC", "DESIGN POSITION"];
   for (const section of executiveTopics) executiveCells.push(section.heading, section.paragraphs[0] ?? "See report section.");
   while (executiveCells.length < 14) executiveCells.push("");
-  if (executiveTable >= 0 && tableCellCount(nodes[executiveTable]) === executiveCells.length) {
-    rebuilt[executiveTable] = replaceTableCells(nodes[executiveTable], executiveCells);
+  if (executiveTable >= 0) {
+    rebuilt[executiveTable] = clearTableCells(nodes[executiveTable]);
+    if (tableCellCount(nodes[executiveTable]) === executiveCells.length) {
+      rebuilt[executiveTable] = replaceTableCells(nodes[executiveTable], executiveCells);
+    }
   }
 
   // The master is the page skeleton. Never rebuild its pages from selected
   // fragments: doing so changes floating-object anchors, section geometry,
   // TOC alignment, header spacing and footer tab stops. Populate only
-  // verified in-place slots and retain every other source node in position.
+  // verified in-place slots. Clear every unused content slot before filling it
+  // so project-specific sample text from the immutable master can never leak
+  // into a generated report. The nodes themselves remain in place, preserving
+  // drawings, page geometry, table geometry, headers, footers and TOC layout.
   const orderedHeadingPositions = [...headingPositions.values()].sort((left, right) => left - right);
   for (const section of plan.sections) {
     if (section.heading === "Executive Summary" || section.heading === "Project Information") continue;
-    if (section.paragraphs.length === 0 && section.tables.length === 0) continue;
     const position = headingPositions.get(section.heading)!;
     const nextHeading = orderedHeadingPositions.find((candidate) => candidate > position) ?? appendicesStart;
     const rangeEnd = Math.min(nextHeading, appendicesStart);
@@ -780,11 +801,10 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
           && index < rangeEnd
           && node.startsWith("<w:p")
           && paragraphStyle(node) === "BodyText"
-          && Boolean(textOf(node))
-          && !/<w:drawing\b/.test(node)
-          && !/<w:sectPr\b/.test(node),
+          && !isProtectedTemplateParagraph(node),
       )
       .map(({ index }) => index);
+    for (const slot of paragraphSlots) rebuilt[slot] = bodyParagraph(nodes[slot], "");
     for (const [paragraphIndex, paragraph] of section.paragraphs.entries()) {
       const slot = paragraphSlots[paragraphIndex];
       if (slot === undefined) break;
@@ -795,6 +815,7 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
       .map((node, index) => ({ node, index }))
       .filter(({ node, index }) => index > position && index < rangeEnd && node.startsWith("<w:tbl"))
       .map(({ index }) => index);
+    for (const slot of tableSlots) rebuilt[slot] = clearTableCells(nodes[slot]);
     for (const [tableIndex, table] of section.tables.entries()) {
       const slot = tableSlots[tableIndex];
       if (slot === undefined) break;
@@ -872,7 +893,17 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   if (settings) outputArchive["word/settings.xml"] = strToU8(enableFieldUpdates(strFromU8(settings)));
 
   const visibleOutput = textOf(rebuilt.join(""));
-  for (const forbidden of ["Letterkenny", "VHA Architects", "J2769", "LKPH1"]) {
+  for (const forbidden of [
+    "Letterkenny",
+    "VHA Architects",
+    "J2769",
+    "LKPH1",
+    "Cellular Office Spaces",
+    "Event B01-18",
+    "LEED v4.1",
+    "BS ISO 22955",
+    "SAMPLE ",
+  ]) {
     if (visibleOutput.includes(forbidden)) throw new Error(`report-template-sample-content-leak:${forbidden}`);
   }
 

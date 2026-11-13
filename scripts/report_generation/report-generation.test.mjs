@@ -79,7 +79,10 @@ function template() {
           ]
         : []),
       ...(heading === "Room Acoustics"
-        ? ['<w:p><w:pPr><w:pStyle w:val="BodyText"/></w:pPr><w:r><w:t>The site is in Letter</w:t></w:r><w:r><w:t>kenny.</w:t></w:r></w:p>']
+        ? [
+            '<w:p><w:pPr><w:pStyle w:val="BodyText"/></w:pPr><w:r><w:t>The site is in Letter</w:t></w:r><w:r><w:t>kenny.</w:t></w:r></w:p>',
+            '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>Cellular Office Spaces · Event B01-18 · LEED v4.1 · BS ISO 22955</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
+          ]
         : []),
       ...(heading === "Acoustic Performance Specification"
         ? ['<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>COL 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>COL 2</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>VALUE 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>VALUE 2</w:t></w:r></w:p></w:tc></w:tr></w:tbl>']
@@ -345,8 +348,11 @@ test("generation clones the immutable master and changes approved text slots onl
   assert.doesNotMatch(documentXml, /updates automatically when this report opens/);
   assert.doesNotMatch(documentXml, /report-1/);
   assert.doesNotMatch(documentXml, /Letterkenny SURS|VHA Architects|J2769|LKPH1/);
-  assert.match(documentXml, /The site is in Example Project\./);
-  assert.doesNotMatch(documentXml, /SAMPLE Executive Summary/);
+  assert.doesNotMatch(documentXml, /The site is in (?:Letterkenny|Example Project)\./);
+  assert.doesNotMatch(documentXml, /SAMPLE /);
+  assert.doesNotMatch(documentXml, /COL 1|COL 2|VALUE 1|VALUE 2/);
+  assert.doesNotMatch(documentXml, /Cellular Office Spaces|Event B01-18|LEED v4\.1|BS ISO 22955/);
+  assert.match(documentXml, /Figure 3-1 Site location showing receptors/);
   assert.match(strFromU8(output["word/settings.xml"]), /updateFields w:val="true"/);
   assert.equal(
     (documentXml.match(/<w:tbl\b/g) ?? []).length,
