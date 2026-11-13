@@ -4,9 +4,19 @@ import { useSessionBoolean } from "@/lib/useSessionBoolean";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { sourcesCited } from "@/lib/data";
 import SourcesList from "@/components/SourcesList";
+import type { ConsultCitation } from "@/lib/consult/types";
 
-export default function SourcesPanel({ defaultOpen = true }: { defaultOpen?: boolean }) {
+export default function SourcesPanel({
+  defaultOpen = true,
+  sources,
+  allowAdd = true,
+}: {
+  defaultOpen?: boolean;
+  sources?: ConsultCitation[];
+  allowAdd?: boolean;
+}) {
   const [isOpen, setOpen] = useSessionBoolean("helmonic.sources", defaultOpen);
+  const sourceCount = sources?.length ?? sourcesCited.length;
 
   function toggle() {
     setOpen(!isOpen);
@@ -28,7 +38,7 @@ export default function SourcesPanel({ defaultOpen = true }: { defaultOpen?: boo
           className="text-[11px] font-semibold text-sub tracking-[0.09em]"
           style={{ writingMode: "vertical-rl" }}
         >
-          SOURCES · {sourcesCited.length}
+          SOURCES · {sourceCount}
         </span>
       </div>
     );
@@ -50,17 +60,19 @@ export default function SourcesPanel({ defaultOpen = true }: { defaultOpen?: boo
           Sources
         </span>
         <span className="flex items-center gap-2.5">
-          <span className="text-[12px] text-faint">{sourcesCited.length}</span>
-          <span
-            title="Add documents"
-            className="flex items-center justify-center w-6 h-6 border border-line rounded-md text-primary hover:border-primary hover:bg-primary-tint-2"
-          >
-            <Plus size={13} strokeWidth={2} />
-          </span>
+          <span className="text-[12px] text-faint">{sourceCount}</span>
+          {allowAdd && (
+            <span
+              title="Add documents"
+              className="flex items-center justify-center w-6 h-6 border border-line rounded-md text-primary hover:border-primary hover:bg-primary-tint-2"
+            >
+              <Plus size={13} strokeWidth={2} />
+            </span>
+          )}
         </span>
       </div>
       <div className="flex-1 flex flex-col gap-3 px-[18px] py-4 overflow-auto">
-        <SourcesList />
+        <SourcesList sources={sources} />
       </div>
       <div className="px-[18px] pb-5 text-[11px] text-faint text-center">
         Citations link back to the page they came from.

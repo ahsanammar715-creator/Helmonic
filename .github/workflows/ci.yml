@@ -21,11 +21,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify container runtime hardening
+        run: npm run verify:runtime
+
       - name: Type check
         run: npm run typecheck
 
       - name: Lint
         run: npm run lint
+
+      - name: Validate model answer policy
+        run: npm run test:model-policy
 
       - name: Build
         run: npm run build

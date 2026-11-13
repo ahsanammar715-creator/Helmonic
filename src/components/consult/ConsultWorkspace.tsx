@@ -1,0 +1,418 @@
+"use client";
+
+import Link from "next/link";
+import { FileText, Search, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+
+import { AssistantBubble, UserBubble } from "@/components/ChatBubble";
+import ChatComposer from "@/components/ChatComposer";
+import SourcesPanel from "@/components/SourcesPanel";
+import TopBar from "@/components/TopBar";
+import WaveDivider from "@/components/WaveDivider";
+import type {
+  ConsultCitation,
+  ConsultErrorResponse,
+  ConsultQueryResponse,
+} from "@/lib/consult/types";
+import {
+  CONTROLLED_SOURCE_PROMPT,
+  CONTROLLED_SOURCE_SET_LABEL,
+} from "@/lib/consult/corpus";
+import type { ComposerAttachment, SessionDocumentUploadResponse } from "@/lib/consult/uploads";
+
+type Exchange = {
+  id: string;
+  question: string;
+  answer?: string | null;
+  error?: string;
+  mode?: ConsultQueryResponse["mode"];
+  citations: ConsultCitation[];
+  generalKnowledgeUsed?: boolean;
+  webEvidenceStatus?: ConsultQueryResponse["webEvidenceStatus"];
+};
+
+const suggestedQuestions = [
+  "Check a criterion against the source documents",
+  "Summarise the measurement requirements",
+  "What does the evidence say about sound insulation?",
+];
+
+function modeLabel(
+  mode: ConsultQueryResponse["mode"] | undefined,
+  generalKnowledgeUsed = false,
+  hasDocumentEvidence = false,
+  hasWebEvidence = false,
+) {
+  if (mode === "generated" && hasWebEvidence && hasDocumentEvidence) {
+    return "Helmonic + current public web";
+  }
+  if (mode === "generated" && hasWebEvidence) return "Current public web";
+  if (mode === "generated" && generalKnowledgeUsed && hasDocumentEvidence) {
+    return "Documents + general context";
+  }
+  if (mode === "generated" && generalKnowledgeUsed) return "General context";
+  if (mode === "generated") return "Grounded answer";
+  if (mode === "retrieval-only") return "Retrieval verified";
+  if (mode === "no-evidence") return "Insufficient evidence";
+  if (mode === "not-configured") return "Runtime not configured";
+  return undefined;
+}
+
+function modeCopy(mode: ConsultQueryResponse["mode"] | undefined) {
+  if (mode === "retrieval-only") {
+    return "Evidence found — no generated summary in this build. Open Sources to review the retrieved passages.";
+  }
+  if (mode === "no-evidence") {
+    return "Insufficient permitted evidence in the permitted Helmonic sources.";
+  }
+  if (mode === "not-configured") {
+    return "The Azure Consult runtime is not configured in this deployment. No Azure service was contacted.";
+  }
+  return undefined;
+}
+
+export default function ConsultWorkspace({
+  webGroundingEnabled = false,
+}: {
+  webGroundingEnabled?: boolean;
+}) {
+  const [exchanges, setExchanges] = useState<Exchange[]>([]);
+  const [pending, setPending] = useState(false);
+  const [conversationId, setConversationId] = useState<string>();
+  const [includeGeneralContext, setIncludeGeneralContext] = useState(false);
+  const [includeDeidentifiedExperience, setIncludeDeidentifiedExperience] = useState(false);
+  const includeWebEvidence = webGroundingEnabled;
+  const latestSources = exchanges.at(-1)?.citations ?? [];
+
+  async function ask(question: string) {
+    if (pending) return;
+
+    const id = crypto.randomUUID();
+    setPending(true);
+    setExchanges((current) => [...current, { id, question, citations: [] }]);
+
+    try {
+      const response = await fetch("/api/consult/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question,
+          conversationId,
+          includeGeneralContext,
+          includeDeidentifiedExperience,
+          includeWebEvidence,
+        }),
+      });
+      const payload = (await response.json()) as ConsultQueryResponse | ConsultErrorResponse;
+
+      if (!response.ok || "error" in payload) {
+        throw new Error("error" in payload ? payload.error : "The Consult request failed.");
+      }
+
+      setExchanges((current) =>
+        current.map((exchange) =>
+          exchange.id === id
+            ? {
+                ...exchange,
+                answer: payload.answer,
+                mode: payload.mode,
+                citations: payload.citations,
+                generalKnowledgeUsed: payload.generalKnowledgeUsed,
+                webEvidenceStatus: payload.webEvidenceStatus,
+              }
+            : exchange,
+        ),
+      );
+    } catch (error) {
+      setExchanges((current) =>
+        current.map((exchange) =>
+          exchange.id === id
+            ? {
+                ...exchange,
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Helmonic could not complete the request.",
+              }
+            : exchange,
+        ),
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function ensureConversation() {
+    if (conversationId) return conversationId;
+    const response = await fetch("/api/consult/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "New Consult conversation" }),
+    });
+    const payload = (await response.json()) as {
+      conversation?: { id?: string };
+      error?: string;
+    };
+    if (!response.ok || !payload.conversation?.id) {
+      throw new Error(payload.error || "Conversation persistence is not enabled yet.");
+    }
+    setConversationId(payload.conversation.id);
+    return payload.conversation.id;
+  }
+
+  async function uploadAttachment(file: File): Promise<ComposerAttachment> {
+    const activeConversationId = await ensureConversation();
+    const response = await fetch(
+      `/api/consult/conversations/${encodeURIComponent(activeConversationId)}/documents`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/pdf",
+          "x-helmonic-file-name": encodeURIComponent(file.name),
+        },
+        body: file,
+      },
+    );
+    const payload = (await response.json()) as
+      | SessionDocumentUploadResponse
+      | { error?: string };
+    if (!response.ok || !("document" in payload)) {
+      throw new Error("error" in payload && payload.error ? payload.error : "Upload failed.");
+    }
+    return {
+      id: payload.document.id,
+      name: payload.document.displayName,
+      state: payload.document.state === "ready" ? "ready" : "queued",
+    };
+  }
+
+  return (
+    <div className="flex h-full min-w-0">
+      <div className="flex-1 flex flex-col min-w-0">
+        <TopBar
+          workspace="consult"
+          title="Consult"
+          subtitle={`${CONTROLLED_SOURCE_SET_LABEL} · iAcoustics`}
+          mode="Standards mode on"
+        />
+
+        <div className="flex-1 min-h-0 overflow-auto bg-canvas">
+          {exchanges.length === 0 ? (
+            <div className="min-h-full flex items-center justify-center p-8 md:p-10">
+              <div className="w-full max-w-[640px] border border-line rounded-md bg-surface p-7 md:p-9 flex flex-col gap-5.5 items-start">
+                <span className="inline-flex items-center justify-center w-9 h-9 rounded-md bg-primary-tint text-primary">
+                  <ShieldCheck size={19} strokeWidth={1.6} />
+                </span>
+                <div className="flex flex-col gap-2.5 w-full">
+                  <h1 className="m-0 font-bold text-[28px] md:text-[32px] leading-tight tracking-tight">
+                    What do you need to know?
+                  </h1>
+                  <div className="w-[120px]">
+                    <WaveDivider color="var(--color-primary)" />
+                  </div>
+                  <p className="m-0 text-[15px] leading-[1.6] text-muted max-w-[520px]">
+                    Ask across the approved Helmonic project and reference knowledge base.
+                    Helmonic only returns evidence the server retrieved, with the page or section
+                    when available.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-2 w-full">
+                  {suggestedQuestions.map((question, index) => {
+                    const Icon = index === 0 ? Search : FileText;
+                    return (
+                      <button
+                        key={question}
+                        type="button"
+                        onClick={() => ask(question)}
+                        disabled={pending}
+                        className="flex items-center gap-2.5 px-3.5 py-3 border border-line rounded-md text-[15px] text-left hover:border-primary hover:text-primary disabled:opacity-45 disabled:pointer-events-none"
+                      >
+                        <Icon size={17} strokeWidth={1.6} />
+                        {question}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <Link
+                    href="/consult/new"
+                    className="rounded-md bg-primary text-white px-4 py-2.5 text-[13px] font-semibold hover:bg-primary-hover"
+                  >
+                    New project
+                  </Link>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="px-6 md:px-10 py-6 flex flex-col gap-4">
+              {exchanges.map((exchange) => (
+                <div key={exchange.id} className="contents">
+                  <UserBubble>{exchange.question}</UserBubble>
+                  <AssistantBubble>
+                    {exchange.mode === undefined && !exchange.error ? (
+                      <div className="flex items-center gap-2 text-[13px] text-muted" role="status">
+                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                        Retrieving source evidence…
+                      </div>
+                    ) : exchange.error ? (
+                      <div className="flex flex-col gap-2">
+                        <p className="m-0 text-[14px] leading-[1.65] text-warning">
+                          {exchange.error}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => ask(exchange.question)}
+                          className="self-start text-[12px] font-semibold text-primary hover:underline"
+                        >
+                          Retry this question
+                        </button>
+                      </div>
+                    ) : exchange.mode !== "generated" ? (
+                      <>
+                        {modeLabel(
+                          exchange.mode,
+                          exchange.generalKnowledgeUsed,
+                          exchange.citations.some((citation) => citation.citationNamespace !== "W"),
+                          exchange.citations.some((citation) => citation.citationNamespace === "W"),
+                        ) && (
+                          <span className="self-start rounded-full bg-primary-tint px-2.5 py-1 text-[11px] font-semibold text-primary">
+                            {modeLabel(
+                              exchange.mode,
+                              exchange.generalKnowledgeUsed,
+                              exchange.citations.some((citation) => citation.citationNamespace !== "W"),
+                              exchange.citations.some((citation) => citation.citationNamespace === "W"),
+                            )}
+                          </span>
+                        )}
+                        <p className="m-0 text-[14px] leading-[1.7]">
+                          {modeCopy(exchange.mode)}
+                        </p>
+                        {exchange.citations.length > 0 && (
+                          <div className="border-t border-line pt-3 text-[12px] text-muted">
+                            {exchange.citations.length} server-verified source passage
+                            {exchange.citations.length === 1 ? "" : "s"} retrieved. Open Sources
+                            for the evidence.
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {modeLabel(
+                          exchange.mode,
+                          exchange.generalKnowledgeUsed,
+                          exchange.citations.some((citation) => citation.citationNamespace !== "W"),
+                          exchange.citations.some((citation) => citation.citationNamespace === "W"),
+                        ) && (
+                          <span className="self-start rounded-full bg-primary-tint px-2.5 py-1 text-[11px] font-semibold text-primary">
+                            {modeLabel(
+                              exchange.mode,
+                              exchange.generalKnowledgeUsed,
+                              exchange.citations.some((citation) => citation.citationNamespace !== "W"),
+                              exchange.citations.some((citation) => citation.citationNamespace === "W"),
+                            )}
+                          </span>
+                        )}
+                        <p className="m-0 whitespace-pre-wrap text-[14px] leading-[1.7]">
+                          {exchange.answer}
+                        </p>
+                        {exchange.generalKnowledgeUsed && (
+                          <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
+                            [G] marks the model&apos;s own general knowledge, not verified
+                            against your documents.
+                          </p>
+                        )}
+                        {exchange.citations.some(
+                          (citation) => citation.citationNamespace === "W",
+                        ) && (
+                          <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
+                            [W] marks current public-web evidence. Open Sources for the publisher,
+                            URL, access date and web-grounded passage.
+                          </p>
+                        )}
+                        {exchange.webEvidenceStatus === "privacy-skipped" && (
+                          <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
+                            Web search was not run because no privacy-safe public technical query
+                            could be derived. Private names, projects and correspondence were not
+                            sent outside Helmonic.
+                          </p>
+                        )}
+                        {exchange.citations.some(
+                          (citation) => citation.citationNamespace === "B",
+                        ) && (
+                          <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
+                            [B] marks an approved book. Its identity is retained in the private
+                            audit record and is not exposed in the answer.
+                          </p>
+                        )}
+                        {exchange.citations.some(
+                          (citation) => citation.sourceType === "experience",
+                        ) && (
+                          <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
+                            [E] marks a pattern supported across at least three de-identified
+                            project cases. Identifying details and private provenance are not
+                            exposed here.
+                          </p>
+                        )}
+                        {exchange.citations.length > 0 && (
+                          <div className="border-t border-line pt-3 text-[12px] text-muted">
+                            {exchange.citations.length} server-verified source passage
+                            {exchange.citations.length === 1 ? "" : "s"} retrieved. Open Sources
+                            for the evidence.
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </AssistantBubble>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 md:px-10 pt-3 flex flex-col gap-2 text-[12px] text-muted">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={includeDeidentifiedExperience}
+              onChange={(event) => setIncludeDeidentifiedExperience(event.target.checked)}
+              className="accent-primary"
+            />
+            Include de-identified experience from at least three comparable projects
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={includeGeneralContext}
+              onChange={(event) => setIncludeGeneralContext(event.target.checked)}
+              className="accent-primary"
+            />
+            Allow clearly marked general knowledge in the same answer
+          </label>
+          {webGroundingEnabled && (
+            <p className="m-0 flex items-center gap-2">
+              <ShieldCheck size={14} strokeWidth={1.6} />
+              Current public-web evidence is included automatically when a privacy-safe public
+              technical query can be derived; verified passages are marked [W].
+            </p>
+          )}
+        </div>
+
+        <ChatComposer
+          inputId="consult-question"
+          placeholder={CONTROLLED_SOURCE_PROMPT}
+          helper="Approved project and reference evidence with server-authoritative citations."
+          onSend={ask}
+          disabled={pending}
+          showAttach
+          onAttachFile={uploadAttachment}
+          attachmentAccept=".pdf,application/pdf"
+          attachmentFormats="PDF only · up to 40 MB · conversation attachment"
+        />
+      </div>
+
+      <SourcesPanel sources={latestSources} allowAdd={false} />
+    </div>
+  );
+}
