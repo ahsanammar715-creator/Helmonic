@@ -49,6 +49,7 @@ function drawingParagraph(text, style = "BodyText") {
 
 function template() {
   const body = [
+      '<w:p><w:pPr><w:pStyle w:val="BodyText"/></w:pPr></w:p>',
     paragraph("A C O U S T I C R E P O R T", "Normal"),
     paragraph("Letterkenny SURS", "Title"),
     paragraph("Phase 1 — Alpha Innovation Centre", "Normal"),
@@ -364,6 +365,7 @@ test("generation clones the immutable master and changes approved text slots onl
   assert.doesNotMatch(documentXml, />ATTACHED</);
   assert.equal((documentXml.match(/NOT INCLUDED IN THIS DRAFT/g) ?? []).length, 4);
   assert.match(documentXml, /Consultant input required/);
+  assert.match(documentXml, /Consultant input required — no grounded evidence was retrieved for this section\./);
   assert.doesNotMatch(documentXml, /updates automatically when this report opens/);
   assert.doesNotMatch(documentXml, /report-1/);
   assert.doesNotMatch(documentXml, /Letterkenny SURS|VHA Architects|J2769|LKPH1/);
@@ -383,6 +385,20 @@ test("generation clones the immutable master and changes approved text slots onl
     (documentXml.match(/<w:sectPr\b/g) ?? []).length,
     (strFromU8(source["word/document.xml"] ?? new Uint8Array()).match(/<w:sectPr\b/g) ?? []).length,
   );
+});
+
+test("grounded section text is inserted even when the master starts with an empty BodyText shell paragraph", () => {
+  const groundedPlan = plan();
+  groundedPlan.sections = groundedPlan.sections.map((section) =>
+    section.heading === "Introduction"
+      ? { ...section, paragraphs: ["Grounded introduction text. [D1]"] }
+      : section,
+  );
+
+  const output = unzipSync(buildGroundedReportDocx(template(), groundedPlan));
+  const documentXml = strFromU8(output["word/document.xml"]);
+
+  assert.match(documentXml, /Grounded introduction text\. \[D1\]/);
 });
 
 test("grounded report content may use a term that also appears in the master sample table", () => {

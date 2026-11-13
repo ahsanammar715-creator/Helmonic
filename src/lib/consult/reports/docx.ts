@@ -787,6 +787,7 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
   const bodyTemplate = nodes.find(
     (node) => node.startsWith("<w:p")
       && paragraphStyle(node) === "BodyText"
+      && /<w:t\b/.test(node)
       && !/<w:(?:drawing|pict)\b/.test(node)
       && !/<w:sectPr\b/.test(node),
   ) ?? '<w:p><w:pPr><w:pStyle w:val="BodyText"/></w:pPr><w:r><w:t></w:t></w:r></w:p>';
@@ -872,6 +873,9 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     const position = headingPositions.get(section.heading)!;
     const nextHeading = orderedHeadingPositions.find((candidate) => candidate > position) ?? appendicesStart;
     const rangeEnd = Math.min(nextHeading, appendicesStart);
+    const sectionParagraphs = section.paragraphs.length > 0 || section.tables.length > 0
+      ? section.paragraphs
+      : ["Consultant input required — no grounded evidence was retrieved for this section."];
     const imagePlaceholderIndices = nodes
       .map((node, index) => ({ node, index }))
       .filter(({ node, index }) => index > position && index < rangeEnd && isImagePlaceholderParagraph(node))
@@ -898,11 +902,11 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
           && Boolean(textOf(node)),
       )
       .map(({ index }) => index);
-    if (section.paragraphs.length > paragraphSlots.length) {
+    if (sectionParagraphs.length > paragraphSlots.length) {
       throw new Error(`report-template-section-capacity-exceeded:${section.heading}:paragraphs`);
     }
     for (const slot of paragraphSlots) rebuilt[slot] = emptyBody;
-    for (const [paragraphIndex, paragraph] of section.paragraphs.entries()) {
+    for (const [paragraphIndex, paragraph] of sectionParagraphs.entries()) {
       const slot = paragraphSlots[paragraphIndex];
       rebuilt[slot] = bodyParagraph(bodyTemplate, paragraph);
       generatedContentIndices.add(slot);
