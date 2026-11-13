@@ -17,7 +17,7 @@ export async function searchPublicWebEvidence(input: {
 }): Promise<{ status: "used" | "privacy-skipped"; citations: ConsultCitation[] }> {
   const safeQuery = buildSafePublicWebQuery(input.question);
   if (!safeQuery) return { status: "privacy-skipped", citations: [] };
-  const { endpoint, deployment } = input.config.model;
+  const { endpoint, deployment } = input.config.webGrounding;
   if (!endpoint || !deployment) throw new Error("Azure model is not configured for web grounding");
 
   const token = await getAzureAccessToken("https://ai.azure.com/.default");

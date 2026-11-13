@@ -87,10 +87,10 @@ export async function POST(request: Request) {
     typeof body === "object" && body !== null && "includeDeidentifiedExperience" in body
       ? (body as { includeDeidentifiedExperience?: unknown }).includeDeidentifiedExperience === true
       : false;
-  const includeWebEvidence =
-    typeof body === "object" && body !== null && "includeWebEvidence" in body
-      ? (body as { includeWebEvidence?: unknown }).includeWebEvidence === true
-      : false;
+  // Public-web evidence is a standard consultant-answer lane when enabled for the
+  // deployment. The privacy-safe query builder can still skip web access for
+  // private-only questions without transmitting names, projects or correspondence.
+  const includeWebEvidence = config.webGrounding.enabled;
   const conversationId =
     typeof body === "object" && body !== null && "conversationId" in body
       ? (body as { conversationId?: unknown }).conversationId
@@ -114,9 +114,6 @@ export async function POST(request: Request) {
       requestId,
       400,
     );
-  }
-  if (includeWebEvidence && !config.webGrounding.enabled) {
-    return errorResponse("Current public-web evidence is not enabled in this deployment.", requestId, 503);
   }
 
   const trimmedQuestion = question.trim();

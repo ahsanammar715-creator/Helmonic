@@ -1453,7 +1453,9 @@ capability with its own governance and approval gate.
 ### 10.4 Live web grounding
 
 The current public-web evidence lane is implemented behind
-`HELMONIC_WEB_GROUNDING_ENABLED=false` and remains disabled by default. It uses the
+`HELMONIC_WEB_GROUNDING_ENABLED=false` and remains disabled by default at deployment
+level. Once enabled for a deployment it is woven automatically into every eligible
+consultant answer rather than exposed as a per-question opt-in. It uses the
 Azure OpenAI Responses API `web_search` tool and converts returned URL annotations into
 server-authoritative `[W#]` evidence. The user receives one normal consultant-style
 answer; each public-web-supported paragraph is explicitly framed as current public

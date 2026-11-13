@@ -81,7 +81,7 @@ export default function ConsultWorkspace({
   const [conversationId, setConversationId] = useState<string>();
   const [includeGeneralContext, setIncludeGeneralContext] = useState(false);
   const [includeDeidentifiedExperience, setIncludeDeidentifiedExperience] = useState(false);
-  const [includeWebEvidence, setIncludeWebEvidence] = useState(false);
+  const includeWebEvidence = webGroundingEnabled;
   const latestSources = exchanges.at(-1)?.citations ?? [];
 
   async function ask(question: string) {
@@ -391,15 +391,11 @@ export default function ConsultWorkspace({
             Allow clearly marked general knowledge in the same answer
           </label>
           {webGroundingEnabled && (
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={includeWebEvidence}
-                onChange={(event) => setIncludeWebEvidence(event.target.checked)}
-                className="accent-primary"
-              />
-              Include current public-web evidence with verified [W] links
-            </label>
+            <p className="m-0 flex items-center gap-2">
+              <ShieldCheck size={14} strokeWidth={1.6} />
+              Current public-web evidence is included automatically when a privacy-safe public
+              technical query can be derived; verified passages are marked [W].
+            </p>
           )}
         </div>
 

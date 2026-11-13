@@ -153,6 +153,11 @@ export function getRuntimeConfig() {
     },
     webGrounding: {
       enabled: enabled("HELMONIC_WEB_GROUNDING_ENABLED"),
+      endpoint: withoutTrailingSlash(
+        optional("AZURE_WEB_OPENAI_ENDPOINT") ?? optional("AZURE_OPENAI_ENDPOINT"),
+      ),
+      deployment:
+        optional("AZURE_WEB_OPENAI_DEPLOYMENT") ?? optional("AZURE_OPENAI_DEPLOYMENT"),
       maximumSources: positiveInteger(optional("HELMONIC_WEB_MAX_SOURCES"), 4),
       timeoutMilliseconds: positiveInteger(
         optional("HELMONIC_WEB_TIMEOUT_MS"),
@@ -222,6 +227,11 @@ export function getQueryConfigurationErrors(config: RuntimeConfig) {
   if (!config.allowRetrievalOnly && !modelPartiallyConfigured) {
     if (!config.model.endpoint) missing.push("AZURE_OPENAI_ENDPOINT");
     if (!config.model.deployment) missing.push("AZURE_OPENAI_DEPLOYMENT");
+  }
+
+  if (config.webGrounding.enabled) {
+    if (!config.webGrounding.endpoint) missing.push("AZURE_WEB_OPENAI_ENDPOINT");
+    if (!config.webGrounding.deployment) missing.push("AZURE_WEB_OPENAI_DEPLOYMENT");
   }
 
   return missing;
