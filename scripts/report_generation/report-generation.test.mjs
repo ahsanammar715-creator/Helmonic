@@ -43,6 +43,10 @@ function paragraph(text, style = "BodyText") {
   return `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr><w:r><w:t>${text}</w:t></w:r></w:p>`;
 }
 
+function drawingParagraph(text, style = "BodyText") {
+  return `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr><w:r><w:drawing><w:txbxContent><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:txbxContent></w:drawing></w:r></w:p>`;
+}
+
 function template() {
   const body = [
     paragraph("A C O U S T I C R E P O R T", "Normal"),
@@ -58,6 +62,8 @@ function template() {
     paragraph("Executive Summary", "Heading1"),
     paragraph("SAMPLE Executive Summary"),
     '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>SAMPLE TABLE</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
+    paragraph("STATUS OF THE DESIGN", "Normal"),
+    '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>SETTLED</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>IN DEVELOPMENT</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>AWAITED FROM OTHERS</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>sample settled work</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>sample developing work</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>sample awaited work</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
     '<w:p><w:pPr><w:sectPr><w:pgMar w:top="1400" w:right="1440" w:bottom="1440" w:left="1440"/><w:cols w:num="1"/></w:sectPr></w:pPr></w:p>',
     paragraph("Project Information", "Heading1"),
     paragraph("Project DescriptionLetterkenny SURS Phase 1"),
@@ -82,7 +88,16 @@ function template() {
         ? [
             '<w:p><w:pPr><w:pStyle w:val="BodyText"/></w:pPr><w:r><w:t>The site is in Letter</w:t></w:r><w:r><w:t>kenny.</w:t></w:r></w:p>',
             '<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>Cellular Office Spaces · Event B01-18 · LEED v4.1 · BS ISO 22955</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
+            paragraph("Event B01-18*", "Normal"),
+            paragraph("Open-Plan Office B01-029", "Normal"),
+            drawingParagraph("Gyproc SoundBloc PSR A206199 A206047"),
           ]
+        : []),
+      ...(heading === "Introduction"
+        ? [drawingParagraph("L2–L4 delivered shell and core · Cat B fit-out at Level B-1")]
+        : []),
+      ...(heading === "Inward Noise & Building Envelope Assessment"
+        ? [drawingParagraph("drop site plan — receptor locations"), paragraph("Figure 3-1 Site location showing receptors", "Normal")]
         : []),
       ...(heading === "Acoustic Performance Specification"
         ? ['<w:tbl><w:tblPr/><w:tblGrid/><w:tr><w:tc><w:p><w:r><w:t>COL 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>COL 2</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>VALUE 1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>VALUE 2</w:t></w:r></w:p></w:tc></w:tr></w:tbl>']
@@ -90,9 +105,13 @@ function template() {
     ]),
     paragraph("A–D Appendices", "Normal"),
     paragraph("Design Standards & Guidance", "Heading4"),
+    paragraph("ATTACHED", "Normal"),
     paragraph("Acoustic Performance Schedules", "Heading4"),
+    paragraph("ATTACHED", "Normal"),
     paragraph("Acoustic Scope Drawings", "Heading4"),
+    paragraph("ATTACHED", "Normal"),
     paragraph("Glossary of Acoustic Terminology", "Heading4"),
+    paragraph("ATTACHED", "Normal"),
     '<w:p><w:pPr><w:spacing w:before="199"/><w:ind w:left="112" w:right="129" w:firstLine="2329"/><w:jc w:val="left"/></w:pPr><w:r><w:br w:type="column"/></w:r><w:r><w:t>End of report </w:t></w:r><w:r><w:t>LKPH1-IAC-XX-XX-RP-Y-0001</w:t></w:r><w:r><w:t> · Revision </w:t></w:r><w:r><w:t>A</w:t></w:r></w:p>',
     '<w:sectPr><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/><w:headerReference w:type="default" r:id="rIdHeader"/></w:sectPr>',
   ].join("");
@@ -329,13 +348,10 @@ test("generation clones the immutable master and changes approved text slots onl
   assert.match(documentXml, /\[D1\]/);
   assert.match(documentXml, /Rating level/);
   assert.doesNotMatch(documentXml, /The measured rating level was 45 dB LAr,T\.:/);
-  assert.match(documentXml, /MASTER TOC ENTRIES/);
-  assert.match(documentXml, /w:anchor="s6"[\s\S]*?<w:spacing[^>]*w:before="251"|w:spacing[^>]*w:before="251"[\s\S]*?w:anchor="s6"/);
-  const tocXml = documentXml.match(/<w:tbl><w:tblPr\/>[\s\S]*?MASTER TOC ENTRIES[\s\S]*?<\/w:tbl>/)?.[0] ?? "";
-  assert.match(tocXml, /w:ascii="Gibson" w:hAnsi="Gibson" w:eastAsia="Gibson" w:cs="Gibson"/);
-  assert.doesNotMatch(tocXml, /Gibson Condensed|w:ascii="Arial"|<w:i\/>|<w:b\/>|<w:spacing w:val=|<w:w w:val=/);
-  assert.match(tocXml, /Appendix A[\s\S]*?<w:sz w:val="22"\/>|<w:sz w:val="22"\/>[\s\S]*?Appendix A/);
-  assert.match(tocXml, /6\.1 General Requirements/);
+  assert.doesNotMatch(documentXml, /MASTER TOC ENTRIES/);
+  assert.match(documentXml, /TOC \\o "1-4" \\h \\z \\u/);
+  assert.match(documentXml, /Appendix A — Design Standards &amp; Guidance/);
+  assert.match(documentXml, /w:dirty="true"/);
   assert.doesNotMatch(documentXml, /Figure 3-1\s{2,}Site/);
   assert.match(documentXml, /Figure 3-1 Site location showing receptors/);
   assert.match(documentXml, /Internal Partition Junction Typical Detail/);
@@ -343,20 +359,23 @@ test("generation clones the immutable master and changes approved text slots onl
   assert.match(documentXml, /<w:u w:val="none"\/>/);
   assert.doesNotMatch(documentXml, /<w:u w:val="single"\/>/);
   assert.match(documentXml, /<w:jc w:val="right"\/>[\s\S]*?<w:br\/>[\s\S]*?<w:t>J2701<\/w:t>/);
-  assert.doesNotMatch(documentXml, /TOC \\o "1-2" \\h \\z \\u/);
+  assert.match(documentXml, /PROJECT IMAGE PLACEHOLDER/);
   assert.match(documentXml, /A–D Appendices/);
+  assert.doesNotMatch(documentXml, />ATTACHED</);
+  assert.equal((documentXml.match(/NOT INCLUDED IN THIS DRAFT/g) ?? []).length, 4);
+  assert.match(documentXml, /Consultant input required/);
   assert.doesNotMatch(documentXml, /updates automatically when this report opens/);
   assert.doesNotMatch(documentXml, /report-1/);
   assert.doesNotMatch(documentXml, /Letterkenny SURS|VHA Architects|J2769|LKPH1/);
   assert.doesNotMatch(documentXml, /The site is in (?:Letterkenny|Example Project)\./);
   assert.doesNotMatch(documentXml, /SAMPLE /);
   assert.doesNotMatch(documentXml, /COL 1|COL 2|VALUE 1|VALUE 2/);
-  assert.doesNotMatch(documentXml, /Cellular Office Spaces|Event B01-18|LEED v4\.1|BS ISO 22955/);
+  assert.doesNotMatch(documentXml, /Cellular Office Spaces|Event B01-18|Open-Plan Office B01-029|LEED v4\.1|BS ISO 22955|A206199|A206047|delivered shell and core/);
   assert.match(documentXml, /Figure 3-1 Site location showing receptors/);
   assert.match(strFromU8(output["word/settings.xml"]), /updateFields w:val="true"/);
-  assert.equal(
-    (documentXml.match(/<w:tbl\b/g) ?? []).length,
-    (strFromU8(source["word/document.xml"] ?? new Uint8Array()).match(/<w:tbl\b/g) ?? []).length,
+  assert.ok(
+    (documentXml.match(/<w:tbl\b/g) ?? []).length
+      < (strFromU8(source["word/document.xml"] ?? new Uint8Array()).match(/<w:tbl\b/g) ?? []).length,
   );
   assert.ok((documentXml.match(/<w:pgMar\b/g) ?? []).length >= 1);
   assert.ok((documentXml.match(/<w:cols w:num="1"\/>/g) ?? []).length >= 1);
