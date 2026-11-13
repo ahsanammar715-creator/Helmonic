@@ -71,6 +71,36 @@ test("web response becomes normal W evidence with exact public links", () => {
   assert.match(citations[0].excerpt, /acoustic assessment is required/i);
 });
 
+test("completed web search accepts explicit public links when Azure omits annotations", () => {
+  const citations = parsePublicWebCitations(
+    {
+      output: [
+        { type: "web_search_call", status: "completed" },
+        {
+          type: "message",
+          content: [
+            {
+              type: "output_text",
+              text:
+                "Current guidance is published by [Department of Housing](https://www.gov.ie/en/department-of-housing-local-government-and-heritage/).",
+              annotations: [],
+            },
+          ],
+        },
+      ],
+    },
+    { maximumSources: 4, retrievedAt: "2026-11-13T12:00:00.000Z" },
+  );
+
+  assert.equal(citations.length, 1);
+  assert.equal(citations[0].marker, "W1");
+  assert.equal(citations[0].title, "Department of Housing");
+  assert.equal(
+    citations[0].sourceUri,
+    "https://www.gov.ie/en/department-of-housing-local-government-and-heritage/",
+  );
+});
+
 test("web response fails closed when no actual search or safe URL exists", () => {
   const withoutSearch = parsePublicWebCitations(
     {

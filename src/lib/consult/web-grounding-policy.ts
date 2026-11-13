@@ -70,6 +70,7 @@ export type WebResponsePayload = {
   output?: WebResponseOutputItem[];
 };
 
+const markdownLinkPattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi;
 
 function validatedPublicUrl(value: string | undefined) {
   if (!value) return undefined;
@@ -127,6 +128,27 @@ export function parsePublicWebCitations(
           sourceId: sourceUri,
           sourceUri,
           excerpt: citationExcerpt(content.text, annotation.start_index, annotation.end_index),
+          sourceType: "web",
+          citationNamespace: "W",
+          retrievedAt: options.retrievedAt,
+        });
+      }
+
+      // Azure occasionally returns a completed web-search message with the
+      // public links rendered inline but without the documented annotation
+      // objects. Accept only explicit HTTP(S) Markdown links in that already
+      // web-grounded text; never manufacture or infer a source URL.
+      for (const match of content.text.matchAll(markdownLinkPattern)) {
+        const sourceUri = validatedPublicUrl(match[2]);
+        if (!sourceUri || candidates.some((candidate) => candidate.sourceUri === sourceUri)) {
+          continue;
+        }
+        candidates.push({
+          id: `web:${sourceUri}`,
+          title: match[1].trim() || new URL(sourceUri).hostname,
+          sourceId: sourceUri,
+          sourceUri,
+          excerpt: citationExcerpt(content.text, match.index, match.index! + match[0].length),
           sourceType: "web",
           citationNamespace: "W",
           retrievedAt: options.retrievedAt,
