@@ -1,7 +1,7 @@
 import type { ConsultCitation } from "@/lib/consult/types";
 
 export type ControlledCitationNamespace = "D" | "S" | "B";
-export type CitationMarker = `${ControlledCitationNamespace | "A" | "E"}${number}`;
+export type CitationMarker = `${ControlledCitationNamespace | "A" | "E" | "W"}${number}`;
 
 export function controlledCitationNamespace(value: unknown): ControlledCitationNamespace {
   return value === "S" || value === "B" ? value : "D";

@@ -41,6 +41,7 @@ test("system prompt enforces the professional acoustician register and citation 
   assert.match(prompt, /\[S#\]/);
   assert.match(prompt, /\[B#\]/);
   assert.match(prompt, /\[E#\]/);
+  assert.match(prompt, /\[W#\]/);
   assert.match(prompt, /hidden title, author, publisher, filename, URI, or section/);
 });
 
@@ -208,6 +209,54 @@ test("restricted email markers are accepted only when supplied as evidence", () 
   assert.equal(accepted.valid, true);
   assert.equal(rejected.valid, false);
   assert.match(rejected.errors.join(" "), /unsupported markers/);
+});
+
+test("public-web evidence produces a normal framed answer with a verified W marker", () => {
+  const webCitation = {
+    id: "web-1",
+    title: "Official public guidance",
+    sourceId: "https://example.gov.ie/guidance",
+    sourceUri: "https://example.gov.ie/guidance",
+    excerpt: "The current public guidance requires an acoustic assessment.",
+    sourceType: "web",
+    citationNamespace: "W",
+    marker: "W1",
+  };
+  const result = validateDocumentAnswerCitations(
+    "Current public guidance requires an acoustic assessment. [W1]",
+    [webCitation],
+    { requireWebEvidence: true },
+  );
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.markers, ["W1"]);
+});
+
+test("public-web evidence cannot be disguised as internal evidence or omitted", () => {
+  const webCitation = {
+    id: "web-1",
+    title: "Official public guidance",
+    sourceId: "https://example.gov.ie/guidance",
+    excerpt: "Current public guidance.",
+    sourceType: "web",
+    citationNamespace: "W",
+    marker: "W1",
+  };
+  const mixed = validateDocumentAnswerCitations(
+    "The project and current public guidance require this approach. [D1] [W1]",
+    [citations[0], webCitation],
+    { requireWebEvidence: true },
+  );
+  const omitted = validateDocumentAnswerCitations(
+    "The controlled report supports this conclusion. [D1]",
+    [citations[0], webCitation],
+    { requireWebEvidence: true },
+  );
+
+  assert.equal(mixed.valid, false);
+  assert.match(mixed.errors.join(" "), /mixes public-web/);
+  assert.equal(omitted.valid, false);
+  assert.match(omitted.errors.join(" "), /omits the retrieved public-web/);
 });
 
 test("claim coverage rejects an uncited factual paragraph", () => {

@@ -1,6 +1,12 @@
 import type { ConsultCitation } from "@/lib/consult/types";
 
-export type ControlledMarker = `D${number}` | `S${number}` | `B${number}` | `A${number}` | `E${number}`;
+export type ControlledMarker =
+  | `D${number}`
+  | `S${number}`
+  | `B${number}`
+  | `A${number}`
+  | `E${number}`
+  | `W${number}`;
 
 export type CitedClaimBlock = {
   id: `C${number}`;
@@ -24,7 +30,7 @@ export function batchClaimEvidenceAudit(claims: CitedClaimBlock[]) {
   return batches;
 }
 
-const controlledMarkerPattern = /\[([DSBAE]\d+)\]/g;
+const controlledMarkerPattern = /\[([DSBAEW]\d+)\]/g;
 const generalMarkerPattern = /\[(G\d+)\]/g;
 
 function hasGeneralMarker(text: string) {

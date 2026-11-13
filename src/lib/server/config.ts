@@ -151,6 +151,19 @@ export function getRuntimeConfig() {
         30,
       ),
     },
+    webGrounding: {
+      enabled: enabled("HELMONIC_WEB_GROUNDING_ENABLED"),
+      maximumSources: positiveInteger(optional("HELMONIC_WEB_MAX_SOURCES"), 4),
+      timeoutMilliseconds: positiveInteger(
+        optional("HELMONIC_WEB_TIMEOUT_MS"),
+        45_000,
+      ),
+      allowedDomains: (optional("HELMONIC_WEB_ALLOWED_DOMAINS") ?? "")
+        .split(",")
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean)
+        .slice(0, 100),
+    },
     model: {
       endpoint: withoutTrailingSlash(optional("AZURE_OPENAI_ENDPOINT")),
       deployment: optional("AZURE_OPENAI_DEPLOYMENT"),

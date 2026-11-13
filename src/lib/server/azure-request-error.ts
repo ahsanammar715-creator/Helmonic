@@ -15,6 +15,7 @@ export type AzureRequestStage =
   | "search-session"
   | "search-email"
   | "search-count"
+  | "public-web-grounding"
   | "model"
   | "claim-evidence-audit";
 

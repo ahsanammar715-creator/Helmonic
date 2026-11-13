@@ -8,26 +8,35 @@ export default function SourcesList({ sources }: { sources?: ConsultCitation[] }
       ? sourcesCited.map((source, index) => ({
           id: `static-source-${index + 1}`,
           title: source.title,
+          href: undefined,
           meta: source.meta,
           body: source.body,
         }))
       : sources.map((source) => ({
           id: source.id,
           title: `${source.marker ? `[${source.marker}] ` : ""}${source.title}`,
+          href: source.citationNamespace === "W" ? source.sourceUri : undefined,
           meta: [
             source.sourceType === "experience"
               ? "De-identified project experience · private provenance retained"
-              : source.citationNamespace === "S"
-              ? "Standard"
-              : source.citationNamespace === "B"
-                ? "Approved book · identity held privately"
-                : source.citationNamespace === "A"
-                  ? "Attachment"
-                  : source.citationNamespace === "E"
-                    ? "Restricted email evidence"
-                    : "Project document",
+              : source.citationNamespace === "W"
+                ? "Current public web"
+                : source.citationNamespace === "S"
+                  ? "Standard"
+                  : source.citationNamespace === "B"
+                    ? "Approved book · identity held privately"
+                    : source.citationNamespace === "A"
+                      ? "Attachment"
+                      : source.citationNamespace === "E"
+                        ? "Restricted email evidence"
+                        : "Project document",
             source.section,
             source.pageNumber ? `p. ${source.pageNumber}` : undefined,
+            source.retrievedAt
+              ? `accessed ${new Intl.DateTimeFormat("en-IE", { dateStyle: "medium" }).format(
+                  new Date(source.retrievedAt),
+                )}`
+              : undefined,
           ]
             .filter(Boolean)
             .join(" · "),
@@ -50,7 +59,18 @@ export default function SourcesList({ sources }: { sources?: ConsultCitation[] }
           key={source.id}
           className="border border-line rounded-md bg-surface p-3.5 flex flex-col gap-1.5 hover:border-primary"
         >
-          <div className="font-semibold text-[14px]">{source.title}</div>
+          {source.href ? (
+            <a
+              href={source.href}
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold text-[14px] text-primary hover:underline"
+            >
+              {source.title}
+            </a>
+          ) : (
+            <div className="font-semibold text-[14px]">{source.title}</div>
+          )}
           {source.meta && (
             <div className="text-[11px] text-faint tracking-[0.03em]">{source.meta}</div>
           )}

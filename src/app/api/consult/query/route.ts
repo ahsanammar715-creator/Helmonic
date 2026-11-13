@@ -52,6 +52,7 @@ export async function POST(request: Request) {
       mode: "not-configured",
       requestId,
       generalKnowledgeUsed: false,
+      webEvidenceStatus: "not-requested",
       documentAnswer: { status: "not-configured", text: null, citations: [] },
     };
     return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
@@ -86,6 +87,10 @@ export async function POST(request: Request) {
     typeof body === "object" && body !== null && "includeDeidentifiedExperience" in body
       ? (body as { includeDeidentifiedExperience?: unknown }).includeDeidentifiedExperience === true
       : false;
+  const includeWebEvidence =
+    typeof body === "object" && body !== null && "includeWebEvidence" in body
+      ? (body as { includeWebEvidence?: unknown }).includeWebEvidence === true
+      : false;
   const conversationId =
     typeof body === "object" && body !== null && "conversationId" in body
       ? (body as { conversationId?: unknown }).conversationId
@@ -109,6 +114,9 @@ export async function POST(request: Request) {
       requestId,
       400,
     );
+  }
+  if (includeWebEvidence && !config.webGrounding.enabled) {
+    return errorResponse("Current public-web evidence is not enabled in this deployment.", requestId, 503);
   }
 
   const trimmedQuestion = question.trim();
@@ -141,12 +149,19 @@ export async function POST(request: Request) {
       searchRestrictedEmailEvidence,
       searchDeidentifiedExperienceEvidence,
     } = await import("@/lib/server/search");
-    const actor = conversationId || includeEmailEvidence || includeDeidentifiedExperience
-      ? getAuthenticatedActor(request)
-      : null;
-    if ((conversationId || includeEmailEvidence || includeDeidentifiedExperience) && !actor) {
+    const actor =
+      conversationId || includeEmailEvidence || includeDeidentifiedExperience || includeWebEvidence
+        ? getAuthenticatedActor(request)
+        : null;
+    if (
+      (conversationId ||
+        includeEmailEvidence ||
+        includeDeidentifiedExperience ||
+        includeWebEvidence) &&
+      !actor
+    ) {
       return errorResponse(
-        "Sign in to query uploaded, restricted, or de-identified experience evidence.",
+        "Sign in to query uploaded, restricted, de-identified, or current public-web evidence.",
         requestId,
         401,
       );
@@ -164,7 +179,13 @@ export async function POST(request: Request) {
         return errorResponse("You are not permitted to query restricted email evidence.", requestId, 403);
       }
     }
-    const [controlledCitations, attachmentCitations, emailCitations, experienceCitations] = await Promise.all([
+    const [
+      controlledCitations,
+      attachmentCitations,
+      emailCitations,
+      experienceCitations,
+      webEvidence,
+    ] = await Promise.all([
       searchConsultEvidence(trimmedQuestion, requestId, config),
       conversationId && actor && config.phase1b.uploadsEnabled
         ? searchSessionEvidence(
@@ -181,12 +202,18 @@ export async function POST(request: Request) {
       includeDeidentifiedExperience && actor
         ? searchDeidentifiedExperienceEvidence(trimmedQuestion, actor, requestId, config)
         : Promise.resolve([]),
+      includeWebEvidence
+        ? import("@/lib/server/web-grounding").then(({ searchPublicWebEvidence }) =>
+            searchPublicWebEvidence({ question: trimmedQuestion, requestId, config }),
+          )
+        : Promise.resolve({ status: "not-requested" as const, citations: [] }),
     ]);
     const citations = [
       ...controlledCitations,
       ...attachmentCitations,
       ...emailCitations,
       ...experienceCitations,
+      ...webEvidence.citations,
     ];
     const allowGeneralKnowledge = generalKnowledgeEnabled(includeGeneralContext, config);
     const publicCitations = toPublicExperienceCitations(citations);
@@ -198,6 +225,7 @@ export async function POST(request: Request) {
         mode: "no-evidence",
         requestId,
         generalKnowledgeUsed: false,
+        webEvidenceStatus: webEvidence.status,
         documentAnswer: { status: "no-evidence", text: null, citations: [] },
       };
       return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
@@ -210,6 +238,7 @@ export async function POST(request: Request) {
         mode: "retrieval-only",
         requestId,
         generalKnowledgeUsed: false,
+        webEvidenceStatus: webEvidence.status,
         documentAnswer: { status: "retrieval-only", text: null, citations: publicCitations },
       };
       return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
@@ -238,6 +267,7 @@ export async function POST(request: Request) {
           mode: "retrieval-only",
           requestId,
           generalKnowledgeUsed: false,
+          webEvidenceStatus: webEvidence.status,
           documentAnswer: { status: "retrieval-only", text: null, citations: publicCitations },
         };
         return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
@@ -251,6 +281,7 @@ export async function POST(request: Request) {
       mode: "generated",
       requestId,
       generalKnowledgeUsed,
+      webEvidenceStatus: webEvidence.status,
       documentAnswer: {
         status: citations.length > 0 ? "generated" : "no-evidence",
         text: citations.length > 0 ? answer : null,

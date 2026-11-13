@@ -7,9 +7,16 @@ export type ConsultCitation = {
   excerpt: string;
   sourceUri?: string;
   score?: number;
-  sourceType?: "controlled" | "attachment" | "email" | "experience";
-  citationNamespace?: "D" | "S" | "B" | "A" | "E";
-  marker?: `D${number}` | `S${number}` | `B${number}` | `A${number}` | `E${number}`;
+  sourceType?: "controlled" | "attachment" | "email" | "experience" | "web";
+  citationNamespace?: "D" | "S" | "B" | "A" | "E" | "W";
+  marker?:
+    | `D${number}`
+    | `S${number}`
+    | `B${number}`
+    | `A${number}`
+    | `E${number}`
+    | `W${number}`;
+  retrievedAt?: string;
 };
 
 export type ConsultAnswerMode =
@@ -24,6 +31,7 @@ export type ConsultQueryResponse = {
   mode: ConsultAnswerMode;
   requestId: string;
   generalKnowledgeUsed: boolean;
+  webEvidenceStatus: "not-requested" | "used" | "privacy-skipped";
   documentAnswer: {
     status: ConsultAnswerMode;
     text: string | null;

@@ -110,6 +110,9 @@ async function createDocumentAnswer(
 
   const validation = validateDocumentAnswerCitations(answer, request.evidence, {
     allowGeneralKnowledge: request.allowGeneralKnowledge,
+    requireWebEvidence: request.evidence.some(
+      (citation) => citation.citationNamespace === "W",
+    ),
   });
   if (!validation.valid) {
     throw new ModelGatewayValidationError(validation.errors.join(" "));

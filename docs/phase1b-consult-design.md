@@ -1452,18 +1452,32 @@ capability with its own governance and approval gate.
 
 ### 10.4 Live web grounding
 
-Live web grounding is a future, optional connector and remains disabled by default.
-Microsoft states that Grounding with Bing traffic leaves the Azure compliance and Geo
-boundary and is governed by separate terms. It therefore requires a separate legal,
-data-governance, security, and cost decision.
+The current public-web evidence lane is implemented behind
+`HELMONIC_WEB_GROUNDING_ENABLED=false` and remains disabled by default. It uses the
+Azure OpenAI Responses API `web_search` tool and converts returned URL annotations into
+server-authoritative `[W#]` evidence. The user receives one normal consultant-style
+answer; each public-web-supported paragraph is explicitly framed as current public
+evidence and ends with its `[W#]` marker. The Sources panel shows the publisher title,
+clickable URL, access date and web-grounded cited passage.
 
-If ever approved:
+The web boundary is deliberately separate from document RAG:
 
-- confidential document content is never sent in a web query;
-- project names, client names, addresses, measurements, and personal data are removed;
-- the general answer remains structurally separate;
-- Microsoft-required publisher and Bing query links are displayed as returned;
-- the feature can be disabled by configuration without affecting document RAG.
+- only an allowlisted set of public acoustic, regulatory and standards concepts can
+  form the search query;
+- arbitrary question text is never copied to the web-search tool;
+- project names, client names, addresses, dates, measurements, email addresses,
+  correspondence and personal data therefore cannot cross that boundary;
+- private/controlled and `[W#]` markers cannot appear in the same paragraph;
+- URL citations are accepted only after a real `web_search_call` and an HTTP(S)
+  `url_citation` annotation are both present;
+- a privacy-only question produces `privacy-skipped` rather than a web request;
+- the existing claim-to-excerpt audit validates `[W#]` claims like every other
+  retrieved evidence claim;
+- the feature can be disabled without affecting document RAG.
+
+Microsoft states that web-search traffic leaves the Azure compliance and Geo boundary,
+is governed by separate terms and incurs separate tool-call cost. Enabling the flag and
+running paid live validation therefore remain separate governance and cost gates.
 
 ## 11. Voice-input design
 

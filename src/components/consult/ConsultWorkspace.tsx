@@ -28,6 +28,7 @@ type Exchange = {
   mode?: ConsultQueryResponse["mode"];
   citations: ConsultCitation[];
   generalKnowledgeUsed?: boolean;
+  webEvidenceStatus?: ConsultQueryResponse["webEvidenceStatus"];
 };
 
 const suggestedQuestions = [
@@ -40,7 +41,12 @@ function modeLabel(
   mode: ConsultQueryResponse["mode"] | undefined,
   generalKnowledgeUsed = false,
   hasDocumentEvidence = false,
+  hasWebEvidence = false,
 ) {
+  if (mode === "generated" && hasWebEvidence && hasDocumentEvidence) {
+    return "Helmonic + current public web";
+  }
+  if (mode === "generated" && hasWebEvidence) return "Current public web";
   if (mode === "generated" && generalKnowledgeUsed && hasDocumentEvidence) {
     return "Documents + general context";
   }
@@ -65,12 +71,17 @@ function modeCopy(mode: ConsultQueryResponse["mode"] | undefined) {
   return undefined;
 }
 
-export default function ConsultWorkspace() {
+export default function ConsultWorkspace({
+  webGroundingEnabled = false,
+}: {
+  webGroundingEnabled?: boolean;
+}) {
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [pending, setPending] = useState(false);
   const [conversationId, setConversationId] = useState<string>();
   const [includeGeneralContext, setIncludeGeneralContext] = useState(false);
   const [includeDeidentifiedExperience, setIncludeDeidentifiedExperience] = useState(false);
+  const [includeWebEvidence, setIncludeWebEvidence] = useState(false);
   const latestSources = exchanges.at(-1)?.citations ?? [];
 
   async function ask(question: string) {
@@ -89,6 +100,7 @@ export default function ConsultWorkspace() {
           conversationId,
           includeGeneralContext,
           includeDeidentifiedExperience,
+          includeWebEvidence,
         }),
       });
       const payload = (await response.json()) as ConsultQueryResponse | ConsultErrorResponse;
@@ -106,6 +118,7 @@ export default function ConsultWorkspace() {
                 mode: payload.mode,
                 citations: payload.citations,
                 generalKnowledgeUsed: payload.generalKnowledgeUsed,
+                webEvidenceStatus: payload.webEvidenceStatus,
               }
             : exchange,
         ),
@@ -261,13 +274,15 @@ export default function ConsultWorkspace() {
                         {modeLabel(
                           exchange.mode,
                           exchange.generalKnowledgeUsed,
-                          exchange.citations.length > 0,
+                          exchange.citations.some((citation) => citation.citationNamespace !== "W"),
+                          exchange.citations.some((citation) => citation.citationNamespace === "W"),
                         ) && (
                           <span className="self-start rounded-full bg-primary-tint px-2.5 py-1 text-[11px] font-semibold text-primary">
                             {modeLabel(
                               exchange.mode,
                               exchange.generalKnowledgeUsed,
-                              exchange.citations.length > 0,
+                              exchange.citations.some((citation) => citation.citationNamespace !== "W"),
+                              exchange.citations.some((citation) => citation.citationNamespace === "W"),
                             )}
                           </span>
                         )}
@@ -287,13 +302,15 @@ export default function ConsultWorkspace() {
                         {modeLabel(
                           exchange.mode,
                           exchange.generalKnowledgeUsed,
-                          exchange.citations.length > 0,
+                          exchange.citations.some((citation) => citation.citationNamespace !== "W"),
+                          exchange.citations.some((citation) => citation.citationNamespace === "W"),
                         ) && (
                           <span className="self-start rounded-full bg-primary-tint px-2.5 py-1 text-[11px] font-semibold text-primary">
                             {modeLabel(
                               exchange.mode,
                               exchange.generalKnowledgeUsed,
-                              exchange.citations.length > 0,
+                              exchange.citations.some((citation) => citation.citationNamespace !== "W"),
+                              exchange.citations.some((citation) => citation.citationNamespace === "W"),
                             )}
                           </span>
                         )}
@@ -304,6 +321,21 @@ export default function ConsultWorkspace() {
                           <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
                             [G] marks the model&apos;s own general knowledge, not verified
                             against your documents.
+                          </p>
+                        )}
+                        {exchange.citations.some(
+                          (citation) => citation.citationNamespace === "W",
+                        ) && (
+                          <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
+                            [W] marks current public-web evidence. Open Sources for the publisher,
+                            URL, access date and web-grounded passage.
+                          </p>
+                        )}
+                        {exchange.webEvidenceStatus === "privacy-skipped" && (
+                          <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
+                            Web search was not run because no privacy-safe public technical query
+                            could be derived. Private names, projects and correspondence were not
+                            sent outside Helmonic.
                           </p>
                         )}
                         {exchange.citations.some(
@@ -358,6 +390,17 @@ export default function ConsultWorkspace() {
             />
             Allow clearly marked general knowledge in the same answer
           </label>
+          {webGroundingEnabled && (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={includeWebEvidence}
+                onChange={(event) => setIncludeWebEvidence(event.target.checked)}
+                className="accent-primary"
+              />
+              Include current public-web evidence with verified [W] links
+            </label>
+          )}
         </div>
 
         <ChatComposer
