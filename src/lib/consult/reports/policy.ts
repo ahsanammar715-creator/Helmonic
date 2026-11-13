@@ -24,6 +24,13 @@ export type GroundedContentFilterResult = {
   removedTableCount: number;
 };
 
+export type UnsupportedClaimFilterResult = {
+  payload: unknown;
+  removedParagraphCount: number;
+  removedTableRowCount: number;
+  removedTableCount: number;
+};
+
 function reportEvidenceLength(citation: ConsultCitation) {
   const title = citation.citationNamespace === "B" ? "Approved book source" : citation.title;
   return `[${citation.marker ?? "D"}] ${title}\n${citation.excerpt}\n\n`.length;
@@ -151,6 +158,79 @@ export function reportPayloadClaimText(sectionPayload: unknown) {
     }
   }
   return claims.filter((claim) => claim.trim().length > 0).join("\n\n");
+}
+
+export function filterUnsupportedReportClaims(
+  sectionPayload: unknown,
+  unsupportedClaimIds: string[],
+): UnsupportedClaimFilterResult {
+  if (!sectionPayload || typeof sectionPayload !== "object") {
+    return {
+      payload: sectionPayload,
+      removedParagraphCount: 0,
+      removedTableRowCount: 0,
+      removedTableCount: 0,
+    };
+  }
+  const candidate = sectionPayload as { sections?: unknown };
+  if (!Array.isArray(candidate.sections)) {
+    return {
+      payload: sectionPayload,
+      removedParagraphCount: 0,
+      removedTableRowCount: 0,
+      removedTableCount: 0,
+    };
+  }
+
+  const unsupported = new Set(unsupportedClaimIds);
+  let claimIndex = 0;
+  let removedParagraphCount = 0;
+  let removedTableRowCount = 0;
+  let removedTableCount = 0;
+  const nextClaimIsUnsupported = (text: string) => {
+    if (!text.trim()) return false;
+    claimIndex += 1;
+    return unsupported.has(`C${claimIndex}`);
+  };
+
+  const sections = candidate.sections.map((section) => {
+    if (!section || typeof section !== "object") return section;
+    const item = section as { paragraphs?: unknown; tables?: unknown };
+    const paragraphs = Array.isArray(item.paragraphs)
+      ? item.paragraphs.filter((paragraph) => {
+          if (typeof paragraph !== "string") return true;
+          const remove = nextClaimIsUnsupported(paragraph);
+          if (remove) removedParagraphCount += 1;
+          return !remove;
+        })
+      : item.paragraphs;
+    const tables = Array.isArray(item.tables)
+      ? item.tables.flatMap((table) => {
+          if (!table || typeof table !== "object") return [table];
+          const tableItem = table as { rows?: unknown };
+          if (!Array.isArray(tableItem.rows)) return [table];
+          const rows = tableItem.rows.filter((row) => {
+            if (!Array.isArray(row) || row.some((cell) => typeof cell !== "string")) return true;
+            const remove = nextClaimIsUnsupported(row.join(" | "));
+            if (remove) removedTableRowCount += 1;
+            return !remove;
+          });
+          if (rows.length === 0) {
+            removedTableCount += 1;
+            return [];
+          }
+          return [{ ...tableItem, rows }];
+        })
+      : item.tables;
+    return { ...item, paragraphs, tables };
+  });
+
+  return {
+    payload: { ...candidate, sections },
+    removedParagraphCount,
+    removedTableRowCount,
+    removedTableCount,
+  };
 }
 
 function limitedText(value: unknown, label: string, maximum: number, required = false) {

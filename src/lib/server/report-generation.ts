@@ -6,6 +6,7 @@ import { buildGroundedReportDocx } from "@/lib/consult/reports/docx";
 import {
   buildGroundedReportPlan,
   filterUngroundedReportContent,
+  filterUnsupportedReportClaims,
   reportPayloadClaimText,
   reportEvidenceBoundaryInstruction,
   reportModelMaximumCompletionTokens,
@@ -204,22 +205,38 @@ export async function generateAndStoreReport(input: {
       removedTableCount: filteredContent.removedTableCount,
     });
   }
-  const reportClaims = reportPayloadClaimText(filteredContent.payload);
+  let auditedPayload = filteredContent.payload;
+  const reportClaims = reportPayloadClaimText(auditedPayload);
   if (reportClaims) {
-    await verifyClaimEvidenceSupport({
+    const audit = await verifyClaimEvidenceSupport({
       requestId: input.requestId,
       answer: reportClaims,
       citations: input.citations,
       allowGeneralKnowledge: false,
       config: input.config,
+      unsupportedClaimPolicy: "return",
     });
+    if (audit.unsupportedClaimIds.length > 0) {
+      const claimFiltered = filterUnsupportedReportClaims(
+        auditedPayload,
+        audit.unsupportedClaimIds,
+      );
+      auditedPayload = claimFiltered.payload;
+      console.warn("Helmonic unsupported report claims omitted by evidence audit", {
+        requestId: input.requestId,
+        unsupportedClaimIds: audit.unsupportedClaimIds,
+        removedParagraphCount: claimFiltered.removedParagraphCount,
+        removedTableRowCount: claimFiltered.removedTableRowCount,
+        removedTableCount: claimFiltered.removedTableCount,
+      });
+    }
   }
   const plan = buildGroundedReportPlan({
     reportId,
     requestedByObjectId: input.requestedByObjectId,
     instruction: input.instruction,
     metadata,
-    sectionPayload: filteredContent.payload,
+    sectionPayload: auditedPayload,
     citations: input.citations,
     supplementaryAttachments: attachmentDescriptors,
   });

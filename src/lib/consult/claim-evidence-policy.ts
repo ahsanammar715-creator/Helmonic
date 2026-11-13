@@ -136,5 +136,11 @@ export function validateClaimSupportVerdicts(input: {
     if (!seen.has(claimId)) errors.push(`The evidence audit omitted ${claimId}.`);
   }
 
-  return { valid: errors.length === 0, errors };
+  return {
+    valid: errors.length === 0,
+    errors,
+    unsupportedClaimIds: input.verdicts
+      .filter((verdict) => expected.has(verdict.claimId) && !verdict.supported)
+      .map((verdict) => verdict.claimId),
+  };
 }

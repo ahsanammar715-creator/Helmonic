@@ -6,6 +6,7 @@ import { buildGroundedReportDocx } from "../../src/lib/consult/reports/docx.ts";
 import {
   buildGroundedReportPlan,
   filterUngroundedReportContent,
+  filterUnsupportedReportClaims,
   reportPayloadClaimText,
   reportEvidenceBoundaryInstruction,
   reportModelEvidenceCharacterBudget,
@@ -213,6 +214,47 @@ test("report claim audit input includes every retained paragraph and factual tab
     text,
     "Grounded summary. [D1]\n\nGrounded criterion. [D2]\n\nBedroom partition | 45 dB Rw [D3]",
   );
+});
+
+test("unsupported audited claims are omitted without discarding supported report content", () => {
+  const filtered = filterUnsupportedReportClaims({
+    sections: [
+      {
+        heading: "Executive Summary",
+        paragraphs: ["Supported summary. [D1]", "Over-broad summary. [D1]"],
+        tables: [],
+      },
+      {
+        heading: "Acoustic Performance Specification",
+        paragraphs: ["Supported criterion. [D1]"],
+        tables: [
+          {
+            title: "Criteria",
+            columns: ["Item", "Requirement"],
+            rows: [
+              ["Supported row", "45 dB Rw [D1]"],
+              ["Over-broad row", "Enhanced performance [D1]"],
+            ],
+          },
+          {
+            title: "Unsupported table",
+            columns: ["Item", "Requirement"],
+            rows: [["Unsupported row", "Not entailed [D1]"]],
+          },
+        ],
+      },
+    ],
+  }, ["C2", "C5", "C6"]);
+
+  assert.equal(filtered.removedParagraphCount, 1);
+  assert.equal(filtered.removedTableRowCount, 2);
+  assert.equal(filtered.removedTableCount, 1);
+  assert.deepEqual(filtered.payload.sections[0].paragraphs, ["Supported summary. [D1]"]);
+  assert.deepEqual(filtered.payload.sections[1].paragraphs, ["Supported criterion. [D1]"]);
+  assert.deepEqual(filtered.payload.sections[1].tables[0].rows, [
+    ["Supported row", "45 dB Rw [D1]"],
+  ]);
+  assert.equal(filtered.payload.sections[1].tables.length, 1);
 });
 
 test("report model evidence is bounded and remains balanced across project sources", () => {

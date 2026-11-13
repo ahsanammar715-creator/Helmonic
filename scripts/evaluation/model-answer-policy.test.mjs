@@ -256,4 +256,5 @@ test("claim audit fails closed on an unsupported verdict or omitted claim", () =
   assert.equal(result.valid, false);
   assert.match(result.errors.join(" "), /C1 is not supported/);
   assert.match(result.errors.join(" "), /omitted C2/);
+  assert.deepEqual(result.unsupportedClaimIds, ["C1"]);
 });

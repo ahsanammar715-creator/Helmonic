@@ -30,6 +30,7 @@ export async function verifyClaimEvidenceSupport(input: {
   citations: ConsultCitation[];
   allowGeneralKnowledge: boolean;
   config: RuntimeConfig;
+  unsupportedClaimPolicy?: "reject" | "return";
 }) {
   const { endpoint, deployment } = input.config.model;
   if (!endpoint || !deployment) {
@@ -164,7 +165,17 @@ export async function verifyClaimEvidenceSupport(input: {
     claims: controlledClaims,
     verdicts,
   });
-  if (!validation.valid) {
+  const unsupportedClaimIds = new Set(validation.unsupportedClaimIds);
+  const structuralErrors = validation.errors.filter(
+    (error) =>
+      !Array.from(unsupportedClaimIds).some((claimId) =>
+        error.startsWith(`${claimId} is not supported by its cited excerpts:`),
+      ),
+  );
+  if (structuralErrors.length > 0) {
+    throw new ModelGatewayValidationError(structuralErrors.join(" "));
+  }
+  if (!validation.valid && input.unsupportedClaimPolicy !== "return") {
     throw new ModelGatewayValidationError(validation.errors.join(" "));
   }
 
@@ -172,6 +183,12 @@ export async function verifyClaimEvidenceSupport(input: {
     requestId: input.requestId,
     claimCount: controlledClaims.length,
     batchCount: batches.length,
-    supported: true,
+    supported: unsupportedClaimIds.size === 0,
+    unsupportedClaimCount: unsupportedClaimIds.size,
   });
+  return {
+    claimCount: controlledClaims.length,
+    batchCount: batches.length,
+    unsupportedClaimIds: Array.from(unsupportedClaimIds),
+  };
 }
