@@ -48,7 +48,10 @@ export async function searchPublicWebEvidence(input: {
       tools: [webTool],
       tool_choice: "auto",
       include: ["web_search_call.action.sources"],
-      max_output_tokens: 900,
+      // The web lane only produces a short evidence digest and URL citations.
+      // Keep its token reservation below the deliberately small Azure rate-limit
+      // ceiling used for this cost-controlled deployment.
+      max_output_tokens: 500,
       input:
         `Search the current public web for authoritative, preferably official, sources relevant to this public technical query: ${safeQuery}. ` +
         "Return a concise evidence summary with inline URL citations. Do not speculate about or request any private project, client, person, address, date, measurement or correspondence detail.",
