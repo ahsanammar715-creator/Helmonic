@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildConsultSystemPrompt,
+  framePublicWebEvidence,
   NO_DOCUMENT_EVIDENCE_NOTICE,
   validateExperienceAnswer,
   validateDocumentAnswerCitations,
@@ -230,6 +231,15 @@ test("public-web evidence produces a normal framed answer with a verified W mark
 
   assert.equal(result.valid, true);
   assert.deepEqual(result.markers, ["W1"]);
+});
+
+test("public-web evidence is deterministically framed before validation", () => {
+  const answer = framePublicWebEvidence(
+    "The official page lists the current requirement. [W1]\n\nThe project report records the design response. [D1]",
+  );
+
+  assert.match(answer, /^Current public-web evidence:/);
+  assert.match(answer, /\[W1\]\n\nThe project report/);
 });
 
 test("public-web evidence cannot be disguised as internal evidence or omitted", () => {

@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   buildConsultSystemPrompt,
+  framePublicWebEvidence,
   validateExperienceAnswer,
   validateDocumentAnswerCitations,
 } from "@/lib/consult/model-policy";
@@ -102,11 +103,12 @@ async function createDocumentAnswer(
   }
 
   const payload = (await response.json()) as ChatCompletionResponse;
-  const answer = payload.choices?.[0]?.message?.content?.trim();
+  const rawAnswer = payload.choices?.[0]?.message?.content?.trim();
 
-  if (!answer) {
+  if (!rawAnswer) {
     throw new Error("Azure model returned an empty answer");
   }
+  const answer = framePublicWebEvidence(rawAnswer);
 
   const validation = validateDocumentAnswerCitations(answer, request.evidence, {
     allowGeneralKnowledge: request.allowGeneralKnowledge,

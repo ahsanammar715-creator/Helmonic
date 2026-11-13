@@ -40,6 +40,19 @@ type AnswerValidationOptions = {
   requireWebEvidence?: boolean;
 };
 
+export function framePublicWebEvidence(answer: string) {
+  return answer
+    .split(/(\n\s*\n)/g)
+    .map((block) => {
+      if (!/\[W\d+\]/.test(block)) return block;
+      if (/\b(?:current public|public web|open web|open-source|publicly available)\b/i.test(block)) {
+        return block;
+      }
+      return `Current public-web evidence: ${block}`;
+    })
+    .join("");
+}
+
 export function validateDocumentAnswerCitations(
   answer: string,
   citations: ConsultCitation[],
