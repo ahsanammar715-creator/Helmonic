@@ -898,13 +898,27 @@ export function buildGroundedReportDocx(templateBytes: Uint8Array, plan: Grounde
     "VHA Architects",
     "J2769",
     "LKPH1",
-    "Cellular Office Spaces",
-    "Event B01-18",
-    "LEED v4.1",
-    "BS ISO 22955",
     "SAMPLE ",
   ]) {
     if (visibleOutput.includes(forbidden)) throw new Error(`report-template-sample-content-leak:${forbidden}`);
+  }
+
+  // The approved master contains an illustrative office-acoustics table. Its
+  // individual terms can also occur legitimately in retrieved evidence, so a
+  // document-wide single-term ban would reject a grounded report merely for
+  // mentioning (for example) cellular offices or BS ISO 22955. Fail closed on
+  // the distinctive sample-table combinations within the same preserved body
+  // node instead. This still catches the unchanged master example while
+  // allowing independently grounded report content to use those terms.
+  for (const node of rebuilt) {
+    const visibleNode = textOf(node);
+    const hasOfficeEventSample = visibleNode.includes("Cellular Office Spaces")
+      && visibleNode.includes("Event B01-18");
+    const hasStandardsSample = visibleNode.includes("LEED v4.1")
+      && visibleNode.includes("BS ISO 22955");
+    if (hasOfficeEventSample || hasStandardsSample) {
+      throw new Error("report-template-sample-content-leak:office-acoustics-sample-table");
+    }
   }
 
   assertProtectedShell(sourceArchive, outputArchive);

@@ -365,3 +365,24 @@ test("generation clones the immutable master and changes approved text slots onl
     (strFromU8(source["word/document.xml"] ?? new Uint8Array()).match(/<w:sectPr\b/g) ?? []).length,
   );
 });
+
+test("grounded report content may use a term that also appears in the master sample table", () => {
+  const groundedPlan = plan();
+  groundedPlan.sections = groundedPlan.sections.map((section) =>
+    section.heading === "Room Acoustics"
+      ? {
+          ...section,
+          paragraphs: [
+            "Cellular Office Spaces require an evidence-led acoustic design response. [D1]",
+          ],
+        }
+      : section,
+  );
+
+  const output = unzipSync(buildGroundedReportDocx(template(), groundedPlan));
+  const documentXml = strFromU8(output["word/document.xml"]);
+
+  assert.match(documentXml, /Cellular Office Spaces require an evidence-led acoustic design response/);
+  assert.doesNotMatch(documentXml, /Cellular Office Spaces[^<]*(?:<[^>]+>)*[^<]*Event B01-18/);
+  assert.doesNotMatch(documentXml, /LEED v4\.1[^<]*(?:<[^>]+>)*[^<]*BS ISO 22955/);
+});
