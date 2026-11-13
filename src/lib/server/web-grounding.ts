@@ -23,6 +23,7 @@ export async function searchPublicWebEvidence(input: {
   const token = await getAzureAccessToken("https://ai.azure.com/.default");
   const webTool: Record<string, unknown> = {
     type: "web_search",
+    search_context_size: "low",
     user_location: {
       type: "approximate",
       country: "IE",
@@ -44,10 +45,8 @@ export async function searchPublicWebEvidence(input: {
     },
     body: JSON.stringify({
       model: deployment,
-      reasoning: { effort: "low" },
       tools: [webTool],
       tool_choice: "auto",
-      include: ["web_search_call.action.sources"],
       // The web lane only produces a short evidence digest and URL citations.
       // Keep its token reservation below the deliberately small Azure rate-limit
       // ceiling used for this cost-controlled deployment.
