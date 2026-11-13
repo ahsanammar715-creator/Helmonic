@@ -216,7 +216,7 @@ export async function generateAndStoreReport(input: {
       config: input.config,
       unsupportedClaimPolicy: "return",
     });
-    if (audit.unsupportedClaimIds.length > 0) {
+    if (audit && audit.unsupportedClaimIds.length > 0) {
       const claimFiltered = filterUnsupportedReportClaims(
         auditedPayload,
         audit.unsupportedClaimIds,
