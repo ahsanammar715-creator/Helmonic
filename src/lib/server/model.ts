@@ -6,7 +6,10 @@ import {
   validateExperienceAnswer,
   validateDocumentAnswerCitations,
 } from "@/lib/consult/model-policy";
-import { filterUnsupportedAnswerClaims } from "@/lib/consult/claim-evidence-policy";
+import {
+  filterUncitedAnswerClaims,
+  filterUnsupportedAnswerClaims,
+} from "@/lib/consult/claim-evidence-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
 import { azureRequestError } from "@/lib/server/azure-request-error";
 import { verifyClaimEvidenceSupport } from "@/lib/server/claim-evidence-audit";
@@ -122,6 +125,26 @@ async function createDocumentAnswer(
     if (!experienceValidation.valid) {
       throw new ModelGatewayValidationError(experienceValidation.errors.join(" "));
     }
+  }
+
+  const citationRepair = filterUncitedAnswerClaims(answer, request.allowGeneralKnowledge);
+  if (citationRepair.removedClaimCount > 0) {
+    if (!citationRepair.answer) {
+      throw new ModelGatewayValidationError(
+        "Every generated claim lacked a permitted evidence marker; no answer was released.",
+      );
+    }
+    answer = citationRepair.answer;
+    validation = validateDocumentAnswerCitations(answer, request.evidence, {
+      allowGeneralKnowledge: request.allowGeneralKnowledge,
+    });
+    if (!validation.valid) {
+      throw new ModelGatewayValidationError(validation.errors.join(" "));
+    }
+    console.warn("Helmonic removed uncited answer prose and retained cited content", {
+      requestId: request.requestId,
+      removedClaimCount: citationRepair.removedClaimCount,
+    });
   }
 
   const audit = await verifyClaimEvidenceSupport({

@@ -12,6 +12,7 @@ import {
   batchClaimEvidenceAudit,
   buildClaimEvidenceAudit,
   extractCitedClaimBlocks,
+  filterUncitedAnswerClaims,
   filterUnsupportedAnswerClaims,
   validateClaimCitationCoverage,
   validateClaimSupportVerdicts,
@@ -300,6 +301,34 @@ test("unsupported consultant claims are removed without discarding verified clai
     result.answer,
     "Verified criterion. [D1]\n\nVerified limitation. [D3]",
   );
+});
+
+test("template headings and table scaffolding do not require citations", () => {
+  const answer = [
+    "# Reverberation Time Test Report",
+    "The test method should follow the retrieved standard. [S1]",
+    "**Results Schedule**",
+    "| Room | T20, s |\n| --- | --- |",
+    "The measured result is entered here. [D1]",
+  ].join("\n\n");
+
+  const result = filterUncitedAnswerClaims(answer, false);
+  assert.equal(result.removedClaimCount, 0);
+  assert.equal(result.answer, answer);
+});
+
+test("uncited prose is removed while cited template content is retained", () => {
+  const answer = [
+    "# Reverberation Time Test Report",
+    "This uncited technical claim must not be released.",
+    "The measurement method is supported here. [S1]",
+  ].join("\n\n");
+
+  const result = filterUncitedAnswerClaims(answer, false);
+  assert.equal(result.removedClaimCount, 1);
+  assert.match(result.answer, /# Reverberation Time Test Report/);
+  assert.match(result.answer, /\[S1\]/);
+  assert.doesNotMatch(result.answer, /uncited technical claim/);
 });
 
 test("claim coverage rejects an uncited factual paragraph", () => {

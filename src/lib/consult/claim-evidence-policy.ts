@@ -46,6 +46,33 @@ function substantive(block: string) {
   return /[A-Za-z0-9]/.test(withoutMarkdown);
 }
 
+function structural(block: string) {
+  const trimmed = block.trim();
+  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return true;
+
+  // Report templates legitimately contain presentation-only blocks. They are
+  // not factual claims and therefore do not need an evidence marker, but any
+  // prose placed beneath them is still audited as a separate block.
+  if (lines.length === 1 && trimmed.length <= 160) {
+    if (/^#{1,6}\s+\S/.test(trimmed)) return true;
+    if (/^\*\*[^*]+\*\*$/.test(trimmed)) return true;
+    if (/^\d+(?:\.\d+)*\.?\s+[A-Z][^.!?]*$/.test(trimmed)) return true;
+  }
+
+  // A Markdown table header and separator describe layout rather than a
+  // technical proposition. Data rows remain subject to the normal gate.
+  if (
+    lines.length === 2 &&
+    lines.every((line) => line.includes("|")) &&
+    /^\|?\s*:?-{3,}/.test(lines[1])
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function unique<T>(items: T[]) {
   return [...new Set(items)];
 }
@@ -54,7 +81,7 @@ export function extractCitedClaimBlocks(answer: string): CitedClaimBlock[] {
   return answer
     .split(/\n\s*\n/g)
     .map((block) => block.trim())
-    .filter((block) => block.length > 0 && substantive(block))
+    .filter((block) => block.length > 0 && substantive(block) && !structural(block))
     .map((block, index) => ({
       id: `C${index + 1}` as const,
       text: block,
@@ -62,6 +89,29 @@ export function extractCitedClaimBlocks(answer: string): CitedClaimBlock[] {
         Array.from(block.matchAll(controlledMarkerPattern), (match) => match[1] as ControlledMarker),
       ),
     }));
+}
+
+export function filterUncitedAnswerClaims(
+  answer: string,
+  allowGeneralKnowledge: boolean,
+) {
+  let removedClaimCount = 0;
+  const retained = answer
+    .split(/\n\s*\n/g)
+    .filter((block) => {
+      const trimmed = block.trim();
+      if (!trimmed || !substantive(trimmed) || structural(trimmed)) return true;
+      const hasControlledMarker = /\[[DSBAEW]\d+\]/.test(trimmed);
+      if (hasControlledMarker) return true;
+      if (allowGeneralKnowledge && hasGeneralMarker(trimmed)) return true;
+      removedClaimCount += 1;
+      return false;
+    })
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .join("\n\n");
+
+  return { answer: retained, removedClaimCount };
 }
 
 export function filterUnsupportedAnswerClaims(
