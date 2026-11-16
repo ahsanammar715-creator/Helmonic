@@ -9,8 +9,10 @@ import {
   rfiChangeReportEmailHtml,
 } from "../../src/lib/tender-intelligence/rfi-change-report.ts";
 
-const validationFlag = process.argv.includes("--validation");
-const recipientArgument = process.argv.find((argument) => argument.startsWith("--recipient="))?.slice("--recipient=".length);
+const validationFlag = process.argv.includes("validation") || process.argv.includes("--validation");
+const recipientArgument = process.argv
+  .find((argument) => argument.startsWith("recipient=") || argument.startsWith("--recipient="))
+  ?.replace(/^(?:--)?recipient=/, "");
 
 if (!validationFlag && process.env.HELMONIC_RFI_EMAIL_VALIDATION_ENABLED !== "true") {
   throw new Error("RFI email validation is disabled.");
