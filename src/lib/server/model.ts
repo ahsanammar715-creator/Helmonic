@@ -6,6 +6,7 @@ import {
   validateExperienceAnswer,
   validateDocumentAnswerCitations,
 } from "@/lib/consult/model-policy";
+import { filterUnsupportedAnswerClaims } from "@/lib/consult/claim-evidence-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
 import { azureRequestError } from "@/lib/server/azure-request-error";
 import { verifyClaimEvidenceSupport } from "@/lib/server/claim-evidence-audit";
@@ -108,13 +109,10 @@ async function createDocumentAnswer(
   if (!rawAnswer) {
     throw new Error("Azure model returned an empty answer");
   }
-  const answer = framePublicWebEvidence(rawAnswer);
+  let answer = framePublicWebEvidence(rawAnswer);
 
-  const validation = validateDocumentAnswerCitations(answer, request.evidence, {
+  let validation = validateDocumentAnswerCitations(answer, request.evidence, {
     allowGeneralKnowledge: request.allowGeneralKnowledge,
-    requireWebEvidence: request.evidence.some(
-      (citation) => citation.citationNamespace === "W",
-    ),
   });
   if (!validation.valid) {
     throw new ModelGatewayValidationError(validation.errors.join(" "));
@@ -126,13 +124,40 @@ async function createDocumentAnswer(
     }
   }
 
-  await verifyClaimEvidenceSupport({
+  const audit = await verifyClaimEvidenceSupport({
     requestId: request.requestId,
     answer,
     citations: request.evidence,
     allowGeneralKnowledge: request.allowGeneralKnowledge,
     config,
+    unsupportedClaimPolicy: "return",
   });
+  if (audit && audit.unsupportedClaimIds.length > 0) {
+    const repaired = filterUnsupportedAnswerClaims(answer, audit.unsupportedClaimIds);
+    if (!repaired.answer) {
+      throw new ModelGatewayValidationError(
+        "Every generated claim exceeded its cited excerpts; no answer was released.",
+      );
+    }
+    answer = repaired.answer;
+    validation = validateDocumentAnswerCitations(answer, request.evidence, {
+      allowGeneralKnowledge: request.allowGeneralKnowledge,
+    });
+    if (!validation.valid) {
+      throw new ModelGatewayValidationError(validation.errors.join(" "));
+    }
+    if (request.experienceMode) {
+      const experienceValidation = validateExperienceAnswer(answer, request.evidence);
+      if (!experienceValidation.valid) {
+        throw new ModelGatewayValidationError(experienceValidation.errors.join(" "));
+      }
+    }
+    console.warn("Helmonic removed unsupported answer claims and retained verified claims", {
+      requestId: request.requestId,
+      unsupportedClaimIds: audit.unsupportedClaimIds,
+      removedClaimCount: repaired.removedClaimCount,
+    });
+  }
 
   console.info("Helmonic model usage", {
     requestId: request.requestId,

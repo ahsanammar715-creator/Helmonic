@@ -200,9 +200,22 @@ export async function POST(request: Request) {
         ? searchDeidentifiedExperienceEvidence(trimmedQuestion, actor, requestId, config)
         : Promise.resolve([]),
       includeWebEvidence
-        ? import("@/lib/server/web-grounding").then(({ searchPublicWebEvidence }) =>
-            searchPublicWebEvidence({ question: trimmedQuestion, requestId, config }),
-          )
+        ? import("@/lib/server/web-grounding")
+            .then(({ searchPublicWebEvidence }) =>
+              searchPublicWebEvidence({ question: trimmedQuestion, requestId, config }),
+            )
+            .catch((error: unknown) => {
+              console.warn(
+                "Helmonic public-web retrieval unavailable; continuing with permitted internal evidence",
+                {
+                  requestId,
+                  errorType: error instanceof Error ? error.name : "UnknownError",
+                  message: error instanceof Error ? error.message : "unknown",
+                  azureDiagnostic: safeAzureRequestDiagnostic(error),
+                },
+              );
+              return { status: "unavailable" as const, citations: [] };
+            })
         : Promise.resolve({ status: "not-requested" as const, citations: [] }),
     ]);
     const citations = [

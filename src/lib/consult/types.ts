@@ -31,7 +31,7 @@ export type ConsultQueryResponse = {
   mode: ConsultAnswerMode;
   requestId: string;
   generalKnowledgeUsed: boolean;
-  webEvidenceStatus: "not-requested" | "used" | "privacy-skipped";
+  webEvidenceStatus: "not-requested" | "used" | "privacy-skipped" | "unavailable";
   documentAnswer: {
     status: ConsultAnswerMode;
     text: string | null;

@@ -12,6 +12,7 @@ import {
   batchClaimEvidenceAudit,
   buildClaimEvidenceAudit,
   extractCitedClaimBlocks,
+  filterUnsupportedAnswerClaims,
   validateClaimCitationCoverage,
   validateClaimSupportVerdicts,
 } from "../../src/lib/consult/claim-evidence-policy.ts";
@@ -267,6 +268,38 @@ test("public-web evidence cannot be disguised as internal evidence or omitted", 
   assert.match(mixed.errors.join(" "), /mixes public-web/);
   assert.equal(omitted.valid, false);
   assert.match(omitted.errors.join(" "), /omits the retrieved public-web/);
+});
+
+test("retrieved web evidence is optional when the answer is fully supported by internal evidence", () => {
+  const webCitation = {
+    id: "web-1",
+    title: "Official public guidance",
+    sourceId: "https://example.gov.ie/guidance",
+    excerpt: "Current public guidance.",
+    sourceType: "web",
+    citationNamespace: "W",
+    marker: "W1",
+  };
+  const result = validateDocumentAnswerCitations(
+    "The controlled report supports this conclusion. [D1]",
+    [citations[0], webCitation],
+  );
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.markers, ["D1"]);
+});
+
+test("unsupported consultant claims are removed without discarding verified claims", () => {
+  const result = filterUnsupportedAnswerClaims(
+    "Verified criterion. [D1]\n\nUnsupported recommendation. [D2]\n\nVerified limitation. [D3]",
+    ["C2"],
+  );
+
+  assert.equal(result.removedClaimCount, 1);
+  assert.equal(
+    result.answer,
+    "Verified criterion. [D1]\n\nVerified limitation. [D3]",
+  );
 });
 
 test("claim coverage rejects an uncited factual paragraph", () => {

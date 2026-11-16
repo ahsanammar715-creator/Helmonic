@@ -64,6 +64,30 @@ export function extractCitedClaimBlocks(answer: string): CitedClaimBlock[] {
     }));
 }
 
+export function filterUnsupportedAnswerClaims(
+  answer: string,
+  unsupportedClaimIds: string[],
+) {
+  const unsupported = new Set(unsupportedClaimIds);
+  let substantiveIndex = 0;
+  let removedClaimCount = 0;
+  const retained = answer
+    .split(/\n\s*\n/g)
+    .filter((block) => {
+      const trimmed = block.trim();
+      if (!trimmed || !substantive(trimmed)) return true;
+      substantiveIndex += 1;
+      if (!unsupported.has(`C${substantiveIndex}`)) return true;
+      removedClaimCount += 1;
+      return false;
+    })
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .join("\n\n");
+
+  return { answer: retained, removedClaimCount };
+}
+
 export function validateClaimCitationCoverage(input: {
   answer: string;
   allowGeneralKnowledge: boolean;

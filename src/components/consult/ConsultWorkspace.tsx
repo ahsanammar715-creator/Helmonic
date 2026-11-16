@@ -275,14 +275,14 @@ export default function ConsultWorkspace({
                           exchange.mode,
                           exchange.generalKnowledgeUsed,
                           exchange.citations.some((citation) => citation.citationNamespace !== "W"),
-                          exchange.citations.some((citation) => citation.citationNamespace === "W"),
+                          Boolean(exchange.answer && /\[W\d+\]/.test(exchange.answer)),
                         ) && (
                           <span className="self-start rounded-full bg-primary-tint px-2.5 py-1 text-[11px] font-semibold text-primary">
                             {modeLabel(
                               exchange.mode,
                               exchange.generalKnowledgeUsed,
                               exchange.citations.some((citation) => citation.citationNamespace !== "W"),
-                              exchange.citations.some((citation) => citation.citationNamespace === "W"),
+                              Boolean(exchange.answer && /\[W\d+\]/.test(exchange.answer)),
                             )}
                           </span>
                         )}
@@ -323,9 +323,7 @@ export default function ConsultWorkspace({
                             against your documents.
                           </p>
                         )}
-                        {exchange.citations.some(
-                          (citation) => citation.citationNamespace === "W",
-                        ) && (
+                        {exchange.answer && /\[W\d+\]/.test(exchange.answer) && (
                           <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
                             [W] marks current public-web evidence. Open Sources for the publisher,
                             URL, access date and web-grounded passage.
@@ -336,6 +334,13 @@ export default function ConsultWorkspace({
                             Web search was not run because no privacy-safe public technical query
                             could be derived. Private names, projects and correspondence were not
                             sent outside Helmonic.
+                          </p>
+                        )}
+                        {exchange.webEvidenceStatus === "unavailable" && (
+                          <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
+                            Current public-web evidence was temporarily unavailable. This answer
+                            continued from the permitted Helmonic RAG, approved books, standards
+                            and project documents; no web claim has been implied.
                           </p>
                         )}
                         {exchange.citations.some(
