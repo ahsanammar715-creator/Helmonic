@@ -48,29 +48,22 @@ export function buildSafePublicWebQuery(question: string): string | null {
 }
 import type { ConsultCitation } from "@/lib/consult/types";
 
-export type WebCitationAnnotation = {
-  type?: string;
-  start_index?: number;
-  end_index?: number;
-  url?: string;
-  title?: string;
+export type BraveLlmContextPayload = {
+  grounding?: {
+    generic?: Array<{
+      url?: string;
+      title?: string;
+      snippets?: string[];
+    }>;
+  };
+  sources?: Record<
+    string,
+    {
+      title?: string;
+      hostname?: string;
+    }
+  >;
 };
-
-export type WebResponseOutputItem = {
-  type?: string;
-  status?: string;
-  content?: Array<{
-    type?: string;
-    text?: string;
-    annotations?: WebCitationAnnotation[];
-  }>;
-};
-
-export type WebResponsePayload = {
-  output?: WebResponseOutputItem[];
-};
-
-const markdownLinkPattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi;
 
 function validatedPublicUrl(value: string | undefined) {
   if (!value) return undefined;
@@ -82,83 +75,124 @@ function validatedPublicUrl(value: string | undefined) {
   }
 }
 
-function citationExcerpt(text: string, start: number | undefined, end: number | undefined) {
-  if (!Number.isInteger(start) || !Number.isInteger(end) || start! < 0 || end! <= start!) {
-    return text.trim().slice(0, 700);
+function canonicalPublicUrl(value: string | undefined) {
+  const validated = validatedPublicUrl(value);
+  if (!validated) return undefined;
+  const url = new URL(validated);
+  url.hash = "";
+  for (const parameter of [
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "gclid",
+    "fbclid",
+  ]) {
+    url.searchParams.delete(parameter);
   }
-  const boundedStart = Math.max(0, start!);
-  const boundedEnd = Math.min(text.length, end!);
-  const sentenceStart = Math.max(
-    text.lastIndexOf(". ", boundedStart - 1) + 2,
-    text.lastIndexOf("\n", boundedStart - 1) + 1,
-  );
-  const nextStop = text.indexOf(". ", boundedEnd);
-  const nextLine = text.indexOf("\n", boundedEnd);
-  const candidates = [
-    nextStop >= 0 ? nextStop + 1 : text.length,
-    nextLine >= 0 ? nextLine : text.length,
-  ];
-  const sentenceEnd = Math.min(...candidates, sentenceStart + 700);
-  return text.slice(sentenceStart, sentenceEnd).trim();
+  return url.toString();
 }
 
-export function parsePublicWebCitations(
-  payload: WebResponsePayload,
-  options: { maximumSources: number; retrievedAt: string },
-) {
-  const usedWebSearch = payload.output?.some(
-    (item) => item.type === "web_search_call" && item.status !== "failed",
-  );
-  if (!usedWebSearch) return [];
+function domainMatches(hostname: string, domain: string) {
+  const normalized = domain.replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase();
+  return hostname === normalized || hostname.endsWith(`.${normalized}`);
+}
 
-  const candidates: Array<Omit<ConsultCitation, "marker">> = [];
-  for (const item of payload.output ?? []) {
-    if (item.type !== "message") continue;
-    for (const content of item.content ?? []) {
-      if (content.type !== "output_text" || !content.text) continue;
-      for (const annotation of content.annotations ?? []) {
-        if (annotation.type !== "url_citation") continue;
-        const sourceUri = validatedPublicUrl(annotation.url);
-        if (!sourceUri || candidates.some((candidate) => candidate.sourceUri === sourceUri)) {
-          continue;
-        }
-        candidates.push({
-          id: `web:${sourceUri}`,
-          title: annotation.title?.trim() || new URL(sourceUri).hostname,
-          sourceId: sourceUri,
-          sourceUri,
-          excerpt: citationExcerpt(content.text, annotation.start_index, annotation.end_index),
-          sourceType: "web",
-          citationNamespace: "W",
-          retrievedAt: options.retrievedAt,
-        });
-      }
+function authorityRank(hostname: string) {
+  const officialDomains = [
+    "gov.ie",
+    "irishstatutebook.ie",
+    "hsa.ie",
+    "epa.ie",
+    "met.ie",
+    "gov.uk",
+    "europa.eu",
+  ];
+  if (officialDomains.some((domain) => domainMatches(hostname, domain))) return 0;
 
-      // Azure occasionally returns a completed web-search message with the
-      // public links rendered inline but without the documented annotation
-      // objects. Accept only explicit HTTP(S) Markdown links in that already
-      // web-grounded text; never manufacture or infer a source URL.
-      for (const match of content.text.matchAll(markdownLinkPattern)) {
-        const sourceUri = validatedPublicUrl(match[2]);
-        if (!sourceUri || candidates.some((candidate) => candidate.sourceUri === sourceUri)) {
-          continue;
-        }
-        candidates.push({
-          id: `web:${sourceUri}`,
-          title: match[1].trim() || new URL(sourceUri).hostname,
-          sourceId: sourceUri,
-          sourceUri,
-          excerpt: citationExcerpt(content.text, match.index, match.index! + match[0].length),
-          sourceType: "web",
-          citationNamespace: "W",
-          retrievedAt: options.retrievedAt,
-        });
-      }
-    }
+  const standardsAndProfessionalDomains = [
+    "standards.ie",
+    "iso.org",
+    "bsigroup.com",
+    "ioa.org.uk",
+    "acousticalsociety.org",
+  ];
+  if (
+    standardsAndProfessionalDomains.some((domain) => domainMatches(hostname, domain))
+  ) {
+    return 1;
   }
 
-  return candidates.slice(0, options.maximumSources).map((citation, index) => ({
-    ...citation,
-    marker: `W${index + 1}` as const,
-  }));
+  if (/\.(?:edu|ac\.uk|edu\.au)$/.test(hostname)) return 2;
+  return 3;
+}
+
+function evidenceExcerpt(snippets: string[] | undefined) {
+  const cleaned = (snippets ?? [])
+    .map((snippet) => snippet.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return [...new Set(cleaned)].join(" ").slice(0, 1_200).trim();
+}
+
+/**
+ * Converts only provider-returned HTTP(S) sources and extracted passages into
+ * server-authoritative W evidence. No URL or evidence text is model-invented.
+ */
+export function parseBravePublicWebCitations(
+  payload: BraveLlmContextPayload,
+  options: {
+    maximumSources: number;
+    retrievedAt: string;
+    allowedDomains?: string[];
+  },
+) {
+  const candidates: Array<Omit<ConsultCitation, "marker"> & { rank: number; order: number }> = [];
+  for (const [order, result] of (payload.grounding?.generic ?? []).entries()) {
+    const sourceUri = canonicalPublicUrl(result.url);
+    const excerpt = evidenceExcerpt(result.snippets);
+    if (!sourceUri || !excerpt) continue;
+    if (candidates.some((candidate) => candidate.sourceUri === sourceUri)) continue;
+
+    const hostname = new URL(sourceUri).hostname.toLowerCase().replace(/^www\./, "");
+    if (
+      options.allowedDomains?.length &&
+      !options.allowedDomains.some((domain) => domainMatches(hostname, domain))
+    ) {
+      continue;
+    }
+
+    const sourceMetadata = payload.sources?.[result.url ?? ""];
+    candidates.push({
+      id: `web:${sourceUri}`,
+      title:
+        result.title?.trim() ||
+        sourceMetadata?.title?.trim() ||
+        sourceMetadata?.hostname?.trim() ||
+        hostname,
+      sourceId: sourceUri,
+      sourceUri,
+      excerpt,
+      sourceType: "web",
+      citationNamespace: "W",
+      retrievedAt: options.retrievedAt,
+      rank: authorityRank(hostname),
+      order,
+    });
+  }
+
+  return candidates
+    .sort((left, right) => left.rank - right.rank || left.order - right.order)
+    .slice(0, options.maximumSources)
+    .map((citation, index) => ({
+      id: citation.id,
+      title: citation.title,
+      sourceId: citation.sourceId,
+      sourceUri: citation.sourceUri,
+      excerpt: citation.excerpt,
+      sourceType: citation.sourceType,
+      citationNamespace: citation.citationNamespace,
+      retrievedAt: citation.retrievedAt,
+      marker: `W${index + 1}` as const,
+    }));
 }

@@ -1455,9 +1455,12 @@ capability with its own governance and approval gate.
 The current public-web evidence lane is implemented behind
 `HELMONIC_WEB_GROUNDING_ENABLED=false` and remains disabled by default at deployment
 level. Once enabled for a deployment it is woven automatically into every eligible
-consultant answer rather than exposed as a per-question opt-in. It uses the
-Azure OpenAI Responses API `web_search` tool and converts returned URL annotations into
-server-authoritative `[W#]` evidence. The user receives one normal consultant-style
+consultant answer rather than exposed as a per-question opt-in. It uses Brave Search's
+LLM Context endpoint as a dedicated public retrieval service and converts only its
+returned HTTP(S) sources and extracted passages into server-authoritative `[W#]`
+evidence. Azure remains the private RAG, model, identity and report-generation spine;
+the Consult runtime no longer depends on Azure's separately throttled web-search tool.
+The user receives one normal consultant-style
 answer; each public-web-supported paragraph is explicitly framed as current public
 evidence and ends with its `[W#]` marker. The Sources panel shows the publisher title,
 clickable URL, access date and web-grounded cited passage.
@@ -1470,16 +1473,26 @@ The web boundary is deliberately separate from document RAG:
 - project names, client names, addresses, dates, measurements, email addresses,
   correspondence and personal data therefore cannot cross that boundary;
 - private/controlled and `[W#]` markers cannot appear in the same paragraph;
-- URL citations are accepted only after a real `web_search_call` and an HTTP(S)
-  `url_citation` annotation are both present;
+- citations are accepted only when Brave returns both a real HTTP(S) source URL and a
+  non-empty extracted source passage;
+- tracking parameters are stripped, duplicate URLs are collapsed, and Irish official,
+  standards and professional sources are ranked ahead of general web pages without
+  excluding otherwise relevant public evidence;
+- the server makes at most one normal provider request per eligible Consult request,
+  uses bounded transient retries, de-duplicates concurrent identical searches and
+  caches successful results for the configured interval;
 - a privacy-only question produces `privacy-skipped` rather than a web request;
 - the existing claim-to-excerpt audit validates `[W#]` claims like every other
   retrieved evidence claim;
 - the feature can be disabled without affecting document RAG.
 
-Microsoft states that web-search traffic leaves the Azure compliance and Geo boundary,
-is governed by separate terms and incurs separate tool-call cost. Enabling the flag and
-running paid live validation therefore remain separate governance and cost gates.
+Public queries leave the Azure boundary and are governed by Brave's separate terms.
+Only the deterministic privacy-safe technical query crosses that boundary; no raw
+question, project identifier, person, address, measurement or correspondence is sent.
+The API key is a server-side Container App secret. Spend is constrained by Brave prepaid
+credits, one search lane per eligible request, bounded context, caching and the existing
+feature flag. Enabling the flag and running paid live validation remain separate
+governance, secret-provisioning and zero-traffic validation gates.
 
 ## 11. Voice-input design
 
@@ -1775,7 +1788,7 @@ estimated at approximately USD 130-145 per month after conversion to PAYG.
 | Speech private endpoint | Approximately EUR/USD 7-8 monthly | Under EUR/USD 0.10 demo usage | Separate recurring-cost approval |
 | Curated general-source ingestion | None fixed on existing services | USD 0.25 per initial batch | Source approval and ingestion |
 | Language model | Variable token usage | To be calculated for chosen deployment | Separate model deployment approval |
-| Grounding with Bing | USD 14/1,000 transactions plus model tokens | Not approved | Separate legal, governance, and cost approval |
+| Brave Search LLM Context public-web lane | USD 5/1,000 requests; USD 5 monthly credit at the documented November 2026 rate | Approved 16 November 2026; activate with prepaid/spend controls | Account/key creation, zero-traffic validation and separate traffic approval |
 
 OCR, Defender for Storage, another private endpoint, a larger Search SKU, increased
 replicas/partitions, PostgreSQL scaling, or any other cost-bearing service is outside

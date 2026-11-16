@@ -153,16 +153,22 @@ export function getRuntimeConfig() {
     },
     webGrounding: {
       enabled: enabled("HELMONIC_WEB_GROUNDING_ENABLED"),
-      endpoint: withoutTrailingSlash(
-        optional("AZURE_WEB_OPENAI_ENDPOINT") ?? optional("AZURE_OPENAI_ENDPOINT"),
-      ),
-      deployment:
-        optional("AZURE_WEB_OPENAI_DEPLOYMENT") ?? optional("AZURE_OPENAI_DEPLOYMENT"),
+      provider: "brave" as const,
+      endpoint:
+        withoutTrailingSlash(optional("BRAVE_SEARCH_ENDPOINT")) ??
+        "https://api.search.brave.com/res/v1/llm/context",
+      apiKey: optional("BRAVE_SEARCH_API_KEY"),
       maximumSources: positiveInteger(optional("HELMONIC_WEB_MAX_SOURCES"), 4),
+      maximumContextTokens: positiveInteger(
+        optional("HELMONIC_WEB_MAX_CONTEXT_TOKENS"),
+        6_000,
+      ),
       timeoutMilliseconds: positiveInteger(
         optional("HELMONIC_WEB_TIMEOUT_MS"),
-        45_000,
+        20_000,
       ),
+      cacheMilliseconds:
+        positiveInteger(optional("HELMONIC_WEB_CACHE_MINUTES"), 60) * 60 * 1_000,
       allowedDomains: (optional("HELMONIC_WEB_ALLOWED_DOMAINS") ?? "")
         .split(",")
         .map((value) => value.trim().toLowerCase())
@@ -230,8 +236,7 @@ export function getQueryConfigurationErrors(config: RuntimeConfig) {
   }
 
   if (config.webGrounding.enabled) {
-    if (!config.webGrounding.endpoint) missing.push("AZURE_WEB_OPENAI_ENDPOINT");
-    if (!config.webGrounding.deployment) missing.push("AZURE_WEB_OPENAI_DEPLOYMENT");
+    if (!config.webGrounding.apiKey) missing.push("BRAVE_SEARCH_API_KEY");
   }
 
   return missing;

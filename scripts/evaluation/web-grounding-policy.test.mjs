@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   buildSafePublicWebQuery,
-  parsePublicWebCitations,
+  parseBravePublicWebCitations,
 } from "../../src/lib/consult/web-grounding-policy.ts";
 
 test("web query keeps only allowlisted public acoustic and standards concepts", () => {
@@ -34,32 +34,21 @@ test("private-only questions are skipped instead of sent to the public web", () 
   );
 });
 
-test("web response becomes normal W evidence with exact public links", () => {
-  const text =
-    "Current public guidance states that an acoustic assessment is required. A second point follows.";
-  const citations = parsePublicWebCitations(
+test("Brave LLM context becomes normal W evidence with exact public links", () => {
+  const citations = parseBravePublicWebCitations(
     {
-      output: [
-        { type: "web_search_call", status: "completed" },
-        {
-          type: "message",
-          content: [
-            {
-              type: "output_text",
-              text,
-              annotations: [
-                {
-                  type: "url_citation",
-                  start_index: 0,
-                  end_index: 70,
-                  url: "https://www.gov.ie/en/publication/example",
-                  title: "Official acoustic guidance",
-                },
-              ],
-            },
-          ],
-        },
-      ],
+      grounding: {
+        generic: [
+          {
+            url: "https://www.gov.ie/en/publication/example",
+            title: "Official acoustic guidance",
+            snippets: [
+              "Current public guidance states that an acoustic assessment is required.",
+              "A second relevant point follows.",
+            ],
+          },
+        ],
+      },
     },
     { maximumSources: 4, retrievedAt: "2026-11-13T12:00:00.000Z" },
   );
@@ -71,56 +60,86 @@ test("web response becomes normal W evidence with exact public links", () => {
   assert.match(citations[0].excerpt, /acoustic assessment is required/i);
 });
 
-test("completed web search accepts explicit public links when Azure omits annotations", () => {
-  const citations = parsePublicWebCitations(
+test("official and standards sources are prioritised without excluding the wider web", () => {
+  const citations = parseBravePublicWebCitations(
     {
-      output: [
-        { type: "web_search_call", status: "completed" },
-        {
-          type: "message",
-          content: [
-            {
-              type: "output_text",
-              text:
-                "Current guidance is published by [Department of Housing](https://www.gov.ie/en/department-of-housing-local-government-and-heritage/).",
-              annotations: [],
-            },
-          ],
-        },
-      ],
+      grounding: {
+        generic: [
+          {
+            url: "https://consultancy.example.com/acoustics",
+            title: "Consultancy article",
+            snippets: ["A useful industry explanation."],
+          },
+          {
+            url: "https://www.iso.org/standard/12345.html",
+            title: "ISO standard page",
+            snippets: ["The official standards catalogue description."],
+          },
+          {
+            url: "https://www.gov.ie/en/publication/example",
+            title: "Government guidance",
+            snippets: ["The official Irish guidance."],
+          },
+        ],
+      },
     },
     { maximumSources: 4, retrievedAt: "2026-11-13T12:00:00.000Z" },
+  );
+
+  assert.deepEqual(citations.map((citation) => citation.title), [
+    "Government guidance",
+    "ISO standard page",
+    "Consultancy article",
+  ]);
+  assert.deepEqual(citations.map((citation) => citation.marker), ["W1", "W2", "W3"]);
+});
+
+test("web parsing strips tracking, de-duplicates and honours an explicit domain gate", () => {
+  const citations = parseBravePublicWebCitations(
+    {
+      grounding: {
+        generic: [
+          {
+            url: "https://www.gov.ie/en/publication/example?utm_source=test#section",
+            title: "Government guidance",
+            snippets: ["Exact extracted evidence."],
+          },
+          {
+            url: "https://www.gov.ie/en/publication/example",
+            title: "Duplicate",
+            snippets: ["Duplicate evidence."],
+          },
+          {
+            url: "https://example.com/noise",
+            title: "Outside the gate",
+            snippets: ["This must be excluded."],
+          },
+        ],
+      },
+    },
+    {
+      maximumSources: 4,
+      retrievedAt: "2026-11-13T12:00:00.000Z",
+      allowedDomains: ["gov.ie"],
+    },
   );
 
   assert.equal(citations.length, 1);
-  assert.equal(citations[0].marker, "W1");
-  assert.equal(citations[0].title, "Department of Housing");
-  assert.equal(
-    citations[0].sourceUri,
-    "https://www.gov.ie/en/department-of-housing-local-government-and-heritage/",
-  );
+  assert.equal(citations[0].sourceUri, "https://www.gov.ie/en/publication/example");
 });
 
-test("web response fails closed when no actual search or safe URL exists", () => {
-  const withoutSearch = parsePublicWebCitations(
+test("web response fails closed when no safe URL and extracted passage exist", () => {
+  const citations = parseBravePublicWebCitations(
     {
-      output: [
-        {
-          type: "message",
-          content: [
-            {
-              type: "output_text",
-              text: "Unsupported response.",
-              annotations: [
-                { type: "url_citation", url: "javascript:alert(1)", title: "Unsafe" },
-              ],
-            },
-          ],
-        },
-      ],
+      grounding: {
+        generic: [
+          { url: "javascript:alert(1)", title: "Unsafe", snippets: ["Unsafe."] },
+          { url: "https://example.com/empty", title: "No passage", snippets: [] },
+        ],
+      },
     },
     { maximumSources: 4, retrievedAt: "2026-11-13T12:00:00.000Z" },
   );
 
-  assert.deepEqual(withoutSearch, []);
+  assert.deepEqual(citations, []);
 });
