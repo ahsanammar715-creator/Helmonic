@@ -36,47 +36,54 @@ export async function searchPublicWebEvidence(input: {
     webTool.filters = { allowed_domains: input.config.webGrounding.allowedDomains };
   }
 
-  const response = await fetch(`${endpoint}/openai/v1/responses`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      "x-ms-client-request-id": input.requestId,
-    },
-    body: JSON.stringify({
-      model: deployment,
-      tools: [webTool],
-      // An eligible public consultant question must actually use the web tool.
-      // Leaving this as `auto` allowed the retrieval model to occasionally
-      // answer from memory, producing no traceable URL annotations. Fail-closed
-      // validation then rejected the otherwise useful request.
-      tool_choice: "required",
-      // The web lane only produces a short evidence digest and URL citations.
-      // Keep its token reservation below the deliberately small Azure rate-limit
-      // ceiling used for this cost-controlled deployment.
-      max_output_tokens: 500,
-      input:
-        `Search the current public web for authoritative, preferably official, sources relevant to this public technical query: ${safeQuery}. ` +
-        "Return a concise evidence summary with inline URL citations. Do not speculate about or request any private project, client, person, address, date, measurement or correspondence detail.",
-    }),
-    cache: "no-store",
-    signal: AbortSignal.timeout(input.config.webGrounding.timeoutMilliseconds),
-  });
-
-  if (!response.ok) {
-    throw await azureRequestError(response, {
-      service: "Azure OpenAI web search",
-      stage: "public-web-grounding",
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(`${endpoint}/openai/v1/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "x-ms-client-request-id": `${input.requestId}-web-${attempt + 1}`,
+      },
+      body: JSON.stringify({
+        model: deployment,
+        tools: [webTool],
+        // An eligible public consultant question must actually use the web tool.
+        // Leaving this as `auto` allowed the retrieval model to occasionally
+        // answer from memory, producing no traceable URL annotations. Fail-closed
+        // validation then rejected the otherwise useful request.
+        tool_choice: "required",
+        // The web lane only produces a short evidence digest and URL citations.
+        // Keep its token reservation below the deliberately small Azure rate-limit
+        // ceiling used for this cost-controlled deployment.
+        max_output_tokens: 500,
+        input:
+          `Search the current public web for authoritative, preferably official, sources relevant to this public technical query: ${safeQuery}. ` +
+          "Return a concise evidence summary with inline URL citations. Include at least one explicit HTTPS source link in the answer. " +
+          (attempt === 1
+            ? "The prior response contained no traceable source URL, so cite the official source URL explicitly. "
+            : "") +
+          "Do not speculate about or request any private project, client, person, address, date, measurement or correspondence detail.",
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(input.config.webGrounding.timeoutMilliseconds),
     });
+
+    if (!response.ok) {
+      throw await azureRequestError(response, {
+        service: "Azure OpenAI web search",
+        stage: "public-web-grounding",
+      });
+    }
+
+    const payload = (await response.json()) as WebResponsePayload;
+    const citations = parsePublicWebCitations(payload, {
+      maximumSources: input.config.webGrounding.maximumSources,
+      retrievedAt: new Date().toISOString(),
+    });
+    if (citations.length > 0) {
+      return { status: "used", citations };
+    }
   }
 
-  const payload = (await response.json()) as WebResponsePayload;
-  const citations = parsePublicWebCitations(payload, {
-    maximumSources: input.config.webGrounding.maximumSources,
-    retrievedAt: new Date().toISOString(),
-  });
-  if (citations.length === 0) {
-    throw new Error("Public web grounding returned no verifiable URL citations");
-  }
-  return { status: "used", citations };
+  throw new Error("Public web grounding returned no verifiable URL citations");
 }
