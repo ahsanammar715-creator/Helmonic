@@ -173,6 +173,7 @@ const summary = {
   failedStep: undefined,
   error: undefined,
   rfiChangeReport: undefined,
+  rfiEmail: undefined,
 };
 
 await acquireLock();
@@ -216,6 +217,19 @@ try {
       summary.error = message;
       process.exitCode = 1;
     }
+  }
+  try {
+    await runScript("scripts/tender_intelligence/send-rfi-change-email.mjs");
+    summary.rfiEmail = {
+      status: process.env.HELMONIC_RFI_EMAIL_ENABLED === "true" ? "sent" : "disabled",
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown RFI email error";
+    summary.rfiEmail = { status: "failed", error: message };
+    summary.status = "failed";
+    summary.failedStep = "scripts/tender_intelligence/send-rfi-change-email.mjs";
+    summary.error = message;
+    process.exitCode = 1;
   }
   const readJsonIfPresent = async (filePath) => {
     try {

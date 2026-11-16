@@ -82,6 +82,7 @@ import {
   rfiChangeReportCsv,
   rfiChangeReportEmailHtml,
 } from "../../src/lib/tender-intelligence/rfi-change-report.ts";
+import { sendRfiChangeEmail } from "../../src/lib/tender-intelligence/odoo-rfi-email.ts";
 import {
   buildBuildingInfoPageUrl,
   collectBuildingInfoProjects,
@@ -4512,4 +4513,44 @@ test("daily RFI change report separates new, newly acoustic-confirmed, changed, 
   assert.match(rfiChangeReportCsv(report), /newlyConfirmedAcousticRfis/);
   assert.match(rfiChangeReportEmailHtml(report), /Promoted RFI/);
   assert.match(rfiChangeReportEmailHtml(report), /Official evidence/);
+});
+
+test("RFI change email uses the existing Odoo mail route and restricts recipients to approved domains", async () => {
+  const calls = [];
+  const responses = [true, 42, true];
+  const fetcher = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify(responses.shift()), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  const result = await sendRfiChangeEmail({
+    runId: "run-1",
+    subject: "Helmonic daily RFI check complete",
+    bodyHtml: "<p>No new RFIs.</p>",
+  }, {
+    enabled: true,
+    baseUrl: "https://example.odoo.com",
+    database: "example",
+    apiKey: "secret",
+    recipients: "ammar.ahsan@smartstudioinc.com",
+  }, fetcher);
+
+  assert.equal(result.status, "sent");
+  assert.equal(result.messageId, 42);
+  assert.equal(calls.length, 3);
+  assert.match(calls[0].url, /mail\.mail\/check_access_rights$/);
+  assert.equal(calls[1].body.vals_list[0].email_to, "ammar.ahsan@smartstudioinc.com");
+  assert.deepEqual(calls[2].body, { ids: [42] });
+  await assert.rejects(() => sendRfiChangeEmail({
+    runId: "run-2",
+    subject: "Blocked",
+    bodyHtml: "<p>Blocked</p>",
+  }, {
+    enabled: true,
+    baseUrl: "https://example.odoo.com",
+    apiKey: "secret",
+    recipients: "outside@example.com",
+  }, fetcher), /not allow-listed/);
 });

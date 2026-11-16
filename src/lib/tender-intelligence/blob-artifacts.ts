@@ -14,6 +14,7 @@ const durableFiles = [
   "rfi-change-reports/latest.json",
   "rfi-change-reports/latest.csv",
   "rfi-change-reports/latest-email.html",
+  "rfi-change-reports/latest-email-delivery.json",
 ] as const;
 const checkpointFiles = ["document-proven/pipeline-state.json"] as const;
 const healthReceiptPath = "automation-runs/latest-health.json";

@@ -232,7 +232,7 @@ export function rfiChangeReportEmailHtml(report: ReturnType<typeof buildRfiChang
     `<p><strong>Live RFIs:</strong> ${report.counts.liveRfis} &nbsp; <strong>Confirmed acoustic:</strong> ${report.counts.liveConfirmedAcousticRfis}</p>`,
     `<p><strong>New RFIs:</strong> ${report.counts.newRfis} &nbsp; <strong>Newly acoustic-confirmed:</strong> ${report.counts.newlyConfirmedAcousticRfis} &nbsp; <strong>Materially changed:</strong> ${report.counts.materiallyChangedRfis}</p>`,
     `<p><strong>Evidence unavailable:</strong> ${report.counts.evidenceUnavailableRfis} &nbsp; <strong>Resolved:</strong> ${report.counts.resolvedRfis}</p>`,
-    `<p><strong>Odoo:</strong> ${report.counts.odooCreated} created, ${report.counts.odooUpdated} updated, ${report.counts.odooUnchanged} unchanged, ${report.counts.odooFailures} failed.</p>`,
+    `<p><strong>Odoo:</strong> ${escapeHtml(report.odoo.status)} — ${report.counts.odooCreated} created, ${report.counts.odooUpdated} updated, ${report.counts.odooUnchanged} unchanged, ${report.counts.odooFailures} failed.</p>`,
     "<h2>Newly confirmed acoustic RFIs</h2>",
     list,
     `<p><small>${escapeHtml(report.evidenceGate)}</small></p>`,
