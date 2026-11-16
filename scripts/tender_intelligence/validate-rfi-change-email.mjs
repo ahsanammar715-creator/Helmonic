@@ -9,7 +9,10 @@ import {
   rfiChangeReportEmailHtml,
 } from "../../src/lib/tender-intelligence/rfi-change-report.ts";
 
-if (process.env.HELMONIC_RFI_EMAIL_VALIDATION_ENABLED !== "true") {
+const validationFlag = process.argv.includes("--validation");
+const recipientArgument = process.argv.find((argument) => argument.startsWith("--recipient="))?.slice("--recipient=".length);
+
+if (!validationFlag && process.env.HELMONIC_RFI_EMAIL_VALIDATION_ENABLED !== "true") {
   throw new Error("RFI email validation is disabled.");
 }
 
@@ -53,7 +56,7 @@ try {
     baseUrl: process.env.ODOO_BASE_URL,
     database: process.env.ODOO_DATABASE,
     apiKey: process.env.ODOO_API_KEY,
-    recipients: process.env.HELMONIC_RFI_EMAIL_RECIPIENTS,
+    recipients: recipientArgument || process.env.HELMONIC_RFI_EMAIL_RECIPIENTS,
     allowedDomains: process.env.HELMONIC_RFI_EMAIL_ALLOWED_DOMAINS,
     timeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
   });
