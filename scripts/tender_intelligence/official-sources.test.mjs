@@ -83,6 +83,7 @@ import {
   rfiChangeReportEmailHtml,
 } from "../../src/lib/tender-intelligence/rfi-change-report.ts";
 import { sendRfiChangeEmail } from "../../src/lib/tender-intelligence/odoo-rfi-email.ts";
+import { sendAzureRfiChangeEmail } from "../../src/lib/tender-intelligence/azure-rfi-email.ts";
 import {
   buildBuildingInfoPageUrl,
   collectBuildingInfoProjects,
@@ -4553,4 +4554,44 @@ test("RFI change email uses the existing Odoo mail route and restricts recipient
     apiKey: "secret",
     recipients: "outside@example.com",
   }, fetcher), /not allow-listed/);
+});
+
+test("RFI change email uses Azure Communication Services and waits for confirmed acceptance", async () => {
+  const messages = [];
+  const client = {
+    async beginSend(message) {
+      messages.push(message);
+      return {
+        async pollUntilDone() {
+          return { id: "acs-message-1", status: "Succeeded" };
+        },
+      };
+    },
+  };
+  const result = await sendAzureRfiChangeEmail({
+    runId: "run-azure-1",
+    subject: "Helmonic daily RFI check complete",
+    bodyHtml: "<p>No new RFIs.</p>",
+  }, {
+    enabled: true,
+    connectionString: "endpoint=https://example.communication.azure.com/;accesskey=not-a-real-key",
+    senderAddress: "DoNotReply@example.azurecomm.net",
+    recipients: "ammar.ahsan@smartstudioinc.com",
+  }, client);
+
+  assert.equal(result.status, "sent");
+  assert.equal(result.provider, "azure-communication-services");
+  assert.equal(result.messageId, "acs-message-1");
+  assert.equal(messages[0].senderAddress, "DoNotReply@example.azurecomm.net");
+  assert.equal(messages[0].recipients.to[0].address, "ammar.ahsan@smartstudioinc.com");
+  await assert.rejects(() => sendAzureRfiChangeEmail({
+    runId: "run-azure-2",
+    subject: "Blocked",
+    bodyHtml: "<p>Blocked</p>",
+  }, {
+    enabled: true,
+    connectionString: "endpoint=https://example.communication.azure.com/;accesskey=not-a-real-key",
+    senderAddress: "DoNotReply@example.azurecomm.net",
+    recipients: "outside@example.com",
+  }, client), /not allow-listed/);
 });

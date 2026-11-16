@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { hydrateTenderArtifacts } from "../../src/lib/tender-intelligence/blob-artifacts.ts";
-import { sendRfiChangeEmail } from "../../src/lib/tender-intelligence/odoo-rfi-email.ts";
+import { sendRfiChangeEmail } from "../../src/lib/tender-intelligence/rfi-email.ts";
 import {
   buildRfiChangeReport,
   rfiChangeReportEmailHtml,
@@ -55,12 +55,15 @@ try {
     bodyHtml: `${notice}${rfiChangeReportEmailHtml(report)}`,
   }, {
     enabled: true,
-    baseUrl: process.env.ODOO_BASE_URL,
-    database: process.env.ODOO_DATABASE,
-    apiKey: process.env.ODOO_API_KEY,
+    transport: process.env.HELMONIC_RFI_EMAIL_TRANSPORT,
     recipients: recipientArgument || process.env.HELMONIC_RFI_EMAIL_RECIPIENTS,
     allowedDomains: process.env.HELMONIC_RFI_EMAIL_ALLOWED_DOMAINS,
-    timeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
+    azureConnectionString: process.env.AZURE_COMMUNICATION_EMAIL_CONNECTION_STRING,
+    azureSenderAddress: process.env.AZURE_COMMUNICATION_EMAIL_SENDER_ADDRESS,
+    odooBaseUrl: process.env.ODOO_BASE_URL,
+    odooDatabase: process.env.ODOO_DATABASE,
+    odooApiKey: process.env.ODOO_API_KEY,
+    odooTimeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
   });
   console.log(JSON.stringify({ hydration, reportSummary: report.summary, delivery }, null, 2));
 } finally {

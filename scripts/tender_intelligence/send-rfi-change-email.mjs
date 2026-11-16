@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { sendRfiChangeEmail } from "../../src/lib/tender-intelligence/odoo-rfi-email.ts";
+import { sendRfiChangeEmail } from "../../src/lib/tender-intelligence/rfi-email.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -42,12 +42,15 @@ await mkdir(reportRoot, { recursive: true });
 try {
   const delivery = await sendRfiChangeEmail({ runId: report.runId, subject, bodyHtml }, {
     enabled: process.env.HELMONIC_RFI_EMAIL_ENABLED === "true",
-    baseUrl: process.env.ODOO_BASE_URL,
-    database: process.env.ODOO_DATABASE,
-    apiKey: process.env.ODOO_API_KEY,
+    transport: process.env.HELMONIC_RFI_EMAIL_TRANSPORT,
     recipients: process.env.HELMONIC_RFI_EMAIL_RECIPIENTS,
     allowedDomains: process.env.HELMONIC_RFI_EMAIL_ALLOWED_DOMAINS,
-    timeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
+    azureConnectionString: process.env.AZURE_COMMUNICATION_EMAIL_CONNECTION_STRING,
+    azureSenderAddress: process.env.AZURE_COMMUNICATION_EMAIL_SENDER_ADDRESS,
+    odooBaseUrl: process.env.ODOO_BASE_URL,
+    odooDatabase: process.env.ODOO_DATABASE,
+    odooApiKey: process.env.ODOO_API_KEY,
+    odooTimeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
   });
   await writeFile(deliveryPath, `${JSON.stringify(delivery, null, 2)}\n`, "utf8");
   console.log(`TENDER_INTELLIGENCE_RFI_EMAIL_JSON=${JSON.stringify(delivery)}`);
