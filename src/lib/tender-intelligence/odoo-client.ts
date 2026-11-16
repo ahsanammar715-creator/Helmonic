@@ -61,6 +61,16 @@ export type OdooSyncResult = {
   failures: Array<{ externalId: string; error: string }>;
 };
 
+export class OdooSyncError extends Error {
+  readonly result: OdooSyncResult;
+
+  constructor(message: string, result: OdooSyncResult) {
+    super(message);
+    this.name = "OdooSyncError";
+    this.result = result;
+  }
+}
+
 export type OdooPreflightResult = {
   status: "completed";
   apiVersion: string;
@@ -1788,7 +1798,10 @@ export async function syncOdooLeads(
     const details = result.failures
       .map((failure) => `${failure.externalId}: ${failure.error}`)
       .join("; ");
-    throw new Error(`Odoo synchronization completed with ${result.failures.length} failed record(s): ${details}`);
+    throw new OdooSyncError(
+      `Odoo synchronization completed with ${result.failures.length} failed record(s): ${details}`,
+      result,
+    );
   }
   const historicalNormalization = await normalizeHistoricalOdooRecords(
     config,
