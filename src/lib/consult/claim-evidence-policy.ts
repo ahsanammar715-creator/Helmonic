@@ -60,6 +60,21 @@ function structural(block: string) {
     if (/^\d+(?:\.\d+)*\.?\s+[A-Z][^.!?]*$/.test(trimmed)) return true;
   }
 
+  const headingLine = lines[0] ?? "";
+  const headingLike =
+    /^#{1,6}\s+\S/.test(headingLine) ||
+    /^\*\*[^*]+\*\*$/.test(headingLine) ||
+    /^\d+(?:\.\d+)*\.?\s+[A-Z]/.test(headingLine);
+  const placeholderLine = (line: string) =>
+    /\[(?:insert|enter|tbc|tbd|to be completed|not provided)[^\]]*\]/i.test(line) ||
+    /<[^>]+>/.test(line) ||
+    /_{3,}/.test(line) ||
+    /^[-*]?\s*[A-Za-z][^:]{0,80}:\s*(?:TBC|TBD)?$/i.test(line) ||
+    /^\|?\s*:?-{3,}/.test(line);
+  if (headingLike && lines.length > 1 && lines.slice(1).every(placeholderLine)) {
+    return true;
+  }
+
   // A Markdown table header and separator describe layout rather than a
   // technical proposition. Data rows remain subject to the normal gate.
   if (
