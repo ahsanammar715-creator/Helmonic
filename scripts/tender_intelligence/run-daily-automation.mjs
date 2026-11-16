@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +22,8 @@ const runId = startedAt.toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, 
 const outputDirectory = path.join(automationRoot, runId);
 const summaryPath = path.join(outputDirectory, "summary.json");
 const latestHealthPath = path.join(automationRoot, "latest-health.json");
+const pipelineStatePath = path.join(artifactRoot, "document-proven", "pipeline-state.json");
+const priorPipelineStatePath = path.join(outputDirectory, "prior-pipeline-state.json");
 const summarizeOnly = process.argv.includes("--summarize-only");
 const buildingInfoRun = process.argv.includes("--buildinginfo-run");
 const odooMigrationOnly = process.env.HELMONIC_ODOO_MIGRATION_ONLY === "true";
@@ -73,6 +75,12 @@ if (buildingInfoRun && process.env.HELMONIC_BUILDINGINFO_BROWSER_ENABLED !== "tr
 await mkdir(outputDirectory, { recursive: true });
 const hydration = await hydrateTenderArtifacts(artifactRoot);
 console.log(JSON.stringify({ artifactHydration: hydration }));
+try {
+  await copyFile(pipelineStatePath, priorPipelineStatePath);
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
+  await writeFile(priorPipelineStatePath, `${JSON.stringify({ opportunities: [] }, null, 2)}\n`, "utf8");
+}
 
 async function acquireLock() {
   try {
@@ -164,6 +172,7 @@ const summary = {
   completedSteps: [],
   failedStep: undefined,
   error: undefined,
+  rfiChangeReport: undefined,
 };
 
 await acquireLock();
@@ -195,6 +204,19 @@ try {
   summary.completedAt = new Date().toISOString();
   await writeFile(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
   await unlink(lockPath).catch(() => undefined);
+  try {
+    await runScript("scripts/tender_intelligence/generate-rfi-change-report.mjs");
+    summary.rfiChangeReport = { status: "completed" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown RFI change-report error";
+    summary.rfiChangeReport = { status: "failed", error: message };
+    if (summary.status === "completed") {
+      summary.status = "failed";
+      summary.failedStep = "scripts/tender_intelligence/generate-rfi-change-report.mjs";
+      summary.error = message;
+      process.exitCode = 1;
+    }
+  }
   const readJsonIfPresent = async (filePath) => {
     try {
       return JSON.parse(await readFile(filePath, "utf8"));

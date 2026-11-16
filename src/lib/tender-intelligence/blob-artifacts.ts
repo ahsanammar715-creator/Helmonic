@@ -11,6 +11,9 @@ const durableFiles = [
   "document-proven/latest-rfi-audit.json",
   "odoo-sync-runs/latest-summary.json",
   "automation-runs/latest-health.json",
+  "rfi-change-reports/latest.json",
+  "rfi-change-reports/latest.csv",
+  "rfi-change-reports/latest-email.html",
 ] as const;
 const checkpointFiles = ["document-proven/pipeline-state.json"] as const;
 const healthReceiptPath = "automation-runs/latest-health.json";

@@ -78,6 +78,11 @@ import {
 import { ODOO_TENDER_FIELD_TYPES } from "../../src/lib/tender-intelligence/odoo-field-contract.ts";
 import { buildTenderAutomationHealth } from "../../src/lib/tender-intelligence/automation-health.ts";
 import {
+  buildRfiChangeReport,
+  rfiChangeReportCsv,
+  rfiChangeReportEmailHtml,
+} from "../../src/lib/tender-intelligence/rfi-change-report.ts";
+import {
   buildBuildingInfoPageUrl,
   collectBuildingInfoProjects,
   parseBuildingInfoProjects,
@@ -4426,4 +4431,85 @@ test("automation health does not treat an intentionally unconfigured optional so
   assert.equal(health.checks.noSourceFailures, true);
   assert.equal(health.counts.sourceFailures, 0);
   assert.equal(health.counts.sourcesChecked, 0);
+});
+
+test("daily RFI change report separates new, newly acoustic-confirmed, changed, unavailable and resolved RFIs", () => {
+  const base = {
+    type: "planning-pipeline-lead",
+    sourceSystem: "DCC",
+    description: "Further information request",
+    sourceUrl: "https://example.test/application",
+    evidenceStatus: "discovery-only",
+    classification: "further-information-request",
+    cpvCodes: [],
+    matchedTerms: [],
+    fitScore: 0,
+    cycleStatus: "seen-this-cycle",
+    leadDisposition: "monitor",
+    routedTo: "Glen",
+  };
+  const prior = [
+    { ...base, id: "promoted", sourceRecordId: "P1", title: "Promoted RFI" },
+    { ...base, id: "resolved", sourceRecordId: "P2", title: "Resolved RFI" },
+  ];
+  const current = [
+    {
+      ...base,
+      id: "promoted",
+      sourceRecordId: "P1",
+      title: "Promoted RFI",
+      evidenceStatus: "official-text",
+      classification: "noise-related-rfi",
+      evidenceExcerpt: "Submit an acoustic assessment addressing operational noise.",
+      matchedTerms: ["acoustic", "noise"],
+      cycleStatus: "confirmed-this-cycle",
+    },
+    {
+      ...base,
+      id: "new-general",
+      sourceRecordId: "P3",
+      title: "New general RFI",
+      firstSeenAt: "2026-11-16T07:05:00.000Z",
+      evidenceStatus: "evidence-unavailable",
+      evidenceDocuments: [{
+        id: "letter",
+        documentType: "FI request letter",
+        sourceUrl: "https://example.test/rfi.pdf",
+        fetchStatus: "unavailable",
+        matchedTerms: [],
+      }],
+    },
+    {
+      ...base,
+      id: "resolved",
+      sourceRecordId: "P2",
+      title: "Resolved RFI",
+      cycleStatus: "resolved",
+      rfiResponseReceivedAt: "2026-11-16T08:00:00.000Z",
+    },
+  ];
+  const report = buildRfiChangeReport({
+    currentRecords: current,
+    priorRecords: prior,
+    runId: "2026-11-16T07-00-00Z",
+    startedAt: "2026-11-16T07:00:00.000Z",
+    odooSync: {
+      status: "completed",
+      completedAt: "2026-11-16T09:00:00.000Z",
+      created: 1,
+      updated: 2,
+      unchanged: 3,
+      failures: [],
+    },
+  });
+
+  assert.equal(report.counts.newRfis, 1);
+  assert.equal(report.counts.newlyConfirmedAcousticRfis, 1);
+  assert.equal(report.counts.materiallyChangedRfis, 2);
+  assert.equal(report.counts.evidenceUnavailableRfis, 1);
+  assert.equal(report.counts.resolvedRfis, 1);
+  assert.equal(report.counts.odooUpdated, 2);
+  assert.match(rfiChangeReportCsv(report), /newlyConfirmedAcousticRfis/);
+  assert.match(rfiChangeReportEmailHtml(report), /Promoted RFI/);
+  assert.match(rfiChangeReportEmailHtml(report), /Official evidence/);
 });
