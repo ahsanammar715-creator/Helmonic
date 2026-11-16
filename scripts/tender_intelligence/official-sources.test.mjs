@@ -4517,7 +4517,7 @@ test("daily RFI change report separates new, newly acoustic-confirmed, changed, 
 
 test("RFI change email uses the existing Odoo mail route and restricts recipients to approved domains", async () => {
   const calls = [];
-  const responses = [true, 42, true];
+  const responses = [42, true];
   const fetcher = async (url, init) => {
     calls.push({ url: String(url), body: JSON.parse(init.body) });
     return new Response(JSON.stringify(responses.shift()), {
@@ -4539,10 +4539,10 @@ test("RFI change email uses the existing Odoo mail route and restricts recipient
 
   assert.equal(result.status, "sent");
   assert.equal(result.messageId, 42);
-  assert.equal(calls.length, 3);
-  assert.match(calls[0].url, /mail\.mail\/check_access_rights$/);
-  assert.equal(calls[1].body.vals_list[0].email_to, "ammar.ahsan@smartstudioinc.com");
-  assert.deepEqual(calls[2].body, { ids: [42] });
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].url, /mail\.mail\/create$/);
+  assert.equal(calls[0].body.vals_list[0].email_to, "ammar.ahsan@smartstudioinc.com");
+  assert.deepEqual(calls[1].body, { ids: [42] });
   await assert.rejects(() => sendRfiChangeEmail({
     runId: "run-2",
     subject: "Blocked",

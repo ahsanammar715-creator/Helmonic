@@ -87,11 +87,6 @@ export async function sendRfiChangeEmail(
   if (!inputConfig.enabled) return { status: "disabled", runId: message.runId, recipients: [] as string[] };
   const config = configured(inputConfig);
   const recipients = normalizedRecipients(inputConfig.recipients, inputConfig.allowedDomains);
-  const createAllowed = await json2Call(config, "mail.mail", "check_access_rights", {
-    operation: "create",
-    raise_exception: false,
-  }, fetcher);
-  if (createAllowed !== true) throw new Error("The configured Odoo identity cannot create internal RFI notification emails.");
   const messageId = createdId(await json2Call(config, "mail.mail", "create", {
     vals_list: [{
       subject: message.subject,
