@@ -303,6 +303,35 @@ test("claim audit exposes only the excerpts cited by each claim", () => {
   ]);
 });
 
+test("claim audit exposes verified web title and URL only for W evidence", () => {
+  const claims = extractCitedClaimBlocks(
+    "Current public-web evidence identifies the official guidance page. [W1]",
+  );
+  const audit = buildClaimEvidenceAudit({
+    claims,
+    citations: [
+      {
+        id: "web-guidance",
+        title: "Technical Guidance Document E – Sound",
+        sourceId: "https://www.gov.ie/example",
+        sourceUri: "https://www.gov.ie/example",
+        excerpt: "Official guidance page.",
+        citationNamespace: "W",
+        marker: "W1",
+      },
+    ],
+  });
+
+  assert.deepEqual(audit.claims[0].evidence, [
+    {
+      marker: "W1",
+      excerpt: "Official guidance page.",
+      sourceTitle: "Technical Guidance Document E – Sound",
+      sourceUri: "https://www.gov.ie/example",
+    },
+  ]);
+});
+
 test("claim audit fails closed on an unsupported verdict or omitted claim", () => {
   const claims = extractCitedClaimBlocks(
     "The report records a 52 dB result. [D1]\n\nThe standard defines the method. [S1]",

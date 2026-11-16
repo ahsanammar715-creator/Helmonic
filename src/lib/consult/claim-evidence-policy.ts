@@ -108,6 +108,12 @@ export function buildClaimEvidenceAudit(input: {
       return {
         marker,
         excerpt: citation.excerpt,
+        ...(citation.citationNamespace === "W"
+          ? {
+              sourceTitle: citation.title,
+              sourceUri: citation.sourceUri,
+            }
+          : {}),
       };
     }),
   }));
