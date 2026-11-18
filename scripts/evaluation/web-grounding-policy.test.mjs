@@ -34,6 +34,23 @@ test("private-only questions are skipped instead of sent to the public web", () 
   );
 });
 
+test("generic sound-engineering definitions get a privacy-safe public query", () => {
+  const query = buildSafePublicWebQuery("What is sound engineering?");
+
+  assert.equal(
+    query,
+    "acoustic engineering sound engineering professional technical definition",
+  );
+});
+
+test("acoustic-panel definitions retain the specific public concept", () => {
+  const query = buildSafePublicWebQuery("What are acoustic panels?");
+
+  assert.ok(query);
+  assert.match(query, /acoustic panels/);
+  assert.match(query, /professional technical definition/);
+});
+
 test("Brave LLM context becomes normal W evidence with exact public links", () => {
   const citations = parseBravePublicWebCitations(
     {

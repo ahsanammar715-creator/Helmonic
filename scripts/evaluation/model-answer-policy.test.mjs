@@ -49,6 +49,20 @@ test("system prompt enforces the professional acoustician register and citation 
   assert.match(prompt, /hidden title, author, publisher, filename, URI, or section/);
 });
 
+test("general-knowledge mode completes the requested answer beyond tangential evidence", () => {
+  const prompt = buildConsultSystemPrompt({
+    profile: "iAcoustics",
+    allowGeneralKnowledge: true,
+  });
+
+  assert.match(prompt, /Answer the user's actual question completely enough to be useful/i);
+  assert.match(prompt, /begin with a concise direct answer/i);
+  assert.match(prompt, /merely contains the queried words, lists a qualification/i);
+  assert.match(prompt, /partial or tangential/i);
+  assert.match(prompt, /general knowledge in separate \[G#\] paragraphs/i);
+  assert.match(prompt, /never substitute a tangential passage for the requested answer/i);
+});
+
 test("experience mode requires a three-project de-identified pattern", () => {
   const prompt = buildConsultSystemPrompt({
     profile: "iAcoustics",

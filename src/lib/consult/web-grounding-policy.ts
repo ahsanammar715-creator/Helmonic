@@ -1,4 +1,11 @@
 const publicAcousticTopics: Array<[RegExp, string]> = [
+  [/\bsound engineering\b/i, "sound engineering"],
+  [/\bacoustic engineering\b/i, "acoustic engineering"],
+  [/\baudio engineering\b/i, "audio engineering"],
+  [/\bacoustic panels?\b/i, "acoustic panels"],
+  [/\bsound absorption\b/i, "sound absorption"],
+  [/\bsoundproof(?:ing|ed)?\b/i, "soundproofing"],
+  [/\bacoustic treatment\b/i, "acoustic treatment"],
   [/\bacoustic(?:s|al|ian)?\b/i, "acoustics"],
   [/\bnoise\b/i, "noise"],
   [/\bvibration\b/i, "vibration"],
@@ -43,6 +50,13 @@ export function buildSafePublicWebQuery(question: string): string | null {
   );
   const terms = [...new Set([...topics, ...standards])].slice(0, 8);
   if (terms.length === 0) return null;
+
+  const definitionIntent =
+    /^\s*(?:what\s+(?:is|are|does)|define|explain|describe)\b/i.test(question) ||
+    /\b(?:definition|meaning)\b/i.test(question);
+  if (definitionIntent && standards.length === 0) {
+    return `acoustic engineering ${terms.join(" ")} professional technical definition`;
+  }
 
   return `Ireland acoustic engineering ${terms.join(" ")} official current guidance`;
 }
