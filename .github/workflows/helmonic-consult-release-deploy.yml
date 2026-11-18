@@ -2,6 +2,7 @@ name: Deploy validated Helmonic Consult image
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
