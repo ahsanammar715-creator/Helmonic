@@ -12,8 +12,8 @@ env:
   RESOURCE_GROUP: RG-HELMONIC-DEV
   CONTAINER_APP: ca-helmonic-consult-dev-002
   IMAGE: acrhelmonicdev001-etd4eqevdcf6e7bs.azurecr.io/helmonic-consult:a7e49059bd3f709debd91741fb2fcdffc67ad542
-  VALIDATION_SUFFIX: vala7e4905
-  FINAL_SUFFIX: fxa7e4905
+  VALIDATION_SUFFIX: val${{ github.run_attempt }}a7e4905
+  FINAL_SUFFIX: fx${{ github.run_attempt }}a7e4905
   SMOKE_B64: Y29uc3QgdGVzdHMgPSBbCiAgeyBpZDogImRlZmluaXRpb24tYWNvdXN0aWNzIiwgcTogIldoYXQgaXMgYWNvdXN0aWNzPyIsIG1pbjogMTIwIH0sCiAgeyBpZDogImRlZmluaXRpb24tc291bmQtZW5naW5lZXJpbmciLCBxOiAiV2hhdCBpcyBzb3VuZCBlbmdpbmVlcmluZz8iLCBtaW46IDEyMCwgbXVzdDogL3NvdW5kfGF1ZGlvfGFjb3VzdGljL2kgfSwKICB7IGlkOiAiZGVmaW5pdGlvbi1hY291c3RpYy1wYW5lbHMiLCBxOiAiV2hhdCBhcmUgYWNvdXN0aWMgcGFuZWxzPyIsIG1pbjogMTIwLCBtdXN0OiAvYWJzb3JwfHJlZmxlY3R8cmV2ZXJiZXIvaSB9LAogIHsgaWQ6ICJhaXJib3JuZS1zdGFuZGFyZCIsIHE6ICJXaGF0IHN0YW5kYXJkIHNob3VsZCBJIHVzZSBmb3IgYWlyYm9ybmUgc291bmQgaW5zdWxhdGlvbiB0ZXN0aW5nPyIsIG1pbjogMTIwLCByZXF1aXJlQ2l0YXRpb246IHRydWUgfSwKICB7IGlkOiAicHJvamVjdC13ZXRoZXJzcG9vbiIsIHE6ICJIb3cgc2VyaW91cyB3YXMgdGhlIGJlZXItZ2FyZGVuIG5vaXNlIGNvbXBhcmVkIHdpdGggdGhlIGJhY2tncm91bmQgYXQgbnVtYmVyIDcgQ2FtZGVuIFN0cmVldD8iLCBtaW46IDEwMCwgbXVzdDogLzE5XHMqZEIvaSwgcmVxdWlyZUNpdGF0aW9uOiB0cnVlIH0sCl07CmNvbnN0IGhlYWRlcnMgPSB7CiAgImNvbnRlbnQtdHlwZSI6ICJhcHBsaWNhdGlvbi9qc29uIiwKICAieC1tcy1jbGllbnQtcHJpbmNpcGFsLWlkIjogIjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsCiAgIngtbXMtY2xpZW50LXByaW5jaXBhbC1uYW1lIjogImhlbG1vbmljLXJlbGVhc2Utc21va2UiLAp9Owpmb3IgKGNvbnN0IHRlc3Qgb2YgdGVzdHMpIHsKICBjb25zdCByZXNwb25zZSA9IGF3YWl0IGZldGNoKCJodHRwOi8vMTI3LjAuMC4xOjgwODAvYXBpL2NvbnN1bHQvcXVlcnkiLCB7CiAgICBtZXRob2Q6ICJQT1NUIiwKICAgIGhlYWRlcnMsCiAgICBib2R5OiBKU09OLnN0cmluZ2lmeSh7IHF1ZXN0aW9uOiB0ZXN0LnEsIGluY2x1ZGVHZW5lcmFsQ29udGV4dDogdHJ1ZSB9KSwKICAgIHNpZ25hbDogQWJvcnRTaWduYWwudGltZW91dCgxODAwMDApLAogIH0pOwogIGNvbnN0IHBheWxvYWQgPSBhd2FpdCByZXNwb25zZS5qc29uKCk7CiAgY29uc3QgYW5zd2VyID0gdHlwZW9mIHBheWxvYWQuYW5zd2VyID09PSAic3RyaW5nIiA/IHBheWxvYWQuYW5zd2VyLnRyaW0oKSA6ICIiOwogIGNvbnN0IGNpdGF0aW9ucyA9IEFycmF5LmlzQXJyYXkocGF5bG9hZC5jaXRhdGlvbnMpID8gcGF5bG9hZC5jaXRhdGlvbnMgOiBbXTsKICBpZiAoIXJlc3BvbnNlLm9rKSB0aHJvdyBuZXcgRXJyb3IodGVzdC5pZCArICIgSFRUUCAiICsgcmVzcG9uc2Uuc3RhdHVzICsgIjogIiArIEpTT04uc3RyaW5naWZ5KHBheWxvYWQpKTsKICBpZiAocGF5bG9hZC5tb2RlICE9PSAiZ2VuZXJhdGVkIikgdGhyb3cgbmV3IEVycm9yKHRlc3QuaWQgKyAiIHdhcyBub3QgZ2VuZXJhdGVkOiAiICsgSlNPTi5zdHJpbmdpZnkocGF5bG9hZCkpOwogIGlmIChhbnN3ZXIubGVuZ3RoIDwgdGVzdC5taW4pIHRocm93IG5ldyBFcnJvcih0ZXN0LmlkICsgIiBhbnN3ZXIgdG9vIHNob3J0OiAiICsgYW5zd2VyKTsKICBpZiAoL25vIGdlbmVyYXRlZCBzdW1tYXJ5L2kudGVzdChhbnN3ZXIpKSB0aHJvdyBuZXcgRXJyb3IodGVzdC5pZCArICIgcmVncmVzc2VkIHRvIHJldHJpZXZhbC1vbmx5IHByb3NlIik7CiAgaWYgKHRlc3QubXVzdCAmJiAhdGVzdC5tdXN0LnRlc3QoYW5zd2VyKSkgdGhyb3cgbmV3IEVycm9yKHRlc3QuaWQgKyAiIG1pc3NlZCByZXF1aXJlZCBjb250ZW50OiAiICsgYW5zd2VyKTsKICBpZiAodGVzdC5yZXF1aXJlQ2l0YXRpb24gJiYgY2l0YXRpb25zLmxlbmd0aCA9PT0gMCkgdGhyb3cgbmV3IEVycm9yKHRlc3QuaWQgKyAiIHJldHVybmVkIG5vIGNpdGF0aW9ucyIpOwogIGlmIChjaXRhdGlvbnMubGVuZ3RoID09PSAwICYmICEvXFtHXGQrXF0vLnRlc3QoYW5zd2VyKSkgdGhyb3cgbmV3IEVycm9yKHRlc3QuaWQgKyAiIGhhcyBuZWl0aGVyIGNpdGF0aW9ucyBub3IgbGFiZWxsZWQgZ2VuZXJhbCBrbm93bGVkZ2UiKTsKICBjb25zb2xlLmxvZyhKU09OLnN0cmluZ2lmeSh7IGlkOiB0ZXN0LmlkLCBtb2RlOiBwYXlsb2FkLm1vZGUsIGNpdGF0aW9uQ291bnQ6IGNpdGF0aW9ucy5sZW5ndGgsIHdlYkV2aWRlbmNlU3RhdHVzOiBwYXlsb2FkLndlYkV2aWRlbmNlU3RhdHVzLCBhbnN3ZXJMZW5ndGg6IGFuc3dlci5sZW5ndGggfSkpOwp9
 
 jobs:
@@ -51,7 +51,7 @@ jobs:
           }
           trap cleanup_candidate EXIT
 
-          candidate="$(az containerapp revision copy -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --from-revision "$live_revision" --image "$IMAGE" --revision-suffix "$VALIDATION_SUFFIX" --min-replicas 1 --max-replicas 1 --query name -o tsv --only-show-errors)"
+          candidate="$(az containerapp revision copy -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --from-revision "$live_revision" --image "$IMAGE" --revision-suffix "$VALIDATION_SUFFIX" --min-replicas 1 --max-replicas 1 --query properties.latestRevisionName -o tsv --only-show-errors)"
           test -n "$candidate"
           echo "Validation revision: $candidate"
 
@@ -77,7 +77,7 @@ jobs:
 
           az containerapp exec -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$candidate" --replica "$replica" --command "node -e \"eval(Buffer.from('$SMOKE_B64','base64').toString())\""
 
-          final_revision="$(az containerapp revision copy -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --from-revision "$candidate" --image "$IMAGE" --revision-suffix "$FINAL_SUFFIX" --min-replicas 0 --max-replicas 2 --query name -o tsv --only-show-errors)"
+          final_revision="$(az containerapp revision copy -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --from-revision "$candidate" --image "$IMAGE" --revision-suffix "$FINAL_SUFFIX" --min-replicas 0 --max-replicas 2 --query properties.latestRevisionName -o tsv --only-show-errors)"
           test -n "$final_revision"
           echo "Final min-zero revision: $final_revision"
 
