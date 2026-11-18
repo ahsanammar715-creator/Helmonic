@@ -14,13 +14,16 @@ env:
   IMAGE: acrhelmonicdev001-etd4eqevdcf6e7bs.azurecr.io/helmonic-consult:a7e49059bd3f709debd91741fb2fcdffc67ad542
   VALIDATION_SUFFIX: val${{ github.run_attempt }}a7e4905
   FINAL_SUFFIX: fx${{ github.run_attempt }}a7e4905
-  SMOKE_B64: Y29uc3QgdGVzdHMgPSBbCiAgeyBpZDogImRlZmluaXRpb24tYWNvdXN0aWNzIiwgcTogIldoYXQgaXMgYWNvdXN0aWNzPyIsIG1pbjogMTIwIH0sCiAgeyBpZDogImRlZmluaXRpb24tc291bmQtZW5naW5lZXJpbmciLCBxOiAiV2hhdCBpcyBzb3VuZCBlbmdpbmVlcmluZz8iLCBtaW46IDEyMCwgbXVzdDogL3NvdW5kfGF1ZGlvfGFjb3VzdGljL2kgfSwKICB7IGlkOiAiZGVmaW5pdGlvbi1hY291c3RpYy1wYW5lbHMiLCBxOiAiV2hhdCBhcmUgYWNvdXN0aWMgcGFuZWxzPyIsIG1pbjogMTIwLCBtdXN0OiAvYWJzb3JwfHJlZmxlY3R8cmV2ZXJiZXIvaSB9LAogIHsgaWQ6ICJhaXJib3JuZS1zdGFuZGFyZCIsIHE6ICJXaGF0IHN0YW5kYXJkIHNob3VsZCBJIHVzZSBmb3IgYWlyYm9ybmUgc291bmQgaW5zdWxhdGlvbiB0ZXN0aW5nPyIsIG1pbjogMTIwLCByZXF1aXJlQ2l0YXRpb246IHRydWUgfSwKICB7IGlkOiAicHJvamVjdC13ZXRoZXJzcG9vbiIsIHE6ICJIb3cgc2VyaW91cyB3YXMgdGhlIGJlZXItZ2FyZGVuIG5vaXNlIGNvbXBhcmVkIHdpdGggdGhlIGJhY2tncm91bmQgYXQgbnVtYmVyIDcgQ2FtZGVuIFN0cmVldD8iLCBtaW46IDEwMCwgbXVzdDogLzE5XHMqZEIvaSwgcmVxdWlyZUNpdGF0aW9uOiB0cnVlIH0sCl07CmNvbnN0IGhlYWRlcnMgPSB7CiAgImNvbnRlbnQtdHlwZSI6ICJhcHBsaWNhdGlvbi9qc29uIiwKICAieC1tcy1jbGllbnQtcHJpbmNpcGFsLWlkIjogIjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsCiAgIngtbXMtY2xpZW50LXByaW5jaXBhbC1uYW1lIjogImhlbG1vbmljLXJlbGVhc2Utc21va2UiLAp9Owpmb3IgKGNvbnN0IHRlc3Qgb2YgdGVzdHMpIHsKICBjb25zdCByZXNwb25zZSA9IGF3YWl0IGZldGNoKCJodHRwOi8vMTI3LjAuMC4xOjgwODAvYXBpL2NvbnN1bHQvcXVlcnkiLCB7CiAgICBtZXRob2Q6ICJQT1NUIiwKICAgIGhlYWRlcnMsCiAgICBib2R5OiBKU09OLnN0cmluZ2lmeSh7IHF1ZXN0aW9uOiB0ZXN0LnEsIGluY2x1ZGVHZW5lcmFsQ29udGV4dDogdHJ1ZSB9KSwKICAgIHNpZ25hbDogQWJvcnRTaWduYWwudGltZW91dCgxODAwMDApLAogIH0pOwogIGNvbnN0IHBheWxvYWQgPSBhd2FpdCByZXNwb25zZS5qc29uKCk7CiAgY29uc3QgYW5zd2VyID0gdHlwZW9mIHBheWxvYWQuYW5zd2VyID09PSAic3RyaW5nIiA/IHBheWxvYWQuYW5zd2VyLnRyaW0oKSA6ICIiOwogIGNvbnN0IGNpdGF0aW9ucyA9IEFycmF5LmlzQXJyYXkocGF5bG9hZC5jaXRhdGlvbnMpID8gcGF5bG9hZC5jaXRhdGlvbnMgOiBbXTsKICBpZiAoIXJlc3BvbnNlLm9rKSB0aHJvdyBuZXcgRXJyb3IodGVzdC5pZCArICIgSFRUUCAiICsgcmVzcG9uc2Uuc3RhdHVzICsgIjogIiArIEpTT04uc3RyaW5naWZ5KHBheWxvYWQpKTsKICBpZiAocGF5bG9hZC5tb2RlICE9PSAiZ2VuZXJhdGVkIikgdGhyb3cgbmV3IEVycm9yKHRlc3QuaWQgKyAiIHdhcyBub3QgZ2VuZXJhdGVkOiAiICsgSlNPTi5zdHJpbmdpZnkocGF5bG9hZCkpOwogIGlmIChhbnN3ZXIubGVuZ3RoIDwgdGVzdC5taW4pIHRocm93IG5ldyBFcnJvcih0ZXN0LmlkICsgIiBhbnN3ZXIgdG9vIHNob3J0OiAiICsgYW5zd2VyKTsKICBpZiAoL25vIGdlbmVyYXRlZCBzdW1tYXJ5L2kudGVzdChhbnN3ZXIpKSB0aHJvdyBuZXcgRXJyb3IodGVzdC5pZCArICIgcmVncmVzc2VkIHRvIHJldHJpZXZhbC1vbmx5IHByb3NlIik7CiAgaWYgKHRlc3QubXVzdCAmJiAhdGVzdC5tdXN0LnRlc3QoYW5zd2VyKSkgdGhyb3cgbmV3IEVycm9yKHRlc3QuaWQgKyAiIG1pc3NlZCByZXF1aXJlZCBjb250ZW50OiAiICsgYW5zd2VyKTsKICBpZiAodGVzdC5yZXF1aXJlQ2l0YXRpb24gJiYgY2l0YXRpb25zLmxlbmd0aCA9PT0gMCkgdGhyb3cgbmV3IEVycm9yKHRlc3QuaWQgKyAiIHJldHVybmVkIG5vIGNpdGF0aW9ucyIpOwogIGlmIChjaXRhdGlvbnMubGVuZ3RoID09PSAwICYmICEvXFtHXGQrXF0vLnRlc3QoYW5zd2VyKSkgdGhyb3cgbmV3IEVycm9yKHRlc3QuaWQgKyAiIGhhcyBuZWl0aGVyIGNpdGF0aW9ucyBub3IgbGFiZWxsZWQgZ2VuZXJhbCBrbm93bGVkZ2UiKTsKICBjb25zb2xlLmxvZyhKU09OLnN0cmluZ2lmeSh7IGlkOiB0ZXN0LmlkLCBtb2RlOiBwYXlsb2FkLm1vZGUsIGNpdGF0aW9uQ291bnQ6IGNpdGF0aW9ucy5sZW5ndGgsIHdlYkV2aWRlbmNlU3RhdHVzOiBwYXlsb2FkLndlYkV2aWRlbmNlU3RhdHVzLCBhbnN3ZXJMZW5ndGg6IGFuc3dlci5sZW5ndGggfSkpOwp9
+  VALIDATION_LABEL: smoke${{ github.run_id }}a${{ github.run_attempt }}
 
 jobs:
   deploy-validate-promote:
     name: Zero-traffic validation and promotion
     runs-on: ubuntu-latest
     steps:
+      - name: Check out the validated release scripts
+        uses: actions/checkout@v4
+
       - name: Sign in to Azure with release-branch OIDC
         uses: azure/login@v2
         with:
@@ -44,7 +47,11 @@ jobs:
           echo "Current live revision: $live_revision"
 
           candidate=""
+          validation_label=""
           cleanup_candidate() {
+            if test -n "$validation_label"; then
+              az containerapp revision label remove -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --label "$validation_label" --yes --only-show-errors >/dev/null 2>&1 || true
+            fi
             if test -n "$candidate"; then
               az containerapp revision deactivate -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$candidate" --only-show-errors >/dev/null 2>&1 || true
             fi
@@ -67,18 +74,33 @@ jobs:
           done
           test "$healthy" = "Healthy"
 
-          replica=""
-          for attempt in $(seq 1 18); do
-            replica="$(az containerapp replica list -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$candidate" --query '[0].name' -o tsv)"
-            if test -n "$replica"; then break; fi
-            sleep 10
+          validation_label="$VALIDATION_LABEL"
+          az containerapp revision label add -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$candidate" --label "$validation_label" --yes --only-show-errors >/dev/null
+
+          app_fqdn="$(az containerapp show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)"
+          test -n "$app_fqdn"
+          base_domain="${app_fqdn#*.}"
+          candidate_url="https://${CONTAINER_APP}---${validation_label}.${base_domain}"
+
+          auth_client_id="$(az containerapp auth microsoft show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query registration.clientId -o tsv --only-show-errors)"
+          if test -z "$auth_client_id"; then
+            auth_client_id="$(az containerapp auth show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query properties.identityProviders.azureActiveDirectory.registration.clientId -o tsv --only-show-errors)"
+          fi
+          test -n "$auth_client_id"
+
+          allowed_audience="$(az containerapp auth microsoft show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query 'validation.allowedAudiences[0]' -o tsv --only-show-errors || true)"
+          access_token=""
+          for resource in "$allowed_audience" "api://$auth_client_id" "$auth_client_id"; do
+            test -n "$resource" || continue
+            access_token="$(az account get-access-token --resource "$resource" --query accessToken -o tsv --only-show-errors 2>/dev/null || true)"
+            test -n "$access_token" || continue
+            auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $access_token" "$candidate_url/.auth/me" || true)"
+            if test "$auth_status" = "200"; then break; fi
+            access_token=""
           done
-          test -n "$replica"
+          test -n "$access_token"
 
-          container="$(az containerapp replica list -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$candidate" --query '[0].properties.containers[0].name' -o tsv)"
-          test -n "$container"
-
-          az containerapp exec -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$candidate" --replica "$replica" --container "$container" --command "node -e \"eval(Buffer.from('$SMOKE_B64','base64').toString())\""
+          CONSULT_BASE_URL="$candidate_url" CONSULT_ACCESS_TOKEN="$access_token" node scripts/consult-release-smoke.mjs
 
           final_revision="$(az containerapp revision copy -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --from-revision "$candidate" --image "$IMAGE" --revision-suffix "$FINAL_SUFFIX" --min-replicas 0 --max-replicas 2 --query properties.latestRevisionName -o tsv --only-show-errors)"
           test -n "$final_revision"
@@ -101,5 +123,6 @@ jobs:
 
           cleanup_candidate
           candidate=""
+          validation_label=""
           trap - EXIT
           echo "PROMOTED_REVISION=$final_revision"
