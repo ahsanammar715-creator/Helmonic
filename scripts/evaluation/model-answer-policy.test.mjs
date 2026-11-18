@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildEvidenceOnlyAnswer,
   buildConsultSystemPrompt,
   framePublicWebEvidence,
   NO_DOCUMENT_EVIDENCE_NOTICE,
@@ -288,6 +289,65 @@ test("retrieved web evidence is optional when the answer is fully supported by i
 
   assert.equal(result.valid, true);
   assert.deepEqual(result.markers, ["D1"]);
+});
+
+test("evidence-only fallback returns exact controlled excerpts with real markers", () => {
+  const answer = buildEvidenceOnlyAnswer([
+    {
+      ...citations[0],
+      excerpt: "Sound engineering applies acoustic principles to practical design decisions. Additional unsupported text.",
+    },
+  ]);
+
+  assert.equal(
+    answer,
+    "## Verified evidence from retrieved sources\n\n\u201cSound engineering applies acoustic principles to practical design decisions.\u201d [D1]",
+  );
+  assert.equal(validateDocumentAnswerCitations(answer, citations).valid, true);
+});
+
+test("evidence-only fallback frames public evidence and excludes restricted evidence", () => {
+  const answer = buildEvidenceOnlyAnswer([
+    {
+      id: "email-1",
+      title: "Restricted email",
+      sourceId: "restricted-email",
+      excerpt: "A restricted relationship claim.",
+      sourceType: "email",
+      citationNamespace: "E",
+      marker: "E1",
+    },
+    {
+      id: "web-1",
+      title: "Official guidance",
+      sourceId: "https://example.gov.ie/guidance",
+      excerpt: "The public guidance describes the current assessment route.",
+      sourceType: "web",
+      citationNamespace: "W",
+      marker: "W1",
+    },
+  ]);
+
+  assert.match(answer, /Current public-web evidence:/);
+  assert.match(answer, /\[W1\]/);
+  assert.doesNotMatch(answer, /restricted relationship|\[E1\]/i);
+  assert.equal(
+    validateDocumentAnswerCitations(
+      answer,
+      [
+        {
+          id: "web-1",
+          title: "Official guidance",
+          sourceId: "https://example.gov.ie/guidance",
+          excerpt: "The public guidance describes the current assessment route.",
+          sourceType: "web",
+          citationNamespace: "W",
+          marker: "W1",
+        },
+      ],
+    ).valid,
+    true,
+  );
 });
 
 test("unsupported consultant claims are removed without discarding verified claims", () => {

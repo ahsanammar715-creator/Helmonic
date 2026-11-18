@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  buildEvidenceOnlyAnswer,
   buildConsultSystemPrompt,
   framePublicWebEvidence,
   validateExperienceAnswer,
@@ -113,12 +114,29 @@ async function createDocumentAnswer(
     throw new Error("Azure model returned an empty answer");
   }
   let answer = framePublicWebEvidence(rawAnswer);
+  const evidenceOnlyFallback = (reason: string) => {
+    const fallback = buildEvidenceOnlyAnswer(request.evidence);
+    if (!fallback) throw new ModelGatewayValidationError(reason);
+
+    const fallbackValidation = validateDocumentAnswerCitations(fallback, request.evidence, {
+      allowGeneralKnowledge: request.allowGeneralKnowledge,
+    });
+    if (!fallbackValidation.valid) {
+      throw new ModelGatewayValidationError(fallbackValidation.errors.join(" "));
+    }
+    console.warn("Helmonic released deterministic evidence excerpts after generated prose failed", {
+      requestId: request.requestId,
+      reason,
+      citationMarkers: fallbackValidation.markers,
+    });
+    return fallback;
+  };
 
   let validation = validateDocumentAnswerCitations(answer, request.evidence, {
     allowGeneralKnowledge: request.allowGeneralKnowledge,
   });
   if (!validation.valid) {
-    throw new ModelGatewayValidationError(validation.errors.join(" "));
+    return evidenceOnlyFallback(validation.errors.join(" "));
   }
   if (request.experienceMode) {
     const experienceValidation = validateExperienceAnswer(answer, request.evidence);
@@ -130,8 +148,8 @@ async function createDocumentAnswer(
   const citationRepair = filterUncitedAnswerClaims(answer, request.allowGeneralKnowledge);
   if (citationRepair.removedClaimCount > 0) {
     if (!citationRepair.answer) {
-      throw new ModelGatewayValidationError(
-        "Every generated claim lacked a permitted evidence marker; no answer was released.",
+      return evidenceOnlyFallback(
+        "Every generated claim lacked a permitted evidence marker.",
       );
     }
     answer = citationRepair.answer;
@@ -158,8 +176,8 @@ async function createDocumentAnswer(
   if (audit && audit.unsupportedClaimIds.length > 0) {
     const repaired = filterUnsupportedAnswerClaims(answer, audit.unsupportedClaimIds);
     if (!repaired.answer) {
-      throw new ModelGatewayValidationError(
-        "Every generated claim exceeded its cited excerpts; no answer was released.",
+      return evidenceOnlyFallback(
+        "Every generated claim exceeded its cited excerpts.",
       );
     }
     answer = repaired.answer;

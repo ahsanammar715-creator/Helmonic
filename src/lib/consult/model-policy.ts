@@ -53,6 +53,47 @@ export function framePublicWebEvidence(answer: string) {
     .join("");
 }
 
+function conciseEvidenceExcerpt(excerpt: string) {
+  const normalized = excerpt
+    .replace(/\[[DSBAEWG]\d+\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return "";
+
+  const completeSentence = normalized.match(/^.{1,480}?[.!?](?=\s|$)/)?.[0]?.trim();
+  if (completeSentence) return completeSentence;
+  if (normalized.length <= 480) return normalized;
+  return `${normalized.slice(0, 480).trimEnd()}...`;
+}
+
+/**
+ * Produces a deterministic, evidence-only response when generated prose cannot
+ * pass the claim audit. The text is copied from retrieved excerpts rather than
+ * inferred by a model, so the fail-closed path can still return useful evidence.
+ * Restricted email and de-identified experience evidence remain model-gated.
+ */
+export function buildEvidenceOnlyAnswer(citations: ConsultCitation[]) {
+  const blocks = citations
+    .filter(
+      (citation) =>
+        citation.sourceType !== "email" &&
+        citation.sourceType !== "experience" &&
+        citation.citationNamespace !== "E",
+    )
+    .map((citation, index) => {
+      const marker = citation.marker ?? `D${index + 1}`;
+      const excerpt = conciseEvidenceExcerpt(citation.excerpt);
+      if (!excerpt) return null;
+      const prefix = marker.startsWith("W") ? "Current public-web evidence: " : "";
+      return `${prefix}\u201c${excerpt}\u201d [${marker}]`;
+    })
+    .filter((block): block is string => Boolean(block))
+    .slice(0, 4);
+
+  if (blocks.length === 0) return null;
+  return ["## Verified evidence from retrieved sources", ...blocks].join("\n\n");
+}
+
 export function validateDocumentAnswerCitations(
   answer: string,
   citations: ConsultCitation[],
