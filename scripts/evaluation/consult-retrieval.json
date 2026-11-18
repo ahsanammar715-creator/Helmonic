@@ -1,0 +1,68 @@
+{
+  "version": 2,
+  "profile": "iAcoustics",
+  "thresholds": {
+    "semantic": 2,
+    "rrf": 0.015,
+    "status": "candidate-requires-private-v2-tuning"
+  },
+  "cases": [
+    {
+      "id": "paraphrase-harolds-cross-impact",
+      "category": "paraphrase",
+      "question": "Which project measured how well the floors resisted footfall noise at the converted Harold's Cross property?",
+      "expectedTitleIncludes": ["Harold's Cross Road"],
+      "minimumCitations": 1
+    },
+    {
+      "id": "paraphrase-premier-inn-cork",
+      "category": "paraphrase",
+      "question": "Which Cork hotel report discusses guest-room internal noise and the building envelope's acoustic performance?",
+      "expectedTitleIncludes": ["Premier Inn Victorian Quarter"],
+      "minimumCitations": 1
+    },
+    {
+      "id": "regression-wetherspoon-not-premier-inn",
+      "category": "regression",
+      "question": "How serious was the beer-garden noise compared with the background at number 7 Camden Street?",
+      "expectedTitleIncludes": ["Wetherspoon's Camden Street"],
+      "forbiddenTitleIncludes": ["Premier Inn"],
+      "expectedContentIncludes": ["19dB"],
+      "minimumCitations": 1
+    },
+    {
+      "id": "numeric-wetherspoon-500hz-bedroom-window",
+      "category": "numeric",
+      "question": "For the future Wetherspoon scenario, what level was predicted at the bedroom window in the 500 Hz band?",
+      "expectedTitleIncludes": ["Wetherspoon's Camden Street"],
+      "expectedContentIncludes": ["500Hz", "54"],
+      "minimumCitations": 1
+    },
+    {
+      "id": "out-of-scope-subjective-sound",
+      "category": "out-of-scope",
+      "question": "What do you think sound is?",
+      "expectedNoEvidence": true
+    },
+    {
+      "id": "out-of-scope-population",
+      "category": "out-of-scope",
+      "question": "What is the population of France?",
+      "expectedNoEvidence": true
+    },
+    {
+      "id": "out-of-scope-recipe",
+      "category": "out-of-scope",
+      "question": "Give me a recipe for sourdough bread.",
+      "expectedNoEvidence": true
+    },
+    {
+      "id": "permission-scope-prefilter",
+      "category": "permission",
+      "question": "What was assessed at the Premier Inn Victorian Quarter in Cork?",
+      "permissionScope": "unauthorized-evaluation-scope",
+      "expectedNoEvidence": true,
+      "runInGeneratedEvaluation": false
+    }
+  ]
+}

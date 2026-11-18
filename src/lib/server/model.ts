@@ -1,0 +1,220 @@
+import "server-only";
+
+import {
+  buildEvidenceOnlyAnswer,
+  buildConsultSystemPrompt,
+  framePublicWebEvidence,
+  validateExperienceAnswer,
+  validateDocumentAnswerCitations,
+} from "@/lib/consult/model-policy";
+import {
+  filterUncitedAnswerClaims,
+  filterUnsupportedAnswerClaims,
+} from "@/lib/consult/claim-evidence-policy";
+import { getAzureAccessToken } from "@/lib/server/azure-credential";
+import { azureRequestError } from "@/lib/server/azure-request-error";
+import { verifyClaimEvidenceSupport } from "@/lib/server/claim-evidence-audit";
+import type { RuntimeConfig } from "@/lib/server/config";
+import {
+  ModelGatewayValidationError,
+  type ConsultModelGateway,
+  type DocumentModelRequest,
+} from "@/lib/server/model-gateway";
+
+type ChatCompletionResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
+};
+
+function buildEvidence(citations: DocumentModelRequest["evidence"]) {
+  if (citations.length === 0) return "No permitted document evidence was retrieved.";
+
+  return citations
+    .map((citation, index) => {
+      const marker = citation.marker ?? `D${index + 1}`;
+      const location = [
+        citation.section,
+        citation.pageNumber ? `page ${citation.pageNumber}` : undefined,
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      return `[${marker}] ${citation.title}${location ? ` (${location})` : ""}\n${
+        citation.excerpt
+      }`;
+    })
+    .join("\n\n");
+}
+
+async function createDocumentAnswer(
+  request: DocumentModelRequest,
+  config: RuntimeConfig,
+) {
+  if (!config.model.endpoint || !config.model.deployment) {
+    throw new Error("Azure model is not configured");
+  }
+
+  const token = await getAzureAccessToken("https://cognitiveservices.azure.com/.default");
+  const response = await fetch(
+    `${config.model.endpoint}/openai/deployments/${encodeURIComponent(
+      config.model.deployment,
+    )}/chat/completions?api-version=${encodeURIComponent(config.model.apiVersion)}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "x-ms-client-request-id": request.requestId,
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: "system",
+            content: buildConsultSystemPrompt({
+              profile: config.profile,
+              allowGeneralKnowledge: request.allowGeneralKnowledge,
+              experienceMode: request.experienceMode,
+            }),
+          },
+          {
+            role: "user",
+            content: `Question:\n${request.question}\n\nEvidence:\n${buildEvidence(request.evidence)}`,
+          },
+        ],
+        reasoning_effort: config.model.reasoningEffort,
+        verbosity: "low",
+        max_completion_tokens: config.model.maximumCompletionTokens,
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(config.model.timeoutMilliseconds),
+    },
+  );
+
+  if (!response.ok) {
+    throw await azureRequestError(response, {
+      service: "Azure OpenAI",
+      stage: "model",
+    });
+  }
+
+  const payload = (await response.json()) as ChatCompletionResponse;
+  const rawAnswer = payload.choices?.[0]?.message?.content?.trim();
+
+  if (!rawAnswer) {
+    throw new Error("Azure model returned an empty answer");
+  }
+  let answer = framePublicWebEvidence(rawAnswer);
+  const evidenceOnlyFallback = (reason: string) => {
+    const fallback = buildEvidenceOnlyAnswer(request.evidence);
+    if (!fallback) throw new ModelGatewayValidationError(reason);
+
+    const fallbackValidation = validateDocumentAnswerCitations(fallback, request.evidence, {
+      allowGeneralKnowledge: request.allowGeneralKnowledge,
+    });
+    if (!fallbackValidation.valid) {
+      throw new ModelGatewayValidationError(fallbackValidation.errors.join(" "));
+    }
+    console.warn("Helmonic released deterministic evidence excerpts after generated prose failed", {
+      requestId: request.requestId,
+      reason,
+      citationMarkers: fallbackValidation.markers,
+    });
+    return fallback;
+  };
+
+  let validation = validateDocumentAnswerCitations(answer, request.evidence, {
+    allowGeneralKnowledge: request.allowGeneralKnowledge,
+  });
+  if (!validation.valid) {
+    return evidenceOnlyFallback(validation.errors.join(" "));
+  }
+  if (request.experienceMode) {
+    const experienceValidation = validateExperienceAnswer(answer, request.evidence);
+    if (!experienceValidation.valid) {
+      throw new ModelGatewayValidationError(experienceValidation.errors.join(" "));
+    }
+  }
+
+  const citationRepair = filterUncitedAnswerClaims(answer, request.allowGeneralKnowledge);
+  if (citationRepair.removedClaimCount > 0) {
+    if (!citationRepair.answer) {
+      return evidenceOnlyFallback(
+        "Every generated claim lacked a permitted evidence marker.",
+      );
+    }
+    answer = citationRepair.answer;
+    validation = validateDocumentAnswerCitations(answer, request.evidence, {
+      allowGeneralKnowledge: request.allowGeneralKnowledge,
+    });
+    if (!validation.valid) {
+      throw new ModelGatewayValidationError(validation.errors.join(" "));
+    }
+    console.warn("Helmonic removed uncited answer prose and retained cited content", {
+      requestId: request.requestId,
+      removedClaimCount: citationRepair.removedClaimCount,
+    });
+  }
+
+  const audit = await verifyClaimEvidenceSupport({
+    requestId: request.requestId,
+    answer,
+    citations: request.evidence,
+    allowGeneralKnowledge: request.allowGeneralKnowledge,
+    config,
+    unsupportedClaimPolicy: "return",
+  });
+  if (audit && audit.unsupportedClaimIds.length > 0) {
+    const repaired = filterUnsupportedAnswerClaims(answer, audit.unsupportedClaimIds);
+    if (!repaired.answer) {
+      return evidenceOnlyFallback(
+        "Every generated claim exceeded its cited excerpts.",
+      );
+    }
+    answer = repaired.answer;
+    validation = validateDocumentAnswerCitations(answer, request.evidence, {
+      allowGeneralKnowledge: request.allowGeneralKnowledge,
+    });
+    if (!validation.valid) {
+      throw new ModelGatewayValidationError(validation.errors.join(" "));
+    }
+    if (request.experienceMode) {
+      const experienceValidation = validateExperienceAnswer(answer, request.evidence);
+      if (!experienceValidation.valid) {
+        throw new ModelGatewayValidationError(experienceValidation.errors.join(" "));
+      }
+    }
+    console.warn("Helmonic removed unsupported answer claims and retained verified claims", {
+      requestId: request.requestId,
+      unsupportedClaimIds: audit.unsupportedClaimIds,
+      removedClaimCount: repaired.removedClaimCount,
+    });
+  }
+
+  console.info("Helmonic model usage", {
+    requestId: request.requestId,
+    deployment: config.model.deployment,
+    promptTokens: payload.usage?.prompt_tokens,
+    completionTokens: payload.usage?.completion_tokens,
+    reasoningTokens: payload.usage?.completion_tokens_details?.reasoning_tokens,
+    citationMarkers: validation.markers,
+    generalKnowledgeMarkers: validation.generalMarkers,
+  });
+
+  return answer;
+}
+
+export function createConsultModelGateway(config: RuntimeConfig): ConsultModelGateway {
+  return {
+    createAnswer: (request) => createDocumentAnswer(request, config),
+  };
+}
