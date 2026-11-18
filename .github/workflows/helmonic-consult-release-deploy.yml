@@ -75,7 +75,10 @@ jobs:
           done
           test -n "$replica"
 
-          az containerapp exec -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$candidate" --replica "$replica" --command "node -e \"eval(Buffer.from('$SMOKE_B64','base64').toString())\""
+          container="$(az containerapp replica list -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$candidate" --query '[0].properties.containers[0].name' -o tsv)"
+          test -n "$container"
+
+          az containerapp exec -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$candidate" --replica "$replica" --container "$container" --command "node -e \"eval(Buffer.from('$SMOKE_B64','base64').toString())\""
 
           final_revision="$(az containerapp revision copy -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --from-revision "$candidate" --image "$IMAGE" --revision-suffix "$FINAL_SUFFIX" --min-replicas 0 --max-replicas 2 --query properties.latestRevisionName -o tsv --only-show-errors)"
           test -n "$final_revision"
