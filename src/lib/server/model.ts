@@ -113,13 +113,9 @@ async function createDocumentAnswer(
     throw new Error("Azure model returned an empty answer");
   }
   let answer = framePublicWebEvidence(rawAnswer);
-  const requireWebEvidence = request.evidence.some(
-    (citation) => citation.sourceType === "web",
-  );
 
   let validation = validateDocumentAnswerCitations(answer, request.evidence, {
     allowGeneralKnowledge: request.allowGeneralKnowledge,
-    requireWebEvidence,
   });
   if (!validation.valid) {
     throw new ModelGatewayValidationError(validation.errors.join(" "));
@@ -141,7 +137,6 @@ async function createDocumentAnswer(
     answer = citationRepair.answer;
     validation = validateDocumentAnswerCitations(answer, request.evidence, {
       allowGeneralKnowledge: request.allowGeneralKnowledge,
-      requireWebEvidence,
     });
     if (!validation.valid) {
       throw new ModelGatewayValidationError(validation.errors.join(" "));
@@ -170,7 +165,6 @@ async function createDocumentAnswer(
     answer = repaired.answer;
     validation = validateDocumentAnswerCitations(answer, request.evidence, {
       allowGeneralKnowledge: request.allowGeneralKnowledge,
-      requireWebEvidence,
     });
     if (!validation.valid) {
       throw new ModelGatewayValidationError(validation.errors.join(" "));
