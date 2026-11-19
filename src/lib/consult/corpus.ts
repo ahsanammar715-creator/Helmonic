@@ -1,0 +1,3 @@
+export const CONTROLLED_SOURCE_DOCUMENT_COUNT = 16;
+
+export const CONTROLLED_SOURCE_SET_LABEL = `${CONTROLLED_SOURCE_DOCUMENT_COUNT}-document Phase 1A knowledge set`;

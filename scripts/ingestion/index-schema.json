@@ -1,0 +1,71 @@
+{
+  "name": "consult-demo-v1",
+  "description": "Helmonic Consult controlled 16-document lexical retrieval index.",
+  "fields": [
+    {
+      "name": "chunk_id",
+      "type": "Edm.String",
+      "key": true,
+      "filterable": true
+    },
+    {
+      "name": "source_id",
+      "type": "Edm.String",
+      "filterable": true,
+      "retrievable": true
+    },
+    {
+      "name": "source_uri",
+      "type": "Edm.String",
+      "retrievable": true
+    },
+    {
+      "name": "title",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": true,
+      "retrievable": true
+    },
+    {
+      "name": "section",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": true,
+      "retrievable": true
+    },
+    {
+      "name": "page_number",
+      "type": "Edm.Int32",
+      "filterable": true,
+      "sortable": true,
+      "retrievable": true
+    },
+    {
+      "name": "content",
+      "type": "Edm.String",
+      "searchable": true,
+      "retrievable": true,
+      "analyzer": "en.microsoft"
+    },
+    {
+      "name": "permission_scope",
+      "type": "Edm.String",
+      "filterable": true,
+      "facetable": true,
+      "retrievable": false
+    },
+    {
+      "name": "content_hash",
+      "type": "Edm.String",
+      "filterable": true,
+      "retrievable": false
+    },
+    {
+      "name": "ingested_at",
+      "type": "Edm.DateTimeOffset",
+      "filterable": true,
+      "sortable": true,
+      "retrievable": false
+    }
+  ]
+}
