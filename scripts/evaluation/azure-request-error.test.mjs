@@ -6,6 +6,8 @@ import {
   AzureRequestError,
   azureRequestError,
   isSemanticSearchQuotaError,
+  isTransientAzureRequestFailure,
+  retryTransientAzureOperation,
   safeAzureRequestDiagnostic,
 } from "../../src/lib/server/azure-request-error.ts";
 
@@ -98,4 +100,53 @@ test("recognizes only the semantic Search quota exhaustion eligible for fallback
   assert.equal(isSemanticSearchQuotaError(semanticQuotaError), true);
   assert.equal(isSemanticSearchQuotaError(unrelatedPaymentError), false);
   assert.equal(isSemanticSearchQuotaError(authorizationError), false);
+});
+
+test("retries transient dependency failures once without retrying permanent failures", async () => {
+  const transientError = await azureRequestError(
+    new Response("Temporary upstream failure", { status: 503 }),
+    { service: "Azure OpenAI", stage: "model" },
+  );
+  const permanentError = await azureRequestError(
+    new Response("Bad request", { status: 400 }),
+    { service: "Azure AI Search", stage: "search" },
+  );
+
+  assert.equal(isTransientAzureRequestFailure(transientError), true);
+  assert.equal(isTransientAzureRequestFailure(permanentError), false);
+  assert.equal(isTransientAzureRequestFailure(new DOMException("Timed out", "TimeoutError")), true);
+
+  let transientAttempts = 0;
+  const recovered = await retryTransientAzureOperation(
+    async () => {
+      transientAttempts += 1;
+      if (transientAttempts === 1) throw transientError;
+      return "recovered";
+    },
+    {
+      requestId: "request-transient-retry",
+      operation: "test-operation",
+      delayMilliseconds: 1,
+    },
+  );
+  assert.equal(recovered, "recovered");
+  assert.equal(transientAttempts, 2);
+
+  let permanentAttempts = 0;
+  await assert.rejects(
+    () =>
+      retryTransientAzureOperation(
+        async () => {
+          permanentAttempts += 1;
+          throw permanentError;
+        },
+        {
+          requestId: "request-permanent-failure",
+          operation: "test-operation",
+          delayMilliseconds: 1,
+        },
+      ),
+    permanentError,
+  );
+  assert.equal(permanentAttempts, 1);
 });

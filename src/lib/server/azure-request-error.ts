@@ -83,6 +83,55 @@ export class AzureRequestError extends Error {
   }
 }
 
+export function isTransientAzureRequestFailure(error: unknown) {
+  if (error instanceof AzureRequestError) {
+    return error.status === 408 || error.status === 429 || error.status >= 500;
+  }
+
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === "AbortError" ||
+    error.name === "TimeoutError" ||
+    error.name === "TypeError"
+  );
+}
+
+export async function retryTransientAzureOperation<T>(
+  operation: () => Promise<T>,
+  options: {
+    requestId: string;
+    operation: string;
+    maximumAttempts?: number;
+    delayMilliseconds?: number;
+  },
+) {
+  const maximumAttempts = Math.max(1, options.maximumAttempts ?? 2);
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt === maximumAttempts || !isTransientAzureRequestFailure(error)) throw error;
+
+      const delayMilliseconds = Math.max(250, options.delayMilliseconds ?? 750);
+      console.warn("Helmonic transient dependency failure; retrying internally", {
+        requestId: options.requestId,
+        operation: options.operation,
+        attempt,
+        maximumAttempts,
+        delayMilliseconds,
+        errorType: error instanceof Error ? error.name : "UnknownError",
+        diagnostic: safeAzureRequestDiagnostic(error),
+      });
+      await new Promise((resolve) => setTimeout(resolve, delayMilliseconds));
+    }
+  }
+
+  throw lastError;
+}
+
 export async function azureRequestError(
   response: Response,
   options: { service: string; stage: AzureRequestStage },

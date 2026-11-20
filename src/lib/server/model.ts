@@ -17,6 +17,7 @@ import { getAzureAccessToken } from "@/lib/server/azure-credential";
 import {
   azureRequestError,
   azureRetryDelayMilliseconds,
+  retryTransientAzureOperation,
 } from "@/lib/server/azure-request-error";
 import { verifyClaimEvidenceSupport } from "@/lib/server/claim-evidence-audit";
 import type { RuntimeConfig } from "@/lib/server/config";
@@ -78,42 +79,47 @@ async function requestGeneratedAnswer(input: {
   token: string;
   config: RuntimeConfig;
 }) {
-  const response = await fetch(
-    `${input.config.model.endpoint}/openai/deployments/${encodeURIComponent(
-      input.config.model.deployment ?? "",
-    )}/chat/completions?api-version=${encodeURIComponent(input.config.model.apiVersion)}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.token}`,
-        "Content-Type": "application/json",
-        "x-ms-client-request-id": input.requestId,
-      },
-      body: JSON.stringify({
-        messages: [
-          { role: "system", content: input.systemPrompt },
-          { role: "user", content: input.userPrompt },
-        ],
-        reasoning_effort: input.config.model.reasoningEffort,
-        verbosity: "low",
-        max_completion_tokens: input.config.model.maximumCompletionTokens,
-      }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(input.config.model.timeoutMilliseconds),
+  return retryTransientAzureOperation(
+    async () => {
+      const response = await fetch(
+        `${input.config.model.endpoint}/openai/deployments/${encodeURIComponent(
+          input.config.model.deployment ?? "",
+        )}/chat/completions?api-version=${encodeURIComponent(input.config.model.apiVersion)}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${input.token}`,
+            "Content-Type": "application/json",
+            "x-ms-client-request-id": input.requestId,
+          },
+          body: JSON.stringify({
+            messages: [
+              { role: "system", content: input.systemPrompt },
+              { role: "user", content: input.userPrompt },
+            ],
+            reasoning_effort: input.config.model.reasoningEffort,
+            verbosity: "low",
+            max_completion_tokens: input.config.model.maximumCompletionTokens,
+          }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(input.config.model.timeoutMilliseconds),
+        },
+      );
+
+      if (!response.ok) {
+        throw await azureRequestError(response, {
+          service: "Azure OpenAI",
+          stage: "model",
+        });
+      }
+
+      const payload = (await response.json()) as ChatCompletionResponse;
+      const answer = payload.choices?.[0]?.message?.content?.trim();
+      if (!answer) throw new Error("Azure model returned an empty answer");
+      return { answer, usage: payload.usage } satisfies GeneratedAnswer;
     },
+    { requestId: input.requestId, operation: "answer-generation" },
   );
-
-  if (!response.ok) {
-    throw await azureRequestError(response, {
-      service: "Azure OpenAI",
-      stage: "model",
-    });
-  }
-
-  const payload = (await response.json()) as ChatCompletionResponse;
-  const answer = payload.choices?.[0]?.message?.content?.trim();
-  if (!answer) throw new Error("Azure model returned an empty answer");
-  return { answer, usage: payload.usage } satisfies GeneratedAnswer;
 }
 
 function buildAnswerRepairPrompt(input: {

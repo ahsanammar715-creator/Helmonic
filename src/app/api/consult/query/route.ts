@@ -13,7 +13,10 @@ import {
   getQueryConfigurationErrors,
   getRuntimeConfig,
 } from "@/lib/server/config";
-import { safeAzureRequestDiagnostic } from "@/lib/server/azure-request-error";
+import {
+  retryTransientAzureOperation,
+  safeAzureRequestDiagnostic,
+} from "@/lib/server/azure-request-error";
 import { getAuthenticatedActor } from "@/lib/server/identity";
 import { ModelGatewayValidationError } from "@/lib/server/model-gateway";
 
@@ -171,21 +174,34 @@ export async function POST(request: Request) {
       experienceCitations,
       webEvidence,
     ] = await Promise.all([
-      searchConsultEvidence(trimmedQuestion, requestId, config),
+      retryTransientAzureOperation(
+        () => searchConsultEvidence(trimmedQuestion, requestId, config),
+        { requestId, operation: "controlled-retrieval" },
+      ),
       conversationId && actor && config.phase1b.uploadsEnabled
-        ? searchSessionEvidence(
-            trimmedQuestion,
-            actor.objectId,
-            conversationId,
-            requestId,
-            config,
+        ? retryTransientAzureOperation(
+            () =>
+              searchSessionEvidence(
+                trimmedQuestion,
+                actor.objectId,
+                conversationId,
+                requestId,
+                config,
+              ),
+            { requestId, operation: "session-retrieval" },
           )
         : Promise.resolve([]),
       includeEmailEvidence && actor
-        ? searchRestrictedEmailEvidence(trimmedQuestion, actor, requestId, config)
+        ? retryTransientAzureOperation(
+            () => searchRestrictedEmailEvidence(trimmedQuestion, actor, requestId, config),
+            { requestId, operation: "restricted-email-retrieval" },
+          )
         : Promise.resolve([]),
       includeDeidentifiedExperience && actor
-        ? searchDeidentifiedExperienceEvidence(trimmedQuestion, actor, requestId, config)
+        ? retryTransientAzureOperation(
+            () => searchDeidentifiedExperienceEvidence(trimmedQuestion, actor, requestId, config),
+            { requestId, operation: "deidentified-experience-retrieval" },
+          )
         : Promise.resolve([]),
       includeWebEvidence
         ? import("@/lib/server/web-grounding")
