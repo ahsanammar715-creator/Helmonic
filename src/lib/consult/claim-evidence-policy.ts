@@ -153,6 +153,14 @@ export function filterUnsupportedAnswerClaims(
   return { answer: retained, removedClaimCount };
 }
 
+export function renumberGeneralKnowledgeMarkers(answer: string) {
+  let markerNumber = 0;
+  return answer.replace(/\[G\d+\]/g, () => {
+    markerNumber += 1;
+    return `[G${markerNumber}]`;
+  });
+}
+
 export function validateClaimCitationCoverage(input: {
   answer: string;
   allowGeneralKnowledge: boolean;

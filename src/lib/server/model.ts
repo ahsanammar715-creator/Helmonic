@@ -12,6 +12,7 @@ import {
 import {
   filterUncitedAnswerClaims,
   filterUnsupportedAnswerClaims,
+  renumberGeneralKnowledgeMarkers,
 } from "@/lib/consult/claim-evidence-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
 import {
@@ -321,7 +322,7 @@ async function createDocumentAnswer(
       if (!citationRepair.answer) {
         return { reason: "Every generated claim lacked a permitted evidence marker." };
       }
-      answer = citationRepair.answer;
+      answer = renumberGeneralKnowledgeMarkers(citationRepair.answer);
       validation = validateDocumentAnswerCitations(answer, request.evidence, {
         allowGeneralKnowledge: request.allowGeneralKnowledge,
       });
@@ -370,7 +371,7 @@ async function createDocumentAnswer(
       if (!repaired.answer) {
         return { reason: "Every generated claim exceeded its cited excerpts." };
       }
-      answer = repaired.answer;
+      answer = renumberGeneralKnowledgeMarkers(repaired.answer);
       validation = validateDocumentAnswerCitations(answer, request.evidence, {
         allowGeneralKnowledge: request.allowGeneralKnowledge,
       });

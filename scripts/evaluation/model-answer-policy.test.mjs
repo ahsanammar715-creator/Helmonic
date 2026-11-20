@@ -16,6 +16,7 @@ import {
   extractCitedClaimBlocks,
   filterUncitedAnswerClaims,
   filterUnsupportedAnswerClaims,
+  renumberGeneralKnowledgeMarkers,
   validateClaimCitationCoverage,
   validateClaimSupportVerdicts,
 } from "../../src/lib/consult/claim-evidence-policy.ts";
@@ -403,6 +404,25 @@ test("unsupported consultant claims are removed without discarding verified clai
   assert.equal(
     result.answer,
     "Verified criterion. [D1]\n\nVerified limitation. [D3]",
+  );
+});
+
+test("general-knowledge markers are renumbered after unsupported paragraphs are removed", () => {
+  const answer = [
+    "A retained general explanation. [G1]",
+    "Another retained general explanation. [G4]",
+    "A supported document statement. [D1]",
+    "A final retained general explanation. [G9]",
+  ].join("\n\n");
+
+  assert.equal(
+    renumberGeneralKnowledgeMarkers(answer),
+    [
+      "A retained general explanation. [G1]",
+      "Another retained general explanation. [G2]",
+      "A supported document statement. [D1]",
+      "A final retained general explanation. [G3]",
+    ].join("\n\n"),
   );
 });
 
