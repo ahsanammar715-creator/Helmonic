@@ -16,6 +16,7 @@ env:
   VALIDATION_SUFFIX: val${{ github.run_id }}a${{ github.run_attempt }}
   FINAL_SUFFIX: fx${{ github.run_id }}a${{ github.run_attempt }}
   VALIDATION_LABEL: smoke${{ github.run_id }}a${{ github.run_attempt }}
+  AUTH_API_VERSION: 2025-07-01
 
 jobs:
   deploy-validate-promote:
@@ -49,7 +50,37 @@ jobs:
 
           candidate=""
           validation_label=""
+          auth_config_url=""
+          auth_restore_file=""
+          auth_policy_changed=""
+          restore_auth_policy() {
+            if test "$auth_policy_changed" != "yes"; then return 0; fi
+
+            az rest --method put --url "$auth_config_url" --body "@$auth_restore_file" --only-show-errors >/dev/null
+            for restore_attempt in $(seq 1 12); do
+              restored_file="$RUNNER_TEMP/consult-auth-restored-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+              az rest --method get --url "$auth_config_url" --only-show-errors > "$restored_file"
+              if node - "$auth_restore_file" "$restored_file" <<'NODE'
+          const fs = require('fs');
+          const expected = JSON.parse(fs.readFileSync(process.argv[2], 'utf8')).properties
+            ?.identityProviders?.azureActiveDirectory?.validation?.defaultAuthorizationPolicy ?? null;
+          const actual = JSON.parse(fs.readFileSync(process.argv[3], 'utf8')).properties
+            ?.identityProviders?.azureActiveDirectory?.validation?.defaultAuthorizationPolicy ?? null;
+          process.exit(JSON.stringify(expected) === JSON.stringify(actual) ? 0 : 1);
+          NODE
+              then
+                auth_policy_changed=""
+                echo "Original Entra authorization policy restored and verified."
+                return 0
+              fi
+              sleep 5
+            done
+            echo "The original Entra authorization policy could not be verified after restoration." >&2
+            return 1
+          }
           cleanup_candidate() {
+            set +e
+            restore_auth_policy
             if test -n "$validation_label"; then
               az containerapp revision label remove -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --label "$validation_label" --yes --only-show-errors >/dev/null 2>&1 || true
             fi
@@ -97,10 +128,8 @@ jobs:
           echo "::add-mask::$auth_secret"
 
           access_token=""
-          auth_attempt=0
           for resource in "$allowed_audience" "api://$auth_client_id" "$auth_client_id"; do
             test -n "$resource" || continue
-            auth_attempt=$((auth_attempt + 1))
             scope="${resource%/}/.default"
             token_json="$(curl --silent --show-error --fail \
               --request POST "https://login.microsoftonline.com/$TENANT_ID/oauth2/v2.0/token" \
@@ -112,14 +141,74 @@ jobs:
             access_token="$(printf '%s' "$token_json" | node -e 'let body=""; process.stdin.on("data", chunk => body += chunk).on("end", () => { try { process.stdout.write(JSON.parse(body).access_token || ""); } catch {} });')"
             test -n "$access_token" || continue
             echo "::add-mask::$access_token"
-            auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $access_token" "$candidate_url/.auth/me" || true)"
-            echo "Candidate Entra authentication attempt $auth_attempt returned HTTP $auth_status"
-            if test "$auth_status" = "200"; then break; fi
-            access_token=""
+            break
           done
           test -n "$access_token"
 
+          release_principal_object_id="$(ACCESS_TOKEN="$access_token" node <<'NODE'
+          const token = process.env.ACCESS_TOKEN || '';
+          const payloadPart = token.split('.')[1] || '';
+          try {
+            const payload = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8'));
+            const objectId = payload.oid || payload.sub || '';
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(objectId)) {
+              process.stdout.write(objectId);
+            }
+          } catch {}
+          NODE
+          )"
+          test -n "$release_principal_object_id"
+
+          auth_config_id="$(az containerapp auth show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query id -o tsv --only-show-errors)"
+          test -n "$auth_config_id"
+          auth_config_url="https://management.azure.com${auth_config_id}?api-version=${AUTH_API_VERSION}"
+          auth_snapshot_file="$RUNNER_TEMP/consult-auth-original-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          auth_restore_file="$RUNNER_TEMP/consult-auth-restore-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          auth_release_file="$RUNNER_TEMP/consult-auth-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          az rest --method get --url "$auth_config_url" --only-show-errors > "$auth_snapshot_file"
+
+          auth_policy_changed="$(node - "$auth_snapshot_file" "$auth_restore_file" "$auth_release_file" "$release_principal_object_id" <<'NODE'
+          const fs = require('fs');
+          const [sourcePath, restorePath, releasePath, releaseIdentity] = process.argv.slice(2);
+          const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
+          if (!source.properties) throw new Error('Auth config has no properties');
+
+          const restore = { properties: structuredClone(source.properties) };
+          const release = { properties: structuredClone(source.properties) };
+          const aad = release.properties.identityProviders?.azureActiveDirectory;
+          if (!aad) throw new Error('Microsoft Entra authentication is not configured');
+          aad.validation ??= {};
+          aad.validation.defaultAuthorizationPolicy ??= {};
+          aad.validation.defaultAuthorizationPolicy.allowedPrincipals ??= {};
+          const principals = aad.validation.defaultAuthorizationPolicy.allowedPrincipals;
+          const identities = Array.isArray(principals.identities) ? [...principals.identities] : [];
+          const changed = !identities.includes(releaseIdentity);
+          if (changed) identities.push(releaseIdentity);
+          principals.identities = identities;
+
+          fs.writeFileSync(restorePath, JSON.stringify(restore));
+          fs.writeFileSync(releasePath, JSON.stringify(release));
+          process.stdout.write(changed ? 'yes' : 'no');
+          NODE
+          )"
+
+          if test "$auth_policy_changed" = "yes"; then
+            az rest --method put --url "$auth_config_url" --body "@$auth_release_file" --only-show-errors >/dev/null
+            echo "Temporarily allowed the release-test identity in Entra Easy Auth."
+          fi
+
+          auth_status=""
+          for auth_attempt in $(seq 1 12); do
+            auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $access_token" "$candidate_url/.auth/me" || true)"
+            echo "Candidate Entra authentication probe $auth_attempt returned HTTP $auth_status"
+            if test "$auth_status" = "200"; then break; fi
+            sleep 5
+          done
+          test "$auth_status" = "200"
+
           CONSULT_BASE_URL="$candidate_url" CONSULT_ACCESS_TOKEN="$access_token" node scripts/consult-release-smoke.mjs
+
+          restore_auth_policy
 
           final_revision="$(az containerapp revision copy -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --from-revision "$candidate" --image "$IMAGE" --revision-suffix "$FINAL_SUFFIX" --min-replicas 0 --max-replicas 2 --query properties.latestRevisionName -o tsv --only-show-errors)"
           test -n "$final_revision"
