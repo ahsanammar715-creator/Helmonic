@@ -23,11 +23,7 @@ export const dynamic = "force-dynamic";
 const maximumQuestionLength = 1_200;
 
 function generalKnowledgeEnabled(config: ReturnType<typeof getRuntimeConfig>): boolean {
-  return Boolean(
-    config.phase1b.generalContextEnabled &&
-      config.model.endpoint &&
-      config.model.deployment,
-  );
+  return Boolean(config.model.endpoint && config.model.deployment);
 }
 
 function errorResponse(message: string, requestId: string, status: number) {
