@@ -14,7 +14,10 @@ import {
   filterUnsupportedAnswerClaims,
 } from "@/lib/consult/claim-evidence-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
-import { azureRequestError } from "@/lib/server/azure-request-error";
+import {
+  azureRequestError,
+  azureRetryDelayMilliseconds,
+} from "@/lib/server/azure-request-error";
 import { verifyClaimEvidenceSupport } from "@/lib/server/claim-evidence-audit";
 import type { RuntimeConfig } from "@/lib/server/config";
 import {
@@ -41,6 +44,11 @@ type ChatCompletionResponse = {
 type GeneratedAnswer = {
   answer: string;
   usage?: ChatCompletionResponse["usage"];
+};
+
+type CompletenessAuditResponse = {
+  complete?: boolean;
+  reason?: string;
 };
 
 function buildEvidence(citations: DocumentModelRequest["evidence"]) {
@@ -120,13 +128,22 @@ function buildAnswerRepairPrompt(input: {
   return `Rewrite the draft into a complete consultant-style answer to the user's arbitrary question. This is a general question-answering system, not a fixed-question template. The previous draft failed the evidence gate for this reason: ${input.reason}\n\n${generalKnowledgeInstruction}\n\nEvery factual paragraph must end with its applicable marker. Use [D#], [S#], [B#], [A#], [E#], or [W#] only for claims directly stated or necessarily entailed by that exact excerpt. Keep public-web claims in separate paragraphs explicitly described as current public-web evidence. Do not mention this repair, the failed draft, hidden source identities, or the validation process. Return only the rewritten answer.\n\nQuestion:\n${input.request.question}\n\nPermitted evidence:\n${buildEvidence(input.request.evidence)}\n\nFailed draft:\n${input.failedAnswer}`;
 }
 
-function buildProfessionalCompletionPrompt(question: string) {
+function buildProfessionalCompletionPrompt(input: {
+  question: string;
+  failedAnswer: string;
+  reason: string;
+}) {
   return `Answer the user's question fully as a practising acoustic consultant using professional technical knowledge. Give the direct answer first, then the reasoning, practical application and any important limitations. This is the final completeness lane because the retrieved excerpts were partial, tangential or could not support the whole answer.
 
-Do not quote, cite or infer any retrieved document, project, client, address, correspondence, measurement result, current legal requirement or current standard clause. Do not use [D#], [S#], [B#], [A#], [E#] or [W#] markers. If the question depends on unavailable project facts, answer the general technical part and clearly list the project inputs needed rather than inventing them. Do not lead with a complaint about insufficient evidence and do not reduce the response to a caveat. Return a complete, natural consultant answer; disclosure markers are added by the server.
+The previous answer was incomplete for this reason: ${input.reason}
+
+Substantively answer every explicit part of the question. If it asks for several definitions, a comparison, a recommendation and a reason, provide all of them. Do not quote, cite or infer any retrieved document, project, client, address, correspondence, measurement result, current legal requirement or current standard clause. Do not use [D#], [S#], [B#], [A#], [E#] or [W#] markers. If the question depends on unavailable project facts, answer the general technical part and clearly list the project inputs needed rather than inventing them. Do not lead with a complaint about insufficient evidence and do not reduce the response to a caveat. Return a complete, natural consultant answer; disclosure markers are added by the server.
 
 Question:
-${question}`;
+${input.question}
+
+Incomplete previous answer:
+${input.failedAnswer}`;
 }
 
 function markProfessionalCompletion(answer: string, hasRetrievedEvidence: boolean) {
@@ -147,6 +164,97 @@ function markProfessionalCompletion(answer: string, hasRetrievedEvidence: boolea
     markerNumber += 1;
   }
   return blocks.join("\n\n");
+}
+
+async function verifyAnswerCompleteness(input: {
+  requestId: string;
+  question: string;
+  answer: string;
+  token: string;
+  config: RuntimeConfig;
+}) {
+  const requestUrl = `${input.config.model.endpoint}/openai/deployments/${encodeURIComponent(
+    input.config.model.deployment ?? "",
+  )}/chat/completions?api-version=${encodeURIComponent(input.config.model.apiVersion)}`;
+  const requestInit: Omit<RequestInit, "signal"> = {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.token}`,
+      "Content-Type": "application/json",
+      "x-ms-client-request-id": input.requestId,
+    },
+    body: JSON.stringify({
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a strict answer-completeness auditor. Decide only whether the answer substantively addresses every explicit component of the question. Do not judge citation formatting or factual accuracy. A concise answer may pass, but a caveat or evidence limitation does not replace an answer to a general technical question. For a request to define several terms, compare them, select an applicable metric and explain why, all four tasks must be covered. For a genuinely project-specific question with unavailable facts, a clear account of what is known, what is unknown and what inputs are needed may be complete. Return only the required JSON object.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({ question: input.question, answer: input.answer }),
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "helmonic_answer_completeness",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              complete: { type: "boolean" },
+              reason: { type: "string" },
+            },
+            required: ["complete", "reason"],
+          },
+        },
+      },
+      reasoning_effort: "low",
+      verbosity: "low",
+      max_completion_tokens: 700,
+    }),
+    cache: "no-store",
+  };
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await fetch(requestUrl, {
+      ...requestInit,
+      signal: AbortSignal.timeout(input.config.model.timeoutMilliseconds),
+    });
+    if (response.status !== 429 || attempt === 2) break;
+    await new Promise((resolve) =>
+      setTimeout(resolve, azureRetryDelayMilliseconds(response as Response, attempt)),
+    );
+  }
+  if (!response) throw new Error("The answer-completeness audit did not execute.");
+  if (!response.ok) {
+    throw await azureRequestError(response, {
+      service: "Azure OpenAI",
+      stage: "model",
+    });
+  }
+  const payload = (await response.json()) as ChatCompletionResponse;
+  const content = payload.choices?.[0]?.message?.content?.trim();
+  if (!content) {
+    throw new ModelGatewayValidationError("The answer-completeness audit returned no result.");
+  }
+  let audit: CompletenessAuditResponse;
+  try {
+    audit = JSON.parse(content) as CompletenessAuditResponse;
+  } catch {
+    throw new ModelGatewayValidationError("The answer-completeness audit returned invalid JSON.");
+  }
+  if (typeof audit.complete !== "boolean" || typeof audit.reason !== "string") {
+    throw new ModelGatewayValidationError("The answer-completeness audit was malformed.");
+  }
+  console.info("Helmonic answer-completeness audit", {
+    requestId: input.requestId,
+    complete: audit.complete,
+    reason: audit.reason,
+  });
+  return { complete: audit.complete, reason: audit.reason };
 }
 
 async function createDocumentAnswer(
@@ -263,6 +371,16 @@ async function createDocumentAnswer(
         removedClaimCount: repaired.removedClaimCount,
       });
     }
+    const completeness = await verifyAnswerCompleteness({
+      requestId: request.requestId,
+      question: request.question,
+      answer,
+      token,
+      config,
+    });
+    if (!completeness.complete) {
+      return { reason: `The answer is incomplete: ${completeness.reason}` };
+    }
     return { answer, validation };
   };
 
@@ -301,7 +419,11 @@ async function createDocumentAnswer(
         requestId: request.requestId,
         systemPrompt:
           "You are Helmonic Consult, an expert acoustic consultant. Be technically accurate, useful and explicit about uncertainty. Never invent private or project-specific facts.",
-        userPrompt: buildProfessionalCompletionPrompt(request.question),
+        userPrompt: buildProfessionalCompletionPrompt({
+          question: request.question,
+          failedAnswer: repaired.answer,
+          reason: reviewed.reason ?? firstFailure,
+        }),
         token,
         config,
       });

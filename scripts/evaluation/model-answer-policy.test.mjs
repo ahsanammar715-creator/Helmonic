@@ -57,6 +57,7 @@ test("general-knowledge mode completes the requested answer beyond tangential ev
   });
 
   assert.match(prompt, /Answer the user's actual question completely enough to be useful/i);
+  assert.match(prompt, /every explicit sub-question or requested comparison, recommendation and reason/i);
   assert.match(prompt, /begin with a concise direct answer/i);
   assert.match(prompt, /merely contains the queried words, lists a qualification/i);
   assert.match(prompt, /partial or tangential/i);
