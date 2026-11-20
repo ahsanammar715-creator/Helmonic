@@ -11,6 +11,7 @@ permissions:
 env:
   RESOURCE_GROUP: RG-HELMONIC-DEV
   CONTAINER_APP: ca-helmonic-consult-dev-002
+  TENANT_ID: 360eacb5-68c3-400c-a366-0382ec3a7b4a
   IMAGE: acrhelmonicdev001-etd4eqevdcf6e7bs.azurecr.io/helmonic-consult:a7e49059bd3f709debd91741fb2fcdffc67ad542
   VALIDATION_SUFFIX: val${{ github.run_id }}a${{ github.run_attempt }}
   FINAL_SUFFIX: fx${{ github.run_id }}a${{ github.run_attempt }}
@@ -89,12 +90,30 @@ jobs:
           test -n "$auth_client_id"
 
           allowed_audience="$(az containerapp auth microsoft show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query 'validation.allowedAudiences[0]' -o tsv --only-show-errors || true)"
+          auth_secret_name="$(az containerapp auth microsoft show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query registration.clientSecretSettingName -o tsv --only-show-errors)"
+          test -n "$auth_secret_name"
+          auth_secret="$(az containerapp secret list -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --show-values --query "[?name=='$auth_secret_name'].value | [0]" -o tsv --only-show-errors)"
+          test -n "$auth_secret"
+          echo "::add-mask::$auth_secret"
+
           access_token=""
+          auth_attempt=0
           for resource in "$allowed_audience" "api://$auth_client_id" "$auth_client_id"; do
             test -n "$resource" || continue
-            access_token="$(az account get-access-token --resource "$resource" --query accessToken -o tsv --only-show-errors 2>/dev/null || true)"
+            auth_attempt=$((auth_attempt + 1))
+            scope="${resource%/}/.default"
+            token_json="$(curl --silent --show-error --fail \
+              --request POST "https://login.microsoftonline.com/$TENANT_ID/oauth2/v2.0/token" \
+              --header 'content-type: application/x-www-form-urlencoded' \
+              --data-urlencode "client_id=$auth_client_id" \
+              --data-urlencode "client_secret=$auth_secret" \
+              --data-urlencode 'grant_type=client_credentials' \
+              --data-urlencode "scope=$scope" || true)"
+            access_token="$(printf '%s' "$token_json" | node -e 'let body=""; process.stdin.on("data", chunk => body += chunk).on("end", () => { try { process.stdout.write(JSON.parse(body).access_token || ""); } catch {} });')"
             test -n "$access_token" || continue
+            echo "::add-mask::$access_token"
             auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $access_token" "$candidate_url/.auth/me" || true)"
+            echo "Candidate Entra authentication attempt $auth_attempt returned HTTP $auth_status"
             if test "$auth_status" = "200"; then break; fi
             access_token=""
           done
