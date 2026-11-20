@@ -159,7 +159,20 @@ jobs:
           NODE
           )"
           test -n "$release_principal_object_id"
-          echo "Release-test Entra identity derived from the token."
+          release_application_id="$(ACCESS_TOKEN="$access_token" node <<'NODE'
+          const token = process.env.ACCESS_TOKEN || '';
+          const payloadPart = token.split('.')[1] || '';
+          try {
+            const payload = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8'));
+            const applicationId = payload.azp || payload.appid || '';
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(applicationId)) {
+              process.stdout.write(applicationId);
+            }
+          } catch {}
+          NODE
+          )"
+          test -n "$release_application_id"
+          echo "Release-test Entra identity and calling application derived from the token."
 
           container_app_id="$(az containerapp show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query id -o tsv --only-show-errors)"
           test -n "$container_app_id"
@@ -171,9 +184,9 @@ jobs:
           az rest --method get --url "$auth_config_url" --only-show-errors > "$auth_snapshot_file"
           echo "Existing Entra authorization policy snapshotted."
 
-          auth_policy_changed="$(node - "$auth_snapshot_file" "$auth_restore_file" "$auth_release_file" "$release_principal_object_id" <<'NODE'
+          auth_policy_changed="$(node - "$auth_snapshot_file" "$auth_restore_file" "$auth_release_file" "$release_principal_object_id" "$release_application_id" <<'NODE'
           const fs = require('fs');
-          const [sourcePath, restorePath, releasePath, releaseIdentity] = process.argv.slice(2);
+          const [sourcePath, restorePath, releasePath, releaseIdentity, releaseApplication] = process.argv.slice(2);
           const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
           if (!source.properties) throw new Error('Auth config has no properties');
 
@@ -186,9 +199,33 @@ jobs:
           aad.validation.defaultAuthorizationPolicy.allowedPrincipals ??= {};
           const principals = aad.validation.defaultAuthorizationPolicy.allowedPrincipals;
           const identities = Array.isArray(principals.identities) ? [...principals.identities] : [];
-          const changed = !identities.includes(releaseIdentity);
-          if (changed) identities.push(releaseIdentity);
+          const identityChanged = !identities.includes(releaseIdentity);
+          if (identityChanged) identities.push(releaseIdentity);
           principals.identities = identities;
+
+          const policy = aad.validation.defaultAuthorizationPolicy;
+          const allowedApplications = Array.isArray(policy.allowedApplications)
+            ? [...policy.allowedApplications]
+            : [];
+          const applicationChanged = allowedApplications.length > 0
+            && !allowedApplications.includes(releaseApplication);
+          if (applicationChanged) {
+            allowedApplications.push(releaseApplication);
+            policy.allowedApplications = allowedApplications;
+          }
+
+          const claimChecks = aad.validation.jwtClaimChecks;
+          const allowedClientApplications = Array.isArray(claimChecks?.allowedClientApplications)
+            ? [...claimChecks.allowedClientApplications]
+            : [];
+          const clientClaimChanged = allowedClientApplications.length > 0
+            && !allowedClientApplications.includes(releaseApplication);
+          if (clientClaimChanged) {
+            allowedClientApplications.push(releaseApplication);
+            claimChecks.allowedClientApplications = allowedClientApplications;
+          }
+
+          const changed = identityChanged || applicationChanged || clientClaimChanged;
 
           fs.writeFileSync(restorePath, JSON.stringify(restore));
           fs.writeFileSync(releasePath, JSON.stringify(release));
