@@ -144,6 +144,7 @@ jobs:
             break
           done
           test -n "$access_token"
+          echo "Short-lived release-test token minted."
 
           release_principal_object_id="$(ACCESS_TOKEN="$access_token" node <<'NODE'
           const token = process.env.ACCESS_TOKEN || '';
@@ -158,14 +159,17 @@ jobs:
           NODE
           )"
           test -n "$release_principal_object_id"
+          echo "Release-test Entra identity derived from the token."
 
-          auth_config_id="$(az containerapp auth show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query id -o tsv --only-show-errors)"
-          test -n "$auth_config_id"
+          container_app_id="$(az containerapp show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query id -o tsv --only-show-errors)"
+          test -n "$container_app_id"
+          auth_config_id="${container_app_id}/authConfigs/current"
           auth_config_url="https://management.azure.com${auth_config_id}?api-version=${AUTH_API_VERSION}"
           auth_snapshot_file="$RUNNER_TEMP/consult-auth-original-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
           auth_restore_file="$RUNNER_TEMP/consult-auth-restore-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
           auth_release_file="$RUNNER_TEMP/consult-auth-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
           az rest --method get --url "$auth_config_url" --only-show-errors > "$auth_snapshot_file"
+          echo "Existing Entra authorization policy snapshotted."
 
           auth_policy_changed="$(node - "$auth_snapshot_file" "$auth_restore_file" "$auth_release_file" "$release_principal_object_id" <<'NODE'
           const fs = require('fs');
