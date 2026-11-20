@@ -16,6 +16,7 @@ import {
   extractCitedClaimBlocks,
   filterUncitedAnswerClaims,
   filterUnsupportedAnswerClaims,
+  reclassifyUnsupportedGeneralClaims,
   renumberGeneralKnowledgeMarkers,
   validateClaimCitationCoverage,
   validateClaimSupportVerdicts,
@@ -426,6 +427,27 @@ test("general-knowledge markers are renumbered after unsupported paragraphs are 
   );
 });
 
+test("unsupported generic guidance is disclosed as general knowledge while unsafe claims are removed", () => {
+  const result = reclassifyUnsupportedGeneralClaims(
+    [
+      "## Assessment approach",
+      "The retrieved report states a measured result. [D1]",
+      "A rooftop plant assessment should consider source, path and receiver. [D2]",
+      "The unnamed project achieved 42 dB. [D3]",
+      "Existing professional guidance remains applicable. [G7]",
+    ].join("\n\n"),
+    ["C2", "C3"],
+    ["C2"],
+  );
+
+  assert.equal(result.reclassifiedClaimCount, 1);
+  assert.equal(result.removedClaimCount, 1);
+  assert.match(result.answer, /## Assessment approach/);
+  assert.match(result.answer, /source, path and receiver\. \[G1\]/);
+  assert.doesNotMatch(result.answer, /42 dB/);
+  assert.match(result.answer, /Existing professional guidance remains applicable\. \[G2\]/);
+});
+
 test("template headings and table scaffolding do not require citations", () => {
   const answer = [
     "# Reverberation Time Test Report",
@@ -523,11 +545,19 @@ test("claim audit fails closed on an unsupported verdict or omitted claim", () =
   );
   const result = validateClaimSupportVerdicts({
     claims,
-    verdicts: [{ claimId: "C1", supported: false, reason: "The excerpt contains no value." }],
+    verdicts: [
+      {
+        claimId: "C1",
+        supported: false,
+        safeAsGeneralKnowledge: false,
+        reason: "The excerpt contains no value.",
+      },
+    ],
   });
 
   assert.equal(result.valid, false);
   assert.match(result.errors.join(" "), /C1 is not supported/);
   assert.match(result.errors.join(" "), /omitted C2/);
   assert.deepEqual(result.unsupportedClaimIds, ["C1"]);
+  assert.deepEqual(result.safeAsGeneralKnowledgeClaimIds, []);
 });

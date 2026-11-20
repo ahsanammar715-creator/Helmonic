@@ -17,6 +17,7 @@ export type CitedClaimBlock = {
 export type ClaimSupportVerdict = {
   claimId: `C${number}`;
   supported: boolean;
+  safeAsGeneralKnowledge: boolean;
   reason: string;
 };
 
@@ -140,7 +141,7 @@ export function filterUnsupportedAnswerClaims(
     .split(/\n\s*\n/g)
     .filter((block) => {
       const trimmed = block.trim();
-      if (!trimmed || !substantive(trimmed)) return true;
+      if (!trimmed || !substantive(trimmed) || structural(trimmed)) return true;
       substantiveIndex += 1;
       if (!unsupported.has(`C${substantiveIndex}`)) return true;
       removedClaimCount += 1;
@@ -151,6 +152,52 @@ export function filterUnsupportedAnswerClaims(
     .join("\n\n");
 
   return { answer: retained, removedClaimCount };
+}
+
+export function reclassifyUnsupportedGeneralClaims(
+  answer: string,
+  unsupportedClaimIds: string[],
+  safeAsGeneralKnowledgeClaimIds: string[],
+) {
+  const unsupported = new Set(unsupportedClaimIds);
+  const safeAsGeneralKnowledge = new Set(safeAsGeneralKnowledgeClaimIds);
+  let substantiveIndex = 0;
+  let removedClaimCount = 0;
+  let reclassifiedClaimCount = 0;
+  const retained = answer
+    .split(/\n\s*\n/g)
+    .flatMap((block) => {
+      const trimmed = block.trim();
+      if (!trimmed || !substantive(trimmed) || structural(trimmed)) return [trimmed];
+      substantiveIndex += 1;
+      const claimId = `C${substantiveIndex}`;
+      if (!unsupported.has(claimId)) return [trimmed];
+      if (!safeAsGeneralKnowledge.has(claimId)) {
+        removedClaimCount += 1;
+        return [];
+      }
+
+      const generalised = trimmed
+        .replace(controlledMarkerPattern, "")
+        .replace(generalMarkerPattern, "")
+        .replace(/[ \t]+([,.;:!?])/g, "$1")
+        .replace(/[ \t]{2,}/g, " ")
+        .trim();
+      if (!generalised) {
+        removedClaimCount += 1;
+        return [];
+      }
+      reclassifiedClaimCount += 1;
+      return [`${generalised} [G1]`];
+    })
+    .filter(Boolean)
+    .join("\n\n");
+
+  return {
+    answer: renumberGeneralKnowledgeMarkers(retained),
+    removedClaimCount,
+    reclassifiedClaimCount,
+  };
 }
 
 export function renumberGeneralKnowledgeMarkers(answer: string) {
@@ -236,6 +283,9 @@ export function validateClaimSupportVerdicts(input: {
       continue;
     }
     seen.add(verdict.claimId);
+    if (typeof verdict.safeAsGeneralKnowledge !== "boolean") {
+      errors.push(`${verdict.claimId} omitted the general-knowledge safety decision.`);
+    }
     if (!verdict.supported) {
       errors.push(`${verdict.claimId} is not supported by its cited excerpts: ${verdict.reason}`);
     }
@@ -250,6 +300,14 @@ export function validateClaimSupportVerdicts(input: {
     errors,
     unsupportedClaimIds: input.verdicts
       .filter((verdict) => expected.has(verdict.claimId) && !verdict.supported)
+      .map((verdict) => verdict.claimId),
+    safeAsGeneralKnowledgeClaimIds: input.verdicts
+      .filter(
+        (verdict) =>
+          expected.has(verdict.claimId) &&
+          !verdict.supported &&
+          verdict.safeAsGeneralKnowledge === true,
+      )
       .map((verdict) => verdict.claimId),
   };
 }

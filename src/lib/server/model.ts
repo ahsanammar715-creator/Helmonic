@@ -12,6 +12,7 @@ import {
 import {
   filterUncitedAnswerClaims,
   filterUnsupportedAnswerClaims,
+  reclassifyUnsupportedGeneralClaims,
   renumberGeneralKnowledgeMarkers,
 } from "@/lib/consult/claim-evidence-policy";
 import { getAzureAccessToken } from "@/lib/server/azure-credential";
@@ -367,7 +368,13 @@ async function createDocumentAnswer(
       throw error;
     }
     if (audit && audit.unsupportedClaimIds.length > 0) {
-      const repaired = filterUnsupportedAnswerClaims(answer, audit.unsupportedClaimIds);
+      const repaired = request.allowGeneralKnowledge
+        ? reclassifyUnsupportedGeneralClaims(
+            answer,
+            audit.unsupportedClaimIds,
+            audit.safeAsGeneralKnowledgeClaimIds,
+          )
+        : filterUnsupportedAnswerClaims(answer, audit.unsupportedClaimIds);
       if (!repaired.answer) {
         return { reason: "Every generated claim exceeded its cited excerpts." };
       }
@@ -386,6 +393,8 @@ async function createDocumentAnswer(
         requestId: request.requestId,
         unsupportedClaimIds: audit.unsupportedClaimIds,
         removedClaimCount: repaired.removedClaimCount,
+        reclassifiedClaimCount:
+          "reclassifiedClaimCount" in repaired ? repaired.reclassifiedClaimCount : 0,
       });
       completeness = await verifyAnswerCompleteness({
         requestId: request.requestId,

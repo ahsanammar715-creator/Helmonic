@@ -69,7 +69,7 @@ export async function verifyClaimEvidenceSupport(input: {
           {
             role: "system",
             content:
-              "You are a strict claim-to-evidence auditor. Assess each claim only against the excerpts attached to that claim. Do not use outside knowledge. A claim is supported only when every project fact, number, metric, material, standard, relationship and recommendation attributed to the cited evidence is directly stated or necessarily entailed by those excerpts. Conservative statements that evidence is absent may be accepted only when the claim is explicitly limited to the supplied excerpts. Return one verdict for every claim id and no others.",
+              "You are a strict claim-to-evidence auditor. Assess each claim only against the excerpts attached to that claim. Do not use outside knowledge. A claim is supported only when every project fact, number, metric, material, standard, relationship and recommendation attributed to the cited evidence is directly stated or necessarily entailed by those excerpts. Conservative statements that evidence is absent may be accepted only when the claim is explicitly limited to the supplied excerpts. For every unsupported claim, set safeAsGeneralKnowledge true only when the entire claim is generic professional guidance that contains no project/client/address/person fact, measurement result, product-specific assertion, current legal or regulatory claim, current standard requirement, source attribution, or statement about what the supplied evidence says. Otherwise set it false. Supported claims must set safeAsGeneralKnowledge false. Return one verdict for every claim id and no others.",
           },
           { role: "user", content: JSON.stringify(audit) },
         ],
@@ -90,9 +90,10 @@ export async function verifyClaimEvidenceSupport(input: {
                     properties: {
                       claimId: { type: "string" },
                       supported: { type: "boolean" },
+                      safeAsGeneralKnowledge: { type: "boolean" },
                       reason: { type: "string" },
                     },
-                    required: ["claimId", "supported", "reason"],
+                    required: ["claimId", "supported", "safeAsGeneralKnowledge", "reason"],
                   },
                 },
               },
@@ -165,6 +166,9 @@ export async function verifyClaimEvidenceSupport(input: {
     verdicts,
   });
   const unsupportedClaimIds = new Set(validation.unsupportedClaimIds);
+  const safeAsGeneralKnowledgeClaimIds = new Set(
+    validation.safeAsGeneralKnowledgeClaimIds,
+  );
   const structuralErrors = validation.errors.filter(
     (error) =>
       !Array.from(unsupportedClaimIds).some((claimId) =>
@@ -184,10 +188,12 @@ export async function verifyClaimEvidenceSupport(input: {
     batchCount: batches.length,
     supported: unsupportedClaimIds.size === 0,
     unsupportedClaimCount: unsupportedClaimIds.size,
+    safeAsGeneralKnowledgeClaimCount: safeAsGeneralKnowledgeClaimIds.size,
   });
   return {
     claimCount: controlledClaims.length,
     batchCount: batches.length,
     unsupportedClaimIds: Array.from(unsupportedClaimIds),
+    safeAsGeneralKnowledgeClaimIds: Array.from(safeAsGeneralKnowledgeClaimIds),
   };
 }
