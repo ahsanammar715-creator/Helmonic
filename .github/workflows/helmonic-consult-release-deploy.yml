@@ -133,7 +133,12 @@ jobs:
           import base64
           from pathlib import Path
 
-          payload = Path("scripts/consult-release-container-smoke.js").read_bytes().rstrip(b"\r\n") + b"\r"
+          script = base64.b64encode(
+              Path("scripts/consult-release-container-smoke.js").read_bytes()
+          ).decode("ascii")
+          payload = (
+              f"eval(Buffer.from('{script}','base64').toString('utf8'))\r"
+          ).encode("utf-8")
           print(base64.b64encode(payload).decode("ascii"))
           PY
           )"
