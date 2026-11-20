@@ -11,7 +11,7 @@ permissions:
 env:
   RESOURCE_GROUP: RG-HELMONIC-DEV
   CONTAINER_APP: ca-helmonic-consult-dev-002
-  IMAGE: acrhelmonicdev001-etd4eqevdcf6e7bs.azurecr.io/helmonic-consult:a7e49059bd3f709debd91741fb2fcdffc67ad542
+  IMAGE: acrhelmonicdev001-etd4eqevdcf6e7bs.azurecr.io/helmonic-consult:${{ github.sha }}
   VALIDATION_SUFFIX: val${{ github.run_id }}a${{ github.run_attempt }}
   FINAL_SUFFIX: fx${{ github.run_id }}a${{ github.run_attempt }}
 
