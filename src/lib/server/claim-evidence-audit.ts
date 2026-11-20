@@ -52,9 +52,7 @@ export async function verifyClaimEvidenceSupport(input: {
     deployment,
   )}/chat/completions?api-version=${encodeURIComponent(input.config.model.apiVersion)}`;
   const batches = batchClaimEvidenceAudit(controlledClaims);
-  const verdicts: ClaimSupportVerdict[] = [];
-
-  for (const [batchIndex, batchClaims] of batches.entries()) {
+  const batchVerdicts = await Promise.all(batches.map(async (batchClaims, batchIndex) => {
     const audit = buildClaimEvidenceAudit({
       claims: batchClaims,
       citations: input.citations,
@@ -158,8 +156,9 @@ export async function verifyClaimEvidenceSupport(input: {
         `The claim-evidence audit did not return verdicts for batch ${batchIndex + 1} of ${batches.length}.`,
       );
     }
-    verdicts.push(...parsed.verdicts);
-  }
+    return parsed.verdicts;
+  }));
+  const verdicts: ClaimSupportVerdict[] = batchVerdicts.flat();
 
   const validation = validateClaimSupportVerdicts({
     claims: controlledClaims,

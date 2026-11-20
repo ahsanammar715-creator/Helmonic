@@ -340,15 +340,25 @@ async function createDocumentAnswer(
     }
 
     let audit;
+    let completeness;
     try {
-      audit = await verifyClaimEvidenceSupport({
-        requestId: request.requestId,
-        answer,
-        citations: request.evidence,
-        allowGeneralKnowledge: request.allowGeneralKnowledge,
-        config,
-        unsupportedClaimPolicy: "return",
-      });
+      [audit, completeness] = await Promise.all([
+        verifyClaimEvidenceSupport({
+          requestId: request.requestId,
+          answer,
+          citations: request.evidence,
+          allowGeneralKnowledge: request.allowGeneralKnowledge,
+          config,
+          unsupportedClaimPolicy: "return",
+        }),
+        verifyAnswerCompleteness({
+          requestId: request.requestId,
+          question: request.question,
+          answer,
+          token,
+          config,
+        }),
+      ]);
     } catch (error) {
       if (error instanceof ModelGatewayValidationError) {
         return { reason: error.message };
@@ -376,14 +386,14 @@ async function createDocumentAnswer(
         unsupportedClaimIds: audit.unsupportedClaimIds,
         removedClaimCount: repaired.removedClaimCount,
       });
+      completeness = await verifyAnswerCompleteness({
+        requestId: request.requestId,
+        question: request.question,
+        answer,
+        token,
+        config,
+      });
     }
-    const completeness = await verifyAnswerCompleteness({
-      requestId: request.requestId,
-      question: request.question,
-      answer,
-      token,
-      config,
-    });
     if (!completeness.complete) {
       return { reason: `The answer is incomplete: ${completeness.reason}` };
     }
