@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { AssistantBubble, UserBubble } from "@/components/ChatBubble";
 import ChatComposer from "@/components/ChatComposer";
+import MarkdownAnswer from "@/components/consult/MarkdownAnswer";
 import SourcesPanel from "@/components/SourcesPanel";
 import TopBar from "@/components/TopBar";
 import WaveDivider from "@/components/WaveDivider";
@@ -314,9 +315,7 @@ export default function ConsultWorkspace({
                             )}
                           </span>
                         )}
-                        <p className="m-0 whitespace-pre-wrap text-[14px] leading-[1.7]">
-                          {exchange.answer}
-                        </p>
+                        {exchange.answer && <MarkdownAnswer answer={exchange.answer} />}
                         {exchange.generalKnowledgeUsed && (
                           <p className="m-0 rounded-md border border-dashed border-line bg-canvas px-3 py-2 text-[11px] leading-[1.55] text-muted">
                             [G] marks the model&apos;s own general knowledge, not verified
