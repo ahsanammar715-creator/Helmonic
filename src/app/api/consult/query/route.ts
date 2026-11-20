@@ -309,7 +309,7 @@ export async function POST(request: Request) {
       azureDiagnostic,
     });
     return errorResponse(
-      "Helmonic could not complete this request. Please retry with the prepared demo question.",
+      "Helmonic could not complete this request. Please retry the question.",
       requestId,
       502,
     );

@@ -79,7 +79,7 @@ export default function ConsultWorkspace({
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [pending, setPending] = useState(false);
   const [conversationId, setConversationId] = useState<string>();
-  const [includeGeneralContext, setIncludeGeneralContext] = useState(false);
+  const [includeGeneralContext, setIncludeGeneralContext] = useState(true);
   const [includeDeidentifiedExperience, setIncludeDeidentifiedExperience] = useState(false);
   const includeWebEvidence = webGroundingEnabled;
   const latestSources = exchanges.at(-1)?.citations ?? [];
