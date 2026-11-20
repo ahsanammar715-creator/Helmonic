@@ -4,6 +4,8 @@ import {
   buildEvidenceOnlyAnswer,
   buildConsultSystemPrompt,
   framePublicWebEvidence,
+  NO_DOCUMENT_EVIDENCE_NOTICE,
+  stopsAtEvidenceGap,
   validateExperienceAnswer,
   validateDocumentAnswerCitations,
 } from "@/lib/consult/model-policy";
@@ -118,6 +120,35 @@ function buildAnswerRepairPrompt(input: {
   return `Rewrite the draft into a complete consultant-style answer to the user's arbitrary question. This is a general question-answering system, not a fixed-question template. The previous draft failed the evidence gate for this reason: ${input.reason}\n\n${generalKnowledgeInstruction}\n\nEvery factual paragraph must end with its applicable marker. Use [D#], [S#], [B#], [A#], [E#], or [W#] only for claims directly stated or necessarily entailed by that exact excerpt. Keep public-web claims in separate paragraphs explicitly described as current public-web evidence. Do not mention this repair, the failed draft, hidden source identities, or the validation process. Return only the rewritten answer.\n\nQuestion:\n${input.request.question}\n\nPermitted evidence:\n${buildEvidence(input.request.evidence)}\n\nFailed draft:\n${input.failedAnswer}`;
 }
 
+function buildProfessionalCompletionPrompt(question: string) {
+  return `Answer the user's question fully as a practising acoustic consultant using professional technical knowledge. Give the direct answer first, then the reasoning, practical application and any important limitations. This is the final completeness lane because the retrieved excerpts were partial, tangential or could not support the whole answer.
+
+Do not quote, cite or infer any retrieved document, project, client, address, correspondence, measurement result, current legal requirement or current standard clause. Do not use [D#], [S#], [B#], [A#], [E#] or [W#] markers. If the question depends on unavailable project facts, answer the general technical part and clearly list the project inputs needed rather than inventing them. Do not lead with a complaint about insufficient evidence and do not reduce the response to a caveat. Return a complete, natural consultant answer; disclosure markers are added by the server.
+
+Question:
+${question}`;
+}
+
+function markProfessionalCompletion(answer: string, hasRetrievedEvidence: boolean) {
+  const cleaned = answer
+    .replace(NO_DOCUMENT_EVIDENCE_NOTICE, "")
+    .split(/\n\s*\n/g)
+    .map((block) => block.replace(/\[[DSBAEWG]\d+\]/g, "").trim())
+    .filter(Boolean);
+  const blocks: string[] = [];
+  let markerNumber = 1;
+
+  if (!hasRetrievedEvidence) {
+    blocks.push(`${NO_DOCUMENT_EVIDENCE_NOTICE} [G${markerNumber}]`);
+    markerNumber += 1;
+  }
+  for (const block of cleaned) {
+    blocks.push(`${block} [G${markerNumber}]`);
+    markerNumber += 1;
+  }
+  return blocks.join("\n\n");
+}
+
 async function createDocumentAnswer(
   request: DocumentModelRequest,
   config: RuntimeConfig,
@@ -187,6 +218,13 @@ async function createDocumentAnswer(
       });
     }
 
+    if (request.allowGeneralKnowledge && stopsAtEvidenceGap(answer)) {
+      return {
+        reason:
+          "The draft stops at an evidence limitation instead of completing the general technical answer from disclosed professional knowledge.",
+      };
+    }
+
     let audit;
     try {
       audit = await verifyClaimEvidenceSupport({
@@ -230,6 +268,7 @@ async function createDocumentAnswer(
 
   let reviewed = await reviewAnswer(initial.answer);
   let repairUsage: ChatCompletionResponse["usage"] | undefined;
+  let completionUsage: ChatCompletionResponse["usage"] | undefined;
   if (!reviewed.answer) {
     const firstFailure = reviewed.reason ?? "The generated answer failed validation.";
     console.warn("Helmonic is rewriting generated prose through the bounded evidence gate", {
@@ -250,7 +289,31 @@ async function createDocumentAnswer(
     repairUsage = repaired.usage;
     reviewed = await reviewAnswer(repaired.answer);
     if (!reviewed.answer) {
-      return evidenceOnlyFallback(reviewed.reason ?? firstFailure);
+      if (!request.allowGeneralKnowledge) {
+        return evidenceOnlyFallback(reviewed.reason ?? firstFailure);
+      }
+
+      console.warn("Helmonic is completing the answer through the professional-knowledge lane", {
+        requestId: request.requestId,
+        reason: reviewed.reason ?? firstFailure,
+      });
+      const completion = await requestGeneratedAnswer({
+        requestId: request.requestId,
+        systemPrompt:
+          "You are Helmonic Consult, an expert acoustic consultant. Be technically accurate, useful and explicit about uncertainty. Never invent private or project-specific facts.",
+        userPrompt: buildProfessionalCompletionPrompt(request.question),
+        token,
+        config,
+      });
+      completionUsage = completion.usage;
+      reviewed = await reviewAnswer(
+        markProfessionalCompletion(completion.answer, request.evidence.length > 0),
+      );
+      if (!reviewed.answer) {
+        throw new ModelGatewayValidationError(
+          reviewed.reason ?? "The professional completion answer failed validation.",
+        );
+      }
     }
   }
 
@@ -266,6 +329,8 @@ async function createDocumentAnswer(
     reasoningTokens: initial.usage?.completion_tokens_details?.reasoning_tokens,
     repairPromptTokens: repairUsage?.prompt_tokens,
     repairCompletionTokens: repairUsage?.completion_tokens,
+    professionalCompletionPromptTokens: completionUsage?.prompt_tokens,
+    professionalCompletionTokens: completionUsage?.completion_tokens,
     citationMarkers: validation.markers,
     generalKnowledgeMarkers: validation.generalMarkers,
   });

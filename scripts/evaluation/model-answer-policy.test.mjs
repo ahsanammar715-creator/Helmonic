@@ -6,6 +6,7 @@ import {
   buildConsultSystemPrompt,
   framePublicWebEvidence,
   NO_DOCUMENT_EVIDENCE_NOTICE,
+  stopsAtEvidenceGap,
   validateExperienceAnswer,
   validateDocumentAnswerCitations,
 } from "../../src/lib/consult/model-policy.ts";
@@ -142,6 +143,33 @@ test("document and general context can flow through one answer with separate mar
   assert.equal(result.valid, true);
   assert.deepEqual(result.markers, ["D1"]);
   assert.deepEqual(result.generalMarkers, ["G1"]);
+});
+
+test("tangential retrieved evidence does not prevent a complete general-knowledge answer", () => {
+  const result = validateDocumentAnswerCitations(
+    "Rw is a laboratory rating, while DnT,w is an in-situ standardized level difference. [G1]",
+    citations,
+    { allowGeneralKnowledge: true },
+  );
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.markers, []);
+  assert.deepEqual(result.generalMarkers, ["G1"]);
+});
+
+test("an evidence caveat without professional completion is detected", () => {
+  assert.equal(
+    stopsAtEvidenceGap(
+      "From the supplied evidence alone I cannot determine which metric governs. [D1]",
+    ),
+    true,
+  );
+  assert.equal(
+    stopsAtEvidenceGap(
+      "The supplied passage does not establish the criterion. [D1]\n\nRw is a laboratory rating, while DnT,w is an in-situ rating. [G1]",
+    ),
+    false,
+  );
 });
 
 test("general-only fallback discloses that the permitted documents do not cover it", () => {

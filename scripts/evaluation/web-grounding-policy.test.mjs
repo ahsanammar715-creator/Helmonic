@@ -51,6 +51,18 @@ test("acoustic-panel definitions retain the specific public concept", () => {
   assert.match(query, /professional technical definition/);
 });
 
+test("sound-insulation rating comparisons produce a privacy-safe public query", () => {
+  const query = buildSafePublicWebQuery(
+    "Explain the difference between Rw, DnT,w and DnT,w + Ctr for an apartment assessment.",
+  );
+
+  assert.ok(query);
+  assert.match(query, /Rw weighted sound reduction index/);
+  assert.match(query, /DnT,w standardized level difference/);
+  assert.match(query, /Ctr spectrum adaptation term/);
+  assert.doesNotMatch(query, /apartment assessment/i);
+});
+
 test("Brave LLM context becomes normal W evidence with exact public links", () => {
   const citations = parseBravePublicWebCitations(
     {

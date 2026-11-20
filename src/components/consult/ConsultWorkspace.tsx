@@ -45,14 +45,16 @@ function modeLabel(
   hasWebEvidence = false,
 ) {
   if (mode === "generated" && hasWebEvidence && hasDocumentEvidence) {
-    return "Helmonic + current public web";
+    return "Consultant answer · Helmonic + public web";
   }
-  if (mode === "generated" && hasWebEvidence) return "Current public web";
+  if (mode === "generated" && hasWebEvidence) return "Consultant answer · public web";
   if (mode === "generated" && generalKnowledgeUsed && hasDocumentEvidence) {
-    return "Documents + general context";
+    return "Consultant answer · Helmonic + professional context";
   }
-  if (mode === "generated" && generalKnowledgeUsed) return "General context";
-  if (mode === "generated") return "Grounded answer";
+  if (mode === "generated" && generalKnowledgeUsed) {
+    return "Consultant answer · professional context";
+  }
+  if (mode === "generated") return "Consultant answer";
   if (mode === "retrieval-only") return "Retrieval verified";
   if (mode === "no-evidence") return "Insufficient evidence";
   if (mode === "not-configured") return "Runtime not configured";
@@ -80,7 +82,6 @@ export default function ConsultWorkspace({
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [pending, setPending] = useState(false);
   const [conversationId, setConversationId] = useState<string>();
-  const [includeGeneralContext, setIncludeGeneralContext] = useState(true);
   const [includeDeidentifiedExperience, setIncludeDeidentifiedExperience] = useState(false);
   const includeWebEvidence = webGroundingEnabled;
   const latestSources = exchanges.at(-1)?.citations ?? [];
@@ -99,7 +100,6 @@ export default function ConsultWorkspace({
         body: JSON.stringify({
           question,
           conversationId,
-          includeGeneralContext,
           includeDeidentifiedExperience,
           includeWebEvidence,
         }),
@@ -212,9 +212,9 @@ export default function ConsultWorkspace({
                     <WaveDivider color="var(--color-primary)" />
                   </div>
                   <p className="m-0 text-[15px] leading-[1.6] text-muted max-w-[520px]">
-                    Ask across the approved Helmonic project and reference knowledge base.
-                    Helmonic only returns evidence the server retrieved, with the page or section
-                    when available.
+                    Ask across Helmonic knowledge, approved project evidence and current public
+                    sources. Answers are completed in a consultant style while keeping project
+                    facts tied to traceable evidence.
                   </p>
                 </div>
 
@@ -385,15 +385,11 @@ export default function ConsultWorkspace({
             />
             Include de-identified experience from at least three comparable projects
           </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={includeGeneralContext}
-              onChange={(event) => setIncludeGeneralContext(event.target.checked)}
-              className="accent-primary"
-            />
-            Allow clearly marked general knowledge in the same answer
-          </label>
+          <p className="m-0 flex items-center gap-2">
+            <ShieldCheck size={14} strokeWidth={1.6} />
+            Professional knowledge automatically completes the answer when retrieved evidence is
+            partial; project-specific facts still require traceable evidence.
+          </p>
           {webGroundingEnabled && (
             <p className="m-0 flex items-center gap-2">
               <ShieldCheck size={14} strokeWidth={1.6} />

@@ -22,13 +22,9 @@ export const dynamic = "force-dynamic";
 
 const maximumQuestionLength = 1_200;
 
-function generalKnowledgeEnabled(
-  requested: boolean,
-  config: ReturnType<typeof getRuntimeConfig>,
-): boolean {
+function generalKnowledgeEnabled(config: ReturnType<typeof getRuntimeConfig>): boolean {
   return Boolean(
-    requested &&
-      config.phase1b.generalContextEnabled &&
+    config.phase1b.generalContextEnabled &&
       config.model.endpoint &&
       config.model.deployment,
   );
@@ -75,10 +71,6 @@ export async function POST(request: Request) {
     typeof body === "object" && body !== null && "question" in body
       ? (body as { question?: unknown }).question
       : undefined;
-  const includeGeneralContext =
-    typeof body === "object" && body !== null && "includeGeneralContext" in body
-      ? (body as { includeGeneralContext?: unknown }).includeGeneralContext === true
-      : false;
   const includeEmailEvidence =
     typeof body === "object" && body !== null && "includeEmailEvidence" in body
       ? (body as { includeEmailEvidence?: unknown }).includeEmailEvidence === true
@@ -225,7 +217,10 @@ export async function POST(request: Request) {
       ...experienceCitations,
       ...webEvidence.citations,
     ];
-    const allowGeneralKnowledge = generalKnowledgeEnabled(includeGeneralContext, config);
+    // Professional knowledge is an automatic completion lane. Retrieved evidence
+    // remains authoritative for project facts, but a partial or tangential search
+    // result must never reduce a normal technical question to an evidence caveat.
+    const allowGeneralKnowledge = generalKnowledgeEnabled(config);
     const publicCitations = toPublicExperienceCitations(citations);
 
     if (citations.length === 0 && !allowGeneralKnowledge) {

@@ -53,6 +53,20 @@ export function framePublicWebEvidence(answer: string) {
     .join("");
 }
 
+export function stopsAtEvidenceGap(answer: string) {
+  if (/\[G\d+\]/.test(answer)) return false;
+  const normalized = answer.replace(/\s+/g, " ");
+  const evidenceTerm = /\b(?:evidence|passages?|documents?|sources?)\b/i;
+  const limitation =
+    /\b(?:cannot|can't|unable to|does not|doesn't|do not|don't|insufficient|not enough|not provided|not establish|not determine|not state|not decide|missing)\b/i;
+  if (!evidenceTerm.test(normalized) || !limitation.test(normalized)) return false;
+
+  // A normal technical answer may mention an evidence limitation, but when
+  // professional completion is enabled that limitation must be followed by a
+  // clearly disclosed G paragraph rather than becoming the whole response.
+  return true;
+}
+
 function conciseEvidenceExcerpt(excerpt: string) {
   const normalized = excerpt
     .replace(/\[[DSBAEWG]\d+\]/g, "")
@@ -117,7 +131,11 @@ export function validateDocumentAnswerCitations(
   const errors: string[] = [];
 
   if (!answer.trim()) errors.push("The model answer is empty.");
-  if (citations.length > 0 && markers.length === 0) {
+  if (
+    citations.length > 0 &&
+    markers.length === 0 &&
+    !(options.allowGeneralKnowledge && generalMarkers.length > 0)
+  ) {
     errors.push("The model answer has no document citation marker.");
   }
 
