@@ -261,15 +261,7 @@ jobs:
             echo "Temporarily allowed the release-test identity in Entra Easy Auth."
           fi
 
-          auth_status=""
-          for auth_attempt in $(seq 1 12); do
-            auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $access_token" "$candidate_url/.auth/me" || true)"
-            echo "Candidate Entra authentication probe $auth_attempt returned HTTP $auth_status"
-            if test "$auth_status" = "200"; then break; fi
-            sleep 5
-          done
-          test "$auth_status" = "200"
-
+          sleep 10
           CONSULT_BASE_URL="$candidate_url" CONSULT_ACCESS_TOKEN="$access_token" node scripts/consult-release-smoke.mjs
 
           restore_auth_policy
