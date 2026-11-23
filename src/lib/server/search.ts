@@ -453,6 +453,69 @@ export async function searchSessionEvidence(
     }));
 }
 
+export async function searchPromotedKnowledgeEvidence(
+  question: string,
+  requestId: string,
+  config: RuntimeConfig,
+) {
+  const endpoint = config.search.endpoint;
+  const indexName = config.phase1b.sessionSearchIndex;
+  if (!endpoint || !indexName) return [];
+
+  const token = await getAzureAccessToken("https://search.azure.com/.default");
+  const response = await fetch(
+    `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(
+      config.search.apiVersion,
+    )}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "x-ms-client-request-id": requestId,
+      },
+      body: JSON.stringify({
+        search: question.trim(),
+        queryType: "simple",
+        searchMode: "all",
+        searchFields: "title,section,content",
+        filter: "source_type eq 'helmonic_knowledge' and is_active eq true",
+        top: config.search.top,
+        select: "chunk_id,document_id,source_uri,title,section,page_number,content",
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    },
+  );
+  if (!response.ok) {
+    throw await azureRequestError(response, {
+      service: "Azure AI Search",
+      stage: "search-promoted-knowledge",
+    });
+  }
+
+  const payload = (await response.json()) as SearchResponse;
+  return (payload.value ?? [])
+    .filter((document) => document.content && document.document_id)
+    .map<ConsultCitation>((document, index) => ({
+      id: document.chunk_id ?? `knowledge-citation-${index + 1}`,
+      title: document.title ?? `Helmonic knowledge ${index + 1}`,
+      sourceId: document.document_id ?? `knowledge-${index + 1}`,
+      section: document.section || undefined,
+      pageNumber:
+        typeof document.page_number === "number" ? document.page_number : undefined,
+      excerpt: buildControlledEvidenceExcerpt(document.content ?? ""),
+      sourceUri: document.source_uri || undefined,
+      score:
+        typeof document["@search.score"] === "number"
+          ? document["@search.score"]
+          : undefined,
+      sourceType: "attachment",
+      citationNamespace: "A",
+      marker: `A${index + 1}`,
+    }));
+}
+
 type EmailSearchDocument = {
   "@search.score"?: number;
   chunk_id?: string;

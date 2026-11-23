@@ -80,6 +80,7 @@ function validatingPdfStream(source: ReadableStream<Uint8Array>) {
 
 export async function uploadSessionPdf(
   config: RuntimeConfig,
+  containerName: string,
   blobName: string,
   contentLength: number,
   body: ReadableStream<Uint8Array>,
@@ -91,7 +92,7 @@ export async function uploadSessionPdf(
   const token = await getAzureAccessToken("https://storage.azure.com/.default");
   const { stream, contentHash } = validatingPdfStream(body);
   const url = `https://${accountName}.blob.core.windows.net/${encodeURIComponent(
-    config.phase1b.sessionBlobContainer,
+    containerName,
   )}/${encodeBlobName(blobName)}`;
   const init = {
     method: "PUT",

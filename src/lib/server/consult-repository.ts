@@ -29,7 +29,8 @@ export type CreateSessionUploadInput = {
   blobName: string;
   indexName: string;
   sizeBytes: number;
-  expiresAt: Date;
+  expiresAt: Date | null;
+  promoteToKnowledge: boolean;
   correlationId: string;
 };
 
@@ -83,6 +84,16 @@ export async function createSessionUpload(
          values ($1, $2, 'ingest', 'created', $3)`,
         [input.jobId, input.versionId, input.correlationId],
       );
+      if (input.promoteToKnowledge) {
+        await client.query(
+          `insert into consult.audit_events
+            (id, owner_object_id, event_type, entity_type, entity_id,
+             correlation_id, safe_details)
+           values ($1, $2, 'knowledge-promotion-requested', 'document', $3, $4,
+             '{"sourceType":"helmonic_knowledge"}'::jsonb)`,
+          [crypto.randomUUID(), input.ownerObjectId, input.documentId, input.correlationId],
+        );
+      }
       await client.query("commit");
     } catch (error) {
       await client.query("rollback");
@@ -180,7 +191,8 @@ export async function getSessionDocument(
 ) {
   return withPostgresClient(config, "helmonic-consult-document-status", async (client) => {
     const result = await client.query(
-      `select d.id, cd.conversation_id, d.display_name, d.state, d.size_bytes, d.created_at
+      `select d.id, cd.conversation_id, d.display_name, d.state, d.size_bytes, d.created_at,
+              d.expires_at
        from consult.documents d
        join consult.conversation_documents cd
          on cd.document_id = d.id and cd.owner_object_id = d.owner_object_id
@@ -199,6 +211,14 @@ export async function getSessionDocument(
       state: String(row.state) as SessionDocument["state"],
       sizeBytes: Number(row.size_bytes),
       createdAt: new Date(row.created_at).toISOString(),
+      knowledgePromotionState:
+        row.expires_at !== null
+          ? "not-requested"
+          : row.state === "ready" || row.state === "duplicate"
+            ? "promoted"
+            : row.state === "failed" || row.state === "quarantined"
+              ? "failed"
+              : "requested",
     } satisfies SessionDocument;
   });
 }

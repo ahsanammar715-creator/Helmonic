@@ -141,6 +141,8 @@ export function getRuntimeConfig() {
       generalContextEnabled: enabled("HELMONIC_GENERAL_CONTEXT_ENABLED"),
       sessionBlobContainer:
         optional("AZURE_STORAGE_SESSION_CONTAINER") ?? "consult-session-uploads",
+      knowledgeBlobContainer:
+        optional("AZURE_STORAGE_KNOWLEDGE_CONTAINER") ?? "consult-knowledge-uploads",
       sessionSearchIndex: optional("AZURE_SEARCH_SESSION_INDEX"),
       maximumUploadBytes: positiveInteger(
         optional("HELMONIC_MAX_UPLOAD_BYTES"),

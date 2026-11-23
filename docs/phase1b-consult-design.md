@@ -1070,7 +1070,26 @@ Rules:
 Initial retention proposal: 30 days after the conversation's last activity. The final
 retention value requires a product/data-governance decision before deployment.
 
-### 5.2 `consult-sources`
+### 5.2 `consult-knowledge-uploads`
+
+Purpose: immutable originals that an authenticated Helmonic user explicitly chooses
+to share as permanent organizational knowledge.
+
+Rules:
+
+- The `Add to Helmonic knowledge` checkbox is clear, unchecked by default, and records
+  the requesting user's object ID and correlation ID.
+- The original is stored separately from temporary session uploads and has no automatic
+  30-day expiry.
+- A SHA-256 duplicate check runs before permanent indexing.
+- Successful indexing records a completion audit event; failures remain non-queryable.
+- Promoted attachment knowledge remains distinguishable from approved standards, books,
+  and the curated controlled corpus. It is cited as attachment knowledge rather than
+  being presented as an approved standard.
+- All authenticated users permitted to use Helmonic Consult may retrieve this shared
+  knowledge after successful processing.
+
+### 5.3 `consult-sources`
 
 Purpose: approved, controlled organizational source documents.
 
@@ -1083,7 +1102,7 @@ Rules:
   successful permanent indexing.
 - Removal is audited and removes associated active search chunks.
 
-### 5.3 `consult-exports`
+### 5.4 `consult-exports`
 
 Purpose: future generated reports, evidence packs, and conversation exports.
 
@@ -1096,7 +1115,9 @@ Phase 1B uses separate indexes on the existing Azure AI Search service:
 
 - `consult-demo-v1`: live lexical controlled documents and immutable rollback target.
 - `consult-demo-v2`: validated, isolated versioned controlled hybrid index; not selected by the live runtime.
-- `consult-session-v1`: temporary, conversation-scoped attachments.
+- `consult-session-v1`: isolated attachment index containing both owner/conversation-
+  scoped temporary chunks and the separately classified permanent Helmonic-knowledge
+  lane.
 
 Creating additional indexes does not create another Search service or another fixed
 Search SKU charge.
@@ -1110,7 +1131,7 @@ Each session chunk includes:
 - `document_version_id`
 - `owner_object_id`
 - `conversation_id`
-- `source_type = session_attachment`
+- `source_type = session_attachment` or `source_type = helmonic_knowledge`
 - `title`
 - `page_number`
 - `section`
@@ -1120,9 +1141,10 @@ Each session chunk includes:
 - `is_active`
 - `expires_at`
 
-Every session search request must include server-created filters for both
-`owner_object_id` and `conversation_id`. The browser cannot provide or override the
-effective owner identity.
+Every temporary-session search request must include server-created filters for both
+`owner_object_id` and `conversation_id`. Permanent shared-knowledge requests instead
+require `source_type = helmonic_knowledge` and authenticated Helmonic access. The
+browser cannot provide or override the effective owner identity or source type.
 
 ### 6.2 Controlled-index fields
 
@@ -1214,17 +1236,26 @@ treated as ready.
 - Hash matches must not disclose another user's document existence in a future
   multi-user deployment.
 
-### 7.5 Promotion
+### 7.5 Promotion to shared Helmonic knowledge
 
-`Add to controlled knowledge base` is an explicit workflow:
+`Add to Helmonic knowledge` is an explicit attachment-time workflow:
 
-1. User requests promotion.
-2. Application displays title, classification, hash, pages, and detected duplicate.
-3. Authorized user confirms.
-4. Worker copies the immutable original into `consult-sources`.
-5. Worker indexes it into the controlled index.
-6. Controlled version becomes active only after successful validation.
-7. Audit event records the actor, source attachment, target source, and result.
+1. The authenticated user deliberately ticks an unchecked-by-default checkbox.
+2. The immutable original is written directly to `consult-knowledge-uploads`; ordinary
+   attachments continue to use `consult-session-uploads`.
+3. The request audit records actor, document ID, correlation ID, and target source type.
+4. The worker validates the PDF and hash, extracts page-aware text and atomic Markdown
+   tables, and checks for an existing permanent content hash.
+5. Non-duplicate chunks are indexed with `source_type = helmonic_knowledge`; duplicate
+   requests reuse the already searchable permanent content without exposing another
+   user's private conversation.
+6. The document becomes queryable only after the database state is `ready` or
+   `duplicate`; the completion audit records the result and extraction version.
+7. Consult searches this lane for every authenticated user and labels its evidence as
+   attachment knowledge, not as an approved standard or book.
+
+Promotion into the separate approved controlled corpus remains a different governance
+workflow and is not implied by this checkbox.
 
 ## 8. Persistent data model
 

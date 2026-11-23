@@ -10,6 +10,13 @@ export type SessionDocumentState =
   | "expired"
   | "deleted";
 
+export type KnowledgePromotionState =
+  | "not-requested"
+  | "requested"
+  | "promoted"
+  | "rejected"
+  | "failed";
+
 export type SessionDocument = {
   id: string;
   conversationId: string;
@@ -17,6 +24,7 @@ export type SessionDocument = {
   state: SessionDocumentState;
   sizeBytes: number;
   createdAt: string;
+  knowledgePromotionState: KnowledgePromotionState;
 };
 
 export type SessionDocumentUploadResponse = {
@@ -28,5 +36,7 @@ export type ComposerAttachment = {
   id: string;
   name: string;
   state: "uploading" | "queued" | "ready" | "failed";
+  promoteToKnowledge?: boolean;
+  knowledgePromotionState?: KnowledgePromotionState;
   error?: string;
 };

@@ -17,7 +17,8 @@ export type SessionIngestionMessage = {
   contentHash: string;
   displayName: string;
   targetIndex: string;
-  expiresAt: string;
+  expiresAt: string | null;
+  promoteToKnowledge: boolean;
   correlationId: string;
 };
 

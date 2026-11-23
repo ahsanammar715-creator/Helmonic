@@ -81,7 +81,14 @@ export async function POST(
   const documentId = crypto.randomUUID();
   const versionId = crypto.randomUUID();
   const jobId = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + config.phase1b.uploadRetentionDays * 86_400_000);
+  const promoteToKnowledge =
+    request.headers.get("x-helmonic-promote-to-knowledge")?.trim().toLowerCase() === "true";
+  const expiresAt = promoteToKnowledge
+    ? null
+    : new Date(Date.now() + config.phase1b.uploadRetentionDays * 86_400_000);
+  const blobContainer = promoteToKnowledge
+    ? config.phase1b.knowledgeBlobContainer
+    : config.phase1b.sessionBlobContainer;
   const blobName = `${actor.objectId}/${conversationId}/${documentId}/${displayName}`;
 
   try {
@@ -92,16 +99,18 @@ export async function POST(
       conversationId,
       ownerObjectId: actor.objectId,
       displayName,
-      blobContainer: config.phase1b.sessionBlobContainer,
+      blobContainer,
       blobName,
       indexName: config.phase1b.sessionSearchIndex!,
       sizeBytes: contentLength,
       expiresAt,
+      promoteToKnowledge,
       correlationId: requestId,
     });
 
     const stored = await uploadSessionPdf(
       config,
+      blobContainer,
       blobName,
       contentLength,
       request.body,
@@ -116,13 +125,14 @@ export async function POST(
       documentVersionId: versionId,
       conversationId,
       ownerObjectId: actor.objectId,
-      blobContainer: config.phase1b.sessionBlobContainer,
+      blobContainer,
       blobName,
       sourceUri: stored.sourceUri,
       contentHash: stored.contentHash,
       displayName,
       targetIndex: config.phase1b.sessionSearchIndex!,
-      expiresAt: expiresAt.toISOString(),
+      expiresAt: expiresAt?.toISOString() ?? null,
+      promoteToKnowledge,
       correlationId: requestId,
     });
     await markSessionUploadQueued(config, documentId, jobId);
@@ -135,6 +145,7 @@ export async function POST(
         state: "queued",
         sizeBytes: contentLength,
         createdAt: new Date().toISOString(),
+        knowledgePromotionState: promoteToKnowledge ? "requested" : "not-requested",
       },
       requestId,
     };

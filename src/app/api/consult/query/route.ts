@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type {
+  ConsultCitation,
   ConsultErrorResponse,
   ConsultQueryResponse,
 } from "@/lib/consult/types";
@@ -133,6 +134,7 @@ export async function POST(request: Request) {
   try {
     const {
       searchConsultEvidence,
+      searchPromotedKnowledgeEvidence,
       searchSessionEvidence,
       searchRestrictedEmailEvidence,
       searchDeidentifiedExperienceEvidence,
@@ -169,6 +171,7 @@ export async function POST(request: Request) {
     }
     const [
       controlledCitations,
+      promotedKnowledgeCitations,
       attachmentCitations,
       emailCitations,
       experienceCitations,
@@ -178,6 +181,12 @@ export async function POST(request: Request) {
         () => searchConsultEvidence(trimmedQuestion, requestId, config),
         { requestId, operation: "controlled-retrieval" },
       ),
+      actor && config.phase1b.uploadsEnabled
+        ? retryTransientAzureOperation(
+            () => searchPromotedKnowledgeEvidence(trimmedQuestion, requestId, config),
+            { requestId, operation: "promoted-knowledge-retrieval" },
+          )
+        : Promise.resolve([]),
       conversationId && actor && config.phase1b.uploadsEnabled
         ? retryTransientAzureOperation(
             () =>
@@ -222,13 +231,23 @@ export async function POST(request: Request) {
             })
         : Promise.resolve({ status: "not-requested" as const, citations: [] }),
     ]);
+    const citationCounters = { D: 0, S: 0, B: 0, A: 0, E: 0, W: 0 };
     const citations = [
       ...controlledCitations,
+      ...promotedKnowledgeCitations,
       ...attachmentCitations,
       ...emailCitations,
       ...experienceCitations,
       ...webEvidence.citations,
-    ];
+    ].map((citation) => {
+      const namespace = citation.citationNamespace;
+      if (!namespace) return citation;
+      citationCounters[namespace] += 1;
+      return {
+        ...citation,
+        marker: `${namespace}${citationCounters[namespace]}` as ConsultCitation["marker"],
+      };
+    });
     // Professional knowledge is an automatic completion lane. Retrieved evidence
     // remains authoritative for project facts, but a partial or tangential search
     // result must never reduce a normal technical question to an evidence caveat.

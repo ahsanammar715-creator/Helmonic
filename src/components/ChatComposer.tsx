@@ -24,25 +24,28 @@ export default function ChatComposer({
   attachLabel?: string;
   inputId?: string;
   showAttach?: boolean;
-  onAttachFile?: (file: File) => Promise<ComposerAttachment>;
+  onAttachFile?: (file: File, promoteToKnowledge: boolean) => Promise<ComposerAttachment>;
   attachmentAccept?: string;
   attachmentFormats?: string;
 }) {
   const [value, setValue] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const attachmentBusy = attachments.some(
+    (attachment) => attachment.state === "uploading" || attachment.state === "queued",
+  );
 
-  async function attach(file: File) {
+  async function attach(file: File, promoteToKnowledge = false) {
     const localId = crypto.randomUUID();
     setAttachments((current) => [
       ...current,
-      { id: localId, name: file.name, state: "uploading" },
+      { id: localId, name: file.name, state: "uploading", promoteToKnowledge },
     ]);
 
     try {
       const completed = onAttachFile
-        ? await onAttachFile(file)
-        : { id: localId, name: file.name, state: "ready" as const };
+        ? await onAttachFile(file, promoteToKnowledge)
+        : { id: localId, name: file.name, state: "ready" as const, promoteToKnowledge };
       setAttachments((current) =>
         current.map((item) => (item.id === localId ? completed : item)),
       );
@@ -62,7 +65,7 @@ export default function ChatComposer({
   }
 
   function submit() {
-    if (!value.trim() || disabled) return;
+    if (!value.trim() || disabled || attachmentBusy) return;
     onSend?.(value.trim());
     setValue("");
   }
@@ -78,6 +81,11 @@ export default function ChatComposer({
             >
               <Paperclip size={12} strokeWidth={1.8} className="text-faint" />
               <span className="max-w-[220px] truncate">{attachment.name}</span>
+              {attachment.promoteToKnowledge && (
+                <span className="rounded-full bg-primary-tint px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                  Helmonic knowledge
+                </span>
+              )}
               <span
                 className={attachment.state === "failed" ? "text-warning" : "text-faint"}
                 title={attachment.error}
@@ -118,7 +126,9 @@ export default function ChatComposer({
             {attachOpen && (
               <AttachPopover
                 onClose={() => setAttachOpen(false)}
-                onAttach={(file) => void attach(file)}
+                onAttach={(file, promoteToKnowledge) =>
+                  void attach(file, promoteToKnowledge)
+                }
                 accept={attachmentAccept}
                 formats={attachmentFormats}
               />
@@ -130,7 +140,7 @@ export default function ChatComposer({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
-          disabled={disabled}
+          disabled={disabled || attachmentBusy}
           placeholder={placeholder}
           className="flex-1 outline-none text-[14px] placeholder:text-faint bg-transparent min-w-0"
         />
@@ -143,7 +153,13 @@ export default function ChatComposer({
           <ArrowRight size={16} strokeWidth={2} />
         </button>
       </div>
-      {helper && <span className="text-[12px] text-faint">{helper}</span>}
+      {attachmentBusy ? (
+        <span className="text-[12px] text-faint">
+          Wait for attached documents to finish processing before asking a question.
+        </span>
+      ) : (
+        helper && <span className="text-[12px] text-faint">{helper}</span>
+      )}
     </div>
   );
 }

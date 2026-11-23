@@ -19,7 +19,11 @@ import {
   CONTROLLED_SOURCE_PROMPT,
   CONTROLLED_SOURCE_SET_LABEL,
 } from "@/lib/consult/corpus";
-import type { ComposerAttachment, SessionDocumentUploadResponse } from "@/lib/consult/uploads";
+import type {
+  ComposerAttachment,
+  SessionDocument,
+  SessionDocumentUploadResponse,
+} from "@/lib/consult/uploads";
 
 type Exchange = {
   id: string;
@@ -37,6 +41,42 @@ const suggestedQuestions = [
   "Summarise the measurement requirements",
   "What does the evidence say about sound insulation?",
 ];
+
+const terminalAttachmentFailures = new Set([
+  "quarantined",
+  "failed",
+  "expired",
+  "deleted",
+]);
+
+async function waitForAttachment(documentId: string) {
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const response = await fetch(
+      `/api/consult/documents/${encodeURIComponent(documentId)}/status`,
+      { cache: "no-store" },
+    );
+    const payload = (await response.json()) as {
+      document?: SessionDocument;
+      error?: string;
+    };
+    if (!response.ok || !payload.document) {
+      throw new Error(payload.error || "The attachment status could not be checked.");
+    }
+    if (payload.document.state === "ready" || payload.document.state === "duplicate") {
+      return payload.document;
+    }
+    if (terminalAttachmentFailures.has(payload.document.state)) {
+      throw new Error(
+        `${payload.document.displayName} could not become searchable evidence (${payload.document.state}).`,
+      );
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+  }
+  throw new Error(
+    "Document processing did not finish within two minutes. It remains safely stored; try again shortly.",
+  );
+}
 
 function modeLabel(
   mode: ConsultQueryResponse["mode"] | undefined,
@@ -161,7 +201,10 @@ export default function ConsultWorkspace({
     return payload.conversation.id;
   }
 
-  async function uploadAttachment(file: File): Promise<ComposerAttachment> {
+  async function uploadAttachment(
+    file: File,
+    promoteToKnowledge: boolean,
+  ): Promise<ComposerAttachment> {
     const activeConversationId = await ensureConversation();
     const response = await fetch(
       `/api/consult/conversations/${encodeURIComponent(activeConversationId)}/documents`,
@@ -170,6 +213,7 @@ export default function ConsultWorkspace({
         headers: {
           "Content-Type": "application/pdf",
           "x-helmonic-file-name": encodeURIComponent(file.name),
+          "x-helmonic-promote-to-knowledge": promoteToKnowledge ? "true" : "false",
         },
         body: file,
       },
@@ -180,10 +224,13 @@ export default function ConsultWorkspace({
     if (!response.ok || !("document" in payload)) {
       throw new Error("error" in payload && payload.error ? payload.error : "Upload failed.");
     }
+    const readyDocument = await waitForAttachment(payload.document.id);
     return {
-      id: payload.document.id,
-      name: payload.document.displayName,
-      state: payload.document.state === "ready" ? "ready" : "queued",
+      id: readyDocument.id,
+      name: readyDocument.displayName,
+      state: "ready",
+      promoteToKnowledge,
+      knowledgePromotionState: readyDocument.knowledgePromotionState,
     };
   }
 
@@ -408,7 +455,7 @@ export default function ConsultWorkspace({
           showAttach
           onAttachFile={uploadAttachment}
           attachmentAccept=".pdf,application/pdf"
-          attachmentFormats="PDF only · up to 40 MB · conversation attachment"
+          attachmentFormats="PDF only · up to 40 MB · optional Helmonic knowledge"
         />
       </div>
 

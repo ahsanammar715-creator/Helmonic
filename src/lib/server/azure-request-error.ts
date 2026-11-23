@@ -13,6 +13,7 @@ export type AzureRequestStage =
   | "search-project-anchor"
   | "search-report-expansion"
   | "search-session"
+  | "search-promoted-knowledge"
   | "search-email"
   | "search-count"
   | "public-web-grounding"

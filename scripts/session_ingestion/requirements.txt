@@ -1,0 +1,6 @@
+azure-identity==1.25.1
+azure-servicebus==7.14.3
+azure-storage-blob==12.27.1
+pdfplumber==0.11.8
+psycopg[binary]==3.2.13
+requests==2.32.5
