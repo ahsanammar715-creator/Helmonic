@@ -62,3 +62,9 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             io.helmonic.lifecycle=temporary-validation
+
+  deploy-validated-consult:
+    name: Run the guarded zero-traffic Consult release gate
+    needs: build-and-push
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/full-rag-production-release'
+    uses: ./.github/workflows/helmonic-consult-release-deploy.yml

@@ -1,0 +1,203 @@
+name: Deploy validated Helmonic Consult image
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  RESOURCE_GROUP: RG-HELMONIC-DEV
+  CONTAINER_APP: ca-helmonic-consult-dev-002
+  IMAGE: acrhelmonicdev001-etd4eqevdcf6e7bs.azurecr.io/helmonic-consult:${{ github.sha }}
+  VALIDATION_SUFFIX: val${{ github.run_id }}a${{ github.run_attempt }}
+  FINAL_SUFFIX: fx${{ github.run_id }}a${{ github.run_attempt }}
+
+jobs:
+  deploy-validate-promote:
+    name: Zero-traffic validation and promotion
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the validated release scripts
+        uses: actions/checkout@v4
+
+      - name: Sign in to Azure with release-branch OIDC
+        uses: azure/login@v2
+        with:
+          client-id: d265e55d-f8b6-421a-9a82-064183cab7e6
+          tenant-id: 360eacb5-68c3-400c-a366-0382ec3a7b4a
+          subscription-id: 14f94f77-4e71-4b80-b6c9-e09b192fcf42
+
+      - name: Install the pinned WebSocket client
+        run: python3 -m pip install --disable-pip-version-check --quiet websocket-client==1.8.0
+
+      - name: Create zero-traffic candidate, test five answer types, and promote
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mode="$(az containerapp show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query properties.configuration.activeRevisionsMode -o tsv)"
+          test "$mode" = "Multiple"
+
+          live_revision="$(az containerapp ingress traffic show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query "[?weight==\`100\`].revisionName | [0]" -o tsv)"
+          test -n "$live_revision"
+          echo "Current live revision: $live_revision"
+
+          candidate=""
+          cleanup_candidate() {
+            set +e
+            if test -n "$candidate"; then
+              az containerapp revision deactivate \
+                -n "$CONTAINER_APP" \
+                -g "$RESOURCE_GROUP" \
+                --revision "$candidate" \
+                --only-show-errors >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_candidate EXIT
+
+          candidate="$(az containerapp revision copy \
+            -n "$CONTAINER_APP" \
+            -g "$RESOURCE_GROUP" \
+            --from-revision "$live_revision" \
+            --image "$IMAGE" \
+            --revision-suffix "$VALIDATION_SUFFIX" \
+            --min-replicas 1 \
+            --max-replicas 1 \
+            --query properties.latestRevisionName \
+            -o tsv \
+            --only-show-errors)"
+          test -n "$candidate"
+          echo "Validation revision: $candidate"
+
+          candidate_weight="$(az containerapp ingress traffic show \
+            -n "$CONTAINER_APP" \
+            -g "$RESOURCE_GROUP" \
+            --query "[?revisionName=='$candidate'].weight | [0]" \
+            -o tsv)"
+          test -z "$candidate_weight" -o "$candidate_weight" = "0"
+
+          healthy=""
+          for attempt in $(seq 1 36); do
+            state="$(az containerapp revision show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$candidate" --query properties.provisioningState -o tsv)"
+            healthy="$(az containerapp revision show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$candidate" --query properties.healthState -o tsv)"
+            if test "$state" = "Provisioned" && test "$healthy" = "Healthy"; then break; fi
+            sleep 10
+          done
+          test "$healthy" = "Healthy"
+
+          candidate_image="$(az containerapp revision show \
+            -n "$CONTAINER_APP" \
+            -g "$RESOURCE_GROUP" \
+            --revision "$candidate" \
+            --query 'properties.template.containers[0].image' \
+            -o tsv)"
+          test "$candidate_image" = "$IMAGE"
+
+          container_name="$(az containerapp revision show \
+            -n "$CONTAINER_APP" \
+            -g "$RESOURCE_GROUP" \
+            --revision "$candidate" \
+            --query 'properties.template.containers[0].name' \
+            -o tsv)"
+          test -n "$container_name"
+
+          exec_endpoint=""
+          for attempt in $(seq 1 24); do
+            exec_endpoint="$(az containerapp replica list \
+              -n "$CONTAINER_APP" \
+              -g "$RESOURCE_GROUP" \
+              --revision "$candidate" \
+              --query "[0].properties.containers[?name=='$container_name'].execEndpoint | [0]" \
+              -o tsv \
+              --only-show-errors || true)"
+            if test -n "$exec_endpoint"; then break; fi
+            sleep 5
+          done
+          test -n "$exec_endpoint"
+
+          container_app_id="$(az containerapp show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query id -o tsv --only-show-errors)"
+          test -n "$container_app_id"
+          exec_token="$(az rest \
+            --method post \
+            --url "https://management.azure.com${container_app_id}/getAuthToken?api-version=2025-07-01" \
+            --query properties.token \
+            -o tsv \
+            --only-show-errors)"
+          test -n "$exec_token"
+          echo "::add-mask::$exec_token"
+
+          smoke_stdin_base64="$(python3 - <<'PY'
+          import base64
+          from pathlib import Path
+
+          script = base64.b64encode(
+              Path("scripts/consult-release-container-smoke.js").read_bytes()
+          ).decode("ascii")
+          payload = (
+              f"eval(Buffer.from('{script}','base64').toString('utf8'))\r"
+          ).encode("utf-8")
+          print(base64.b64encode(payload).decode("ascii"))
+          PY
+          )"
+          exec_url="${exec_endpoint}?command=node"
+          smoke_output="$RUNNER_TEMP/consult-release-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.log"
+
+          ACA_EXEC_URL="$exec_url" \
+          ACA_EXEC_TOKEN="$exec_token" \
+          ACA_EXEC_STDIN_B64="$smoke_stdin_base64" \
+            python3 scripts/aca-exec-once.py 2>&1 | tee "$smoke_output"
+
+          grep -q '^SMOKE_ALL_PASSED' "$smoke_output"
+          if grep -q '^SMOKE_FAILED=' "$smoke_output"; then
+            echo "The Consult release smoke suite reported a failed question." >&2
+            exit 1
+          fi
+
+          final_revision="$(az containerapp revision copy \
+            -n "$CONTAINER_APP" \
+            -g "$RESOURCE_GROUP" \
+            --from-revision "$candidate" \
+            --image "$IMAGE" \
+            --revision-suffix "$FINAL_SUFFIX" \
+            --min-replicas 0 \
+            --max-replicas 2 \
+            --query properties.latestRevisionName \
+            -o tsv \
+            --only-show-errors)"
+          test -n "$final_revision"
+          echo "Final min-zero revision: $final_revision"
+
+          final_state=""
+          for attempt in $(seq 1 36); do
+            final_state="$(az containerapp revision show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --revision "$final_revision" --query properties.provisioningState -o tsv)"
+            if test "$final_state" = "Provisioned"; then break; fi
+            sleep 10
+          done
+          test "$final_state" = "Provisioned"
+
+          final_image="$(az containerapp revision show \
+            -n "$CONTAINER_APP" \
+            -g "$RESOURCE_GROUP" \
+            --revision "$final_revision" \
+            --query 'properties.template.containers[0].image' \
+            -o tsv)"
+          test "$final_image" = "$IMAGE"
+
+          final_weight="$(az containerapp ingress traffic show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query "[?revisionName=='$final_revision'].weight | [0]" -o tsv)"
+          test -z "$final_weight" -o "$final_weight" = "0"
+
+          az containerapp ingress traffic set \
+            -n "$CONTAINER_APP" \
+            -g "$RESOURCE_GROUP" \
+            --revision-weight "$final_revision=100" "$live_revision=0" \
+            --only-show-errors >/dev/null
+          promoted_weight="$(az containerapp ingress traffic show -n "$CONTAINER_APP" -g "$RESOURCE_GROUP" --query "[?revisionName=='$final_revision'].weight | [0]" -o tsv)"
+          test "$promoted_weight" = "100"
+
+          cleanup_candidate
+          candidate=""
+          trap - EXIT
+          echo "PROMOTED_REVISION=$final_revision"

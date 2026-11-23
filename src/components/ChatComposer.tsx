@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Paperclip, ArrowRight, X } from "lucide-react";
 import AttachPopover from "./AttachPopover";
+import type { ComposerAttachment } from "@/lib/consult/uploads";
 
 export default function ChatComposer({
   placeholder,
@@ -11,6 +12,10 @@ export default function ChatComposer({
   disabled = false,
   attachLabel = "Attach",
   inputId,
+  showAttach = true,
+  onAttachFile,
+  attachmentAccept,
+  attachmentFormats,
 }: {
   placeholder: string;
   helper?: string;
@@ -18,13 +23,49 @@ export default function ChatComposer({
   disabled?: boolean;
   attachLabel?: string;
   inputId?: string;
+  showAttach?: boolean;
+  onAttachFile?: (file: File, promoteToKnowledge: boolean) => Promise<ComposerAttachment>;
+  attachmentAccept?: string;
+  attachmentFormats?: string;
 }) {
   const [value, setValue] = useState("");
   const [attachOpen, setAttachOpen] = useState(false);
-  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const attachmentBusy = attachments.some(
+    (attachment) => attachment.state === "uploading" || attachment.state === "queued",
+  );
+
+  async function attach(file: File, promoteToKnowledge = false) {
+    const localId = crypto.randomUUID();
+    setAttachments((current) => [
+      ...current,
+      { id: localId, name: file.name, state: "uploading", promoteToKnowledge },
+    ]);
+
+    try {
+      const completed = onAttachFile
+        ? await onAttachFile(file, promoteToKnowledge)
+        : { id: localId, name: file.name, state: "ready" as const, promoteToKnowledge };
+      setAttachments((current) =>
+        current.map((item) => (item.id === localId ? completed : item)),
+      );
+    } catch (error) {
+      setAttachments((current) =>
+        current.map((item) =>
+          item.id === localId
+            ? {
+                ...item,
+                state: "failed",
+                error: error instanceof Error ? error.message : "Upload failed",
+              }
+            : item,
+        ),
+      );
+    }
+  }
 
   function submit() {
-    if (!value.trim() || disabled) return;
+    if (!value.trim() || disabled || attachmentBusy) return;
     onSend?.(value.trim());
     setValue("");
   }
@@ -33,49 +74,73 @@ export default function ChatComposer({
     <div className="px-6 md:px-10 pb-5 pt-3.5 flex flex-col gap-2">
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {attachments.map((name, i) => (
+          {attachments.map((attachment) => (
             <span
-              key={`${name}-${i}`}
+              key={attachment.id}
               className="flex items-center gap-2 border border-line rounded-md bg-surface px-2.5 py-1.5 text-[12px]"
             >
               <Paperclip size={12} strokeWidth={1.8} className="text-faint" />
-              {name}
-              <button
-                onClick={() => setAttachments((a) => a.filter((_, idx) => idx !== i))}
-                aria-label={`Remove ${name}`}
-                className="text-faint hover:text-ink"
+              <span className="max-w-[220px] truncate">{attachment.name}</span>
+              {attachment.promoteToKnowledge && (
+                <span className="rounded-full bg-primary-tint px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                  Helmonic knowledge
+                </span>
+              )}
+              <span
+                className={attachment.state === "failed" ? "text-warning" : "text-faint"}
+                title={attachment.error}
               >
-                <X size={12} strokeWidth={1.8} />
-              </button>
+                {attachment.state}
+              </span>
+              {attachment.state === "failed" && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAttachments((current) =>
+                      current.filter((item) => item.id !== attachment.id),
+                    )
+                  }
+                  aria-label={`Dismiss failed upload ${attachment.name}`}
+                  className="text-faint hover:text-ink"
+                >
+                  <X size={12} strokeWidth={1.8} />
+                </button>
+              )}
             </span>
           ))}
         </div>
       )}
       <div className="flex items-center gap-3 border border-line rounded-md bg-surface px-3.5 py-3">
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => setAttachOpen((o) => !o)}
-            aria-expanded={attachOpen}
-            className="flex items-center gap-2 px-3 py-1.5 border border-line rounded-md text-[13px] text-primary hover:bg-primary-tint-2 hover:border-primary disabled:opacity-40 disabled:pointer-events-none"
-          >
-            <Paperclip size={15} strokeWidth={1.6} />
-            {attachLabel}
-          </button>
-          {attachOpen && (
-            <AttachPopover
-              onClose={() => setAttachOpen(false)}
-              onAttach={(name) => setAttachments((a) => [...a, name])}
-            />
-          )}
-        </div>
+        {showAttach && (
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => setAttachOpen((o) => !o)}
+              aria-expanded={attachOpen}
+              className="flex items-center gap-2 px-3 py-1.5 border border-line rounded-md text-[13px] text-primary hover:bg-primary-tint-2 hover:border-primary disabled:opacity-40 disabled:pointer-events-none"
+            >
+              <Paperclip size={15} strokeWidth={1.6} />
+              {attachLabel}
+            </button>
+            {attachOpen && (
+              <AttachPopover
+                onClose={() => setAttachOpen(false)}
+                onAttach={(file, promoteToKnowledge) =>
+                  void attach(file, promoteToKnowledge)
+                }
+                accept={attachmentAccept}
+                formats={attachmentFormats}
+              />
+            )}
+          </div>
+        )}
         <input
           id={inputId}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
-          disabled={disabled}
+          disabled={disabled || attachmentBusy}
           placeholder={placeholder}
           className="flex-1 outline-none text-[14px] placeholder:text-faint bg-transparent min-w-0"
         />
@@ -88,7 +153,13 @@ export default function ChatComposer({
           <ArrowRight size={16} strokeWidth={2} />
         </button>
       </div>
-      {helper && <span className="text-[12px] text-faint">{helper}</span>}
+      {attachmentBusy ? (
+        <span className="text-[12px] text-faint">
+          Wait for attached documents to finish processing before asking a question.
+        </span>
+      ) : (
+        helper && <span className="text-[12px] text-faint">{helper}</span>
+      )}
     </div>
   );
 }

@@ -6,11 +6,16 @@ import { UploadCloud, FileText, X } from "lucide-react";
 export default function AttachPopover({
   onClose,
   onAttach,
+  accept = ".pdf,.doc,.docx,.csv",
+  formats = "PDF, DOCX or CSV · up to 40 MB",
 }: {
   onClose: () => void;
-  onAttach: (name: string) => void;
+  onAttach: (file: File, promoteToKnowledge: boolean) => void;
+  accept?: string;
+  formats?: string;
 }) {
   const [dragOver, setDragOver] = useState(false);
+  const [promoteToKnowledge, setPromoteToKnowledge] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -24,7 +29,7 @@ export default function AttachPopover({
 
   function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
-    onAttach(files[0].name);
+    onAttach(files[0], promoteToKnowledge);
     onClose();
   }
 
@@ -59,19 +64,35 @@ export default function AttachPopover({
       >
         <UploadCloud size={22} strokeWidth={1.6} className="text-primary" />
         <span className="text-[13px] font-medium">Drag files here, or click to browse</span>
-        <span className="text-[11px] text-faint">PDF, DOCX or CSV · up to 40 MB</span>
+        <span className="text-[11px] text-faint">{formats}</span>
       </button>
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.doc,.docx,.csv"
+        accept={accept}
         className="hidden"
         onChange={(e) => handleFiles(e.target.files)}
       />
 
+      <label className="flex items-start gap-2.5 rounded-md border border-line bg-canvas px-3 py-2.5 text-[12px] leading-[1.45]">
+        <input
+          type="checkbox"
+          checked={promoteToKnowledge}
+          onChange={(event) => setPromoteToKnowledge(event.target.checked)}
+          className="mt-0.5 accent-primary"
+        />
+        <span>
+          <span className="block font-semibold text-ink">Add to Helmonic knowledge</span>
+          <span className="block text-faint">
+            Keep an audited permanent copy in the separate company-knowledge RAG after
+            processing and duplicate checks.
+          </span>
+        </span>
+      </label>
+
       <div className="flex items-center gap-2 text-[11px] text-faint border-t border-line pt-3">
         <FileText size={13} strokeWidth={1.8} />
-        Files stay attached to this conversation and can be cited in answers.
+        Unchecked files stay conversation-scoped and can be cited as attachment evidence.
       </div>
     </div>
   );
