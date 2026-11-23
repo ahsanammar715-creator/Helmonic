@@ -5,6 +5,7 @@ import type {
   ConsultErrorResponse,
   ConsultQueryResponse,
 } from "@/lib/consult/types";
+import { isAttachmentDirectedQuestion } from "@/lib/consult/attachment-query-policy";
 import {
   actorMayReadRestrictedEmailEvidence,
   emailEvidenceConfigurationErrors,
@@ -25,6 +26,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const maximumQuestionLength = 1_200;
+const maximumAttachmentDocumentIds = 10;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function generalKnowledgeEnabled(config: ReturnType<typeof getRuntimeConfig>): boolean {
   return Boolean(config.model.endpoint && config.model.deployment);
@@ -87,14 +90,28 @@ export async function POST(request: Request) {
     typeof body === "object" && body !== null && "conversationId" in body
       ? (body as { conversationId?: unknown }).conversationId
       : undefined;
+  const attachmentDocumentIdsValue =
+    typeof body === "object" && body !== null && "attachmentDocumentIds" in body
+      ? (body as { attachmentDocumentIds?: unknown }).attachmentDocumentIds
+      : [];
   if (
     conversationId !== undefined &&
-    (typeof conversationId !== "string" ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        conversationId,
-      ))
+    (typeof conversationId !== "string" || !uuidPattern.test(conversationId))
   ) {
     return errorResponse("The conversation identifier is invalid.", requestId, 400);
+  }
+  if (
+    !Array.isArray(attachmentDocumentIdsValue) ||
+    attachmentDocumentIdsValue.length > maximumAttachmentDocumentIds ||
+    attachmentDocumentIdsValue.some(
+      (documentId) => typeof documentId !== "string" || !uuidPattern.test(documentId),
+    )
+  ) {
+    return errorResponse("The attachment selection is invalid.", requestId, 400);
+  }
+  const attachmentDocumentIds = [...new Set(attachmentDocumentIdsValue as string[])];
+  if (attachmentDocumentIds.length > 0 && !conversationId) {
+    return errorResponse("Attachment questions require a conversation.", requestId, 400);
   }
 
   if (typeof question !== "string" || !question.trim()) {
@@ -109,6 +126,13 @@ export async function POST(request: Request) {
   }
 
   const trimmedQuestion = question.trim();
+  const attachmentDirected = Boolean(
+    conversationId && isAttachmentDirectedQuestion(trimmedQuestion),
+  );
+  const scopedAttachmentDocumentIds =
+    attachmentDirected && attachmentDocumentIds.length > 0
+      ? [attachmentDocumentIds.at(-1)!]
+      : attachmentDocumentIds;
   if (trimmedQuestion.length > maximumQuestionLength) {
     return errorResponse(
       `Keep the question under ${maximumQuestionLength.toLocaleString()} characters.`,
@@ -196,6 +220,10 @@ export async function POST(request: Request) {
                 conversationId,
                 requestId,
                 config,
+                {
+                  documentIds: scopedAttachmentDocumentIds,
+                  overview: attachmentDirected,
+                },
               ),
             { requestId, operation: "session-retrieval" },
           )
@@ -232,14 +260,20 @@ export async function POST(request: Request) {
         : Promise.resolve({ status: "not-requested" as const, citations: [] }),
     ]);
     const citationCounters = { D: 0, S: 0, B: 0, A: 0, E: 0, W: 0 };
-    const citations = [
-      ...controlledCitations,
-      ...promotedKnowledgeCitations,
-      ...attachmentCitations,
+    const orderedCitations = [
+      ...(attachmentDirected ? attachmentCitations : controlledCitations),
+      ...(attachmentDirected ? controlledCitations : promotedKnowledgeCitations),
+      ...(attachmentDirected ? promotedKnowledgeCitations : attachmentCitations),
       ...emailCitations,
       ...experienceCitations,
       ...webEvidence.citations,
-    ].map((citation) => {
+    ];
+    const seenCitationIds = new Set<string>();
+    const citations = orderedCitations.filter((citation) => {
+      if (seenCitationIds.has(citation.id)) return false;
+      seenCitationIds.add(citation.id);
+      return true;
+    }).map((citation) => {
       const namespace = citation.citationNamespace;
       if (!namespace) return citation;
       citationCounters[namespace] += 1;
@@ -290,6 +324,7 @@ export async function POST(request: Request) {
         evidence: citations,
         allowGeneralKnowledge,
         experienceMode: includeDeidentifiedExperience,
+        attachmentFocus: attachmentDirected && attachmentCitations.length > 0,
       });
     } catch (error) {
       if (error instanceof ModelGatewayValidationError) {
