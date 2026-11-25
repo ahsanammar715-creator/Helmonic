@@ -1,5 +1,6 @@
 import "server-only";
 
+import { attachmentFocusInstruction } from "@/lib/consult/attachment-query-policy";
 import {
   buildEvidenceOnlyAnswer,
   buildConsultSystemPrompt,
@@ -133,7 +134,11 @@ function buildAnswerRepairPrompt(input: {
     ? "If the retrieved passages do not directly support a necessary part of the answer, answer that part from professional general knowledge in a separate paragraph ending [G1], [G2], and so on. Do not attach a retrieved-evidence marker to a claim that its excerpt does not support."
     : "Do not add facts from general knowledge; identify any remaining evidence gap instead.";
 
-  return `Rewrite the draft into a complete consultant-style answer to the user's arbitrary question. This is a general question-answering system, not a fixed-question template. The previous draft failed the evidence gate for this reason: ${input.reason}\n\n${generalKnowledgeInstruction}\n\nEvery factual paragraph must end with its applicable marker. Use [D#], [S#], [B#], [A#], [E#], or [W#] only for claims directly stated or necessarily entailed by that exact excerpt. Keep public-web claims in separate paragraphs explicitly described as current public-web evidence. Do not mention this repair, the failed draft, hidden source identities, or the validation process. Return only the rewritten answer.\n\nQuestion:\n${input.request.question}\n\nPermitted evidence:\n${buildEvidence(input.request.evidence)}\n\nFailed draft:\n${input.failedAnswer}`;
+  const attachmentInstruction = attachmentFocusInstruction(
+    input.request.attachmentFocus === true,
+  );
+
+  return `Rewrite the draft into a complete consultant-style answer to the user's arbitrary question. This is a general question-answering system, not a fixed-question template. The previous draft failed the evidence gate for this reason: ${input.reason}\n\n${generalKnowledgeInstruction}${attachmentInstruction ? `\n\n${attachmentInstruction}` : ""}\n\nEvery factual paragraph must end with its applicable marker. Use [D#], [S#], [B#], [A#], [E#], or [W#] only for claims directly stated or necessarily entailed by that exact excerpt. Keep public-web claims in separate paragraphs explicitly described as current public-web evidence. Do not mention this repair, the failed draft, hidden source identities, or the validation process. Return only the rewritten answer.\n\nQuestion:\n${input.request.question}\n\nPermitted evidence:\n${buildEvidence(input.request.evidence)}\n\nFailed draft:\n${input.failedAnswer}`;
 }
 
 function buildProfessionalCompletionPrompt(input: {
@@ -282,7 +287,11 @@ async function createDocumentAnswer(
   const initial = await requestGeneratedAnswer({
     requestId: request.requestId,
     systemPrompt,
-    userPrompt: `Question:\n${request.question}\n\nEvidence:\n${buildEvidence(request.evidence)}`,
+    userPrompt: `Question:\n${request.question}${
+      request.attachmentFocus
+        ? `\n\n${attachmentFocusInstruction(true)}`
+        : ""
+    }\n\nEvidence:\n${buildEvidence(request.evidence)}`,
     token,
     config,
   });
@@ -433,7 +442,7 @@ async function createDocumentAnswer(
     repairUsage = repaired.usage;
     reviewed = await reviewAnswer(repaired.answer);
     if (!reviewed.answer) {
-      if (!request.allowGeneralKnowledge) {
+      if (!request.allowGeneralKnowledge || request.attachmentFocus) {
         return evidenceOnlyFallback(reviewed.reason ?? firstFailure);
       }
 

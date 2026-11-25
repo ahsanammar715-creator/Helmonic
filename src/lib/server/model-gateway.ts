@@ -8,6 +8,7 @@ export type DocumentModelRequest = {
   evidence: ConsultCitation[];
   allowGeneralKnowledge: boolean;
   experienceMode?: boolean;
+  attachmentFocus?: boolean;
 };
 
 export interface ConsultModelGateway {

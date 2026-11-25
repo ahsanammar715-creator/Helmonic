@@ -389,6 +389,10 @@ export async function searchSessionEvidence(
   conversationId: string,
   requestId: string,
   config: RuntimeConfig,
+  options: {
+    documentIds?: string[];
+    overview?: boolean;
+  } = {},
 ) {
   const endpoint = config.search.endpoint;
   const indexName = config.phase1b.sessionSearchIndex;
@@ -397,6 +401,14 @@ export async function searchSessionEvidence(
   const token = await getAzureAccessToken("https://search.azure.com/.default");
   const owner = ownerObjectId.replace(/'/g, "''");
   const conversation = conversationId.replace(/'/g, "''");
+  const documentIds = [...new Set(options.documentIds ?? [])]
+    .filter(Boolean)
+    .map((documentId) => documentId.replace(/'/g, "''"));
+  const documentFilter =
+    documentIds.length > 0
+      ? ` and (${documentIds.map((documentId) => `document_id eq '${documentId}'`).join(" or ")})`
+      : "";
+  const overview = options.overview === true;
   const response = await fetch(
     `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(
       config.search.apiVersion,
@@ -409,14 +421,16 @@ export async function searchSessionEvidence(
         "x-ms-client-request-id": requestId,
       },
       body: JSON.stringify({
-        search: question.trim(),
+        search: overview ? "*" : question.trim(),
         queryType: "simple",
         searchMode: "all",
         searchFields: "title,section,content",
         filter:
           `owner_object_id eq '${owner}' and conversation_id eq '${conversation}' ` +
-          "and source_type eq 'session_attachment' and is_active eq true",
-        top: config.search.top,
+          "and (source_type eq 'session_attachment' or source_type eq 'helmonic_knowledge') " +
+          `and is_active eq true${documentFilter}`,
+        top: overview ? Math.min(24, Math.max(config.search.top * 2, 12)) : config.search.top,
+        ...(overview ? { orderby: "page_number asc" } : {}),
         select:
           "chunk_id,document_id,source_uri,title,section,page_number,content",
       }),

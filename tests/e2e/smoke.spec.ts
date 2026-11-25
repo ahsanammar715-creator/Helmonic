@@ -166,7 +166,8 @@ test.describe("key interactive flows", () => {
     await expect(page.getByText("Targets met · 2 of 3 rooms")).toBeVisible();
     await page.getByText("Create project & draft report").click();
     await expect(page).toHaveURL(/\/consult\/report$/);
-    await expect(page.getByText("Airborne sound insulation assessment")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Generate from the approved master" })).toBeVisible();
+    await expect(page.getByLabel("Report title")).toBeVisible();
   });
 
   test("build: cost estimator completes and exports a BOM", async ({ page }) => {

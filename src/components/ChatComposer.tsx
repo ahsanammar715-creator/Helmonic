@@ -19,7 +19,7 @@ export default function ChatComposer({
 }: {
   placeholder: string;
   helper?: string;
-  onSend?: (value: string) => void;
+  onSend?: (value: string, attachmentDocumentIds: string[]) => void;
   disabled?: boolean;
   attachLabel?: string;
   inputId?: string;
@@ -66,7 +66,12 @@ export default function ChatComposer({
 
   function submit() {
     if (!value.trim() || disabled || attachmentBusy) return;
-    onSend?.(value.trim());
+    onSend?.(
+      value.trim(),
+      attachments
+        .filter((attachment) => attachment.state === "ready")
+        .map((attachment) => attachment.id),
+    );
     setValue("");
   }
 

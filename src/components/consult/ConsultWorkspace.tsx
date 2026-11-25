@@ -28,6 +28,7 @@ import type {
 type Exchange = {
   id: string;
   question: string;
+  attachmentDocumentIds: string[];
   answer?: string | null;
   error?: string;
   mode?: ConsultQueryResponse["mode"];
@@ -126,12 +127,15 @@ export default function ConsultWorkspace({
   const includeWebEvidence = webGroundingEnabled;
   const latestSources = exchanges.at(-1)?.citations ?? [];
 
-  async function ask(question: string) {
+  async function ask(question: string, attachmentDocumentIds: string[] = []) {
     if (pending) return;
 
     const id = crypto.randomUUID();
     setPending(true);
-    setExchanges((current) => [...current, { id, question, citations: [] }]);
+    setExchanges((current) => [
+      ...current,
+      { id, question, attachmentDocumentIds, citations: [] },
+    ]);
 
     try {
       const response = await fetch("/api/consult/query", {
@@ -140,6 +144,7 @@ export default function ConsultWorkspace({
         body: JSON.stringify({
           question,
           conversationId,
+          attachmentDocumentIds,
           includeDeidentifiedExperience,
           includeWebEvidence,
         }),
@@ -311,7 +316,9 @@ export default function ConsultWorkspace({
                         </p>
                         <button
                           type="button"
-                          onClick={() => ask(exchange.question)}
+                          onClick={() =>
+                            ask(exchange.question, exchange.attachmentDocumentIds)
+                          }
                           className="self-start text-[12px] font-semibold text-primary hover:underline"
                         >
                           Retry this question
