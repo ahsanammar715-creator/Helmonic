@@ -137,7 +137,9 @@ jobs:
               Path("scripts/consult-release-container-smoke.js").read_bytes()
           ).decode("ascii")
           payload = (
-              f"eval(Buffer.from('{script}','base64').toString('utf8'))\n"
+              # ACA exec connects to a real PTY. The helper waits for Node's
+              # prompt, then CRLF submits the expression like a terminal Enter.
+              f"eval(Buffer.from('{script}','base64').toString('utf8'))\r\n"
           ).encode("utf-8")
           print(base64.b64encode(payload).decode("ascii"))
           PY
