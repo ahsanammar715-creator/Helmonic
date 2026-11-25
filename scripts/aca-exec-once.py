@@ -27,14 +27,14 @@ try:
         if stdin_sent:
             return
         prompt_visible = "> " in output_buffer
-        node_banner_complete = 'Type ".help" for more information.' in output_buffer
-        if prompt_visible or node_banner_complete:
+        node_banner_visible = "Welcome to Node.js" in output_buffer
+        if prompt_visible or node_banner_visible:
             # ACA's exec WebSocket sometimes omits Node's visible prompt even
             # though the REPL is ready. The completed Node banner is the next
             # reliable readiness boundary; allow the REPL one scheduling tick
             # before submitting the single command.
-            if node_banner_complete and not prompt_visible:
-                time.sleep(0.25)
+            if node_banner_visible and not prompt_visible:
+                time.sleep(0.5)
             connection.send_binary(b"\x00\x00" + stdin_payload)
             stdin_sent = True
 
