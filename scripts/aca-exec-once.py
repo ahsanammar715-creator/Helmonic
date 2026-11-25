@@ -35,7 +35,13 @@ try:
             # before submitting the single command.
             if node_banner_visible and not prompt_visible:
                 time.sleep(0.5)
-            connection.send_binary(b"\x00\x00" + stdin_payload)
+            # Match Azure CLI's ACA exec client exactly: the PTY proxy expects
+            # terminal input as individual keypress frames, each prefixed with
+            # the proxy-forward and cluster-stdin control bytes. Sending the
+            # complete command in one frame opens the REPL but can leave the
+            # expression unsubmitted.
+            for keypress in stdin_payload:
+                connection.send(b"\x00\x00" + bytes((keypress,)))
             stdin_sent = True
 
     while True:
