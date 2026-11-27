@@ -449,10 +449,13 @@ function selectionValue(field: OdooFieldInfo | undefined, label: string) {
   const normalized = label.trim().toLowerCase();
   const match = field?.selection?.find(([key, display]) =>
     key.trim().toLowerCase() === normalized || display.trim().toLowerCase() === normalized);
-  if (!match) {
-    throw new Error(`Odoo project-sector selection has no value matching ${label}.`);
-  }
-  return match[0];
+  if (match) return match[0];
+  // The live Studio-owned dropdown may contain a narrower set of choices than
+  // the source taxonomy. Keep the exact source wording in the lead evidence,
+  // and use the existing generic option without modifying Studio metadata.
+  const other = field?.selection?.find(([key, display]) =>
+    key.trim().toLowerCase() === "other" || display.trim().toLowerCase() === "other");
+  return other?.[0] ?? false;
 }
 
 function createdId(result: unknown) {

@@ -753,7 +753,12 @@ test("Odoo bulk sync creates current Leads, archives existing stale records and 
     {
       ...base,
       matchValue: "helmonic-lead:current-create",
-      values: { ...base.values, active: true, x_assigned_person: "" },
+      values: {
+        ...base.values,
+        active: true,
+        x_assigned_person: "",
+        x_studio_project_sector: "Hospitality & Restaurants",
+      },
     },
     {
       ...base,
@@ -832,6 +837,7 @@ test("Odoo bulk sync creates current Leads, archives existing stale records and 
   assert.equal(result.inactiveNewRecordsSkipped, 1);
   assert.equal(result.unchanged, 1);
   assert.equal(created[0].x_helmonic_external_id, "helmonic-lead:current-create");
+  assert.equal(created[0].x_studio_project_sector, "other");
   assert.deepEqual(written[0].ids, [902]);
   assert.equal(written[0].vals.active, false, JSON.stringify({
     classification: written[0].vals.x_classification,
