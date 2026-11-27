@@ -249,7 +249,11 @@ try {
   });
   await writeFile(latestHealthPath, `${JSON.stringify(health, null, 2)}\n`, "utf8");
   summary.operationalHealth = health;
-  if (!health.healthy) {
+  // A completed-ledger sync deliberately reuses the most recent completed
+  // audit instead of producing a same-run source audit. Its separate ledger
+  // count and maximum-age gates fail before any Odoo write, so the general
+  // same-run daily-health requirement does not apply to this bounded mode.
+  if (!health.healthy && !odooCompletedLedgerSyncOnly) {
     summary.status = "failed";
     summary.failedStep = "operational-health";
     summary.error = health.message;
