@@ -1,3 +1,5 @@
+import { ODOO_TENDER_FIELD_CONTRACT } from "../../src/lib/tender-intelligence/odoo-field-contract.ts";
+
 const enabled = process.env.ODOO_CRM_UI_CONFIG_ENABLED === "true";
 if (!enabled) {
   console.log(JSON.stringify({ status: "disabled", writesAttempted: 0 }, null, 2));
@@ -43,41 +45,29 @@ const modelRows = await call("ir.model", "search_read", {
 if (modelRows.length !== 1) throw new Error("Could not resolve the crm.lead model exactly once.");
 const leadModelId = modelRows[0].id;
 
+// Build the live schema from the same authoritative contract used by the
+// preflight and synchronizer. The former partial list worked only on the test
+// database because it silently relied on fields that Studio had created there.
+// Selection fields are expected to be owned by Odoo Studio so their business
+// choices are never invented or overwritten by this deployment routine.
+const studioOwnedFieldNames = new Set(["x_studio_project_sector"]);
 const customFields = [
-  { name: "x_pipeline_priority_rank", field_description: "Pipeline Priority Rank", ttype: "integer" },
-  { name: "x_pipeline_priority_reason", field_description: "Pipeline Priority Reason", ttype: "char" },
-  { name: "x_lead_panel", field_description: "Lead Review Panel", ttype: "char" },
-  { name: "x_project_link", field_description: "Project Link", ttype: "char" },
-  { name: "x_county", field_description: "County", ttype: "char" },
-  { name: "x_source_ledger", field_description: "Source and Deduplication Ledger", ttype: "text" },
-  { name: "x_rfi_published_at", field_description: "RFI Published Date", ttype: "datetime" },
-  { name: "x_rfi_received_at", field_description: "RFI Received / Detected Date", ttype: "datetime" },
-  { name: "x_rfi_response_due_at", field_description: "RFI Response Due Date", ttype: "datetime" },
-  { name: "x_rfi_response_received_at", field_description: "Further Information Response Received", ttype: "datetime" },
-  { name: "x_rfi_date_source", field_description: "RFI Date Source", ttype: "text" },
-  { name: "x_rfi_date_confidence", field_description: "RFI Date Confidence", ttype: "char" },
-  { name: "x_planning_received_at", field_description: "Planning Application Received", ttype: "datetime" },
-  { name: "x_planning_validated_at", field_description: "Planning Application Validated", ttype: "datetime" },
-  { name: "x_decision_due_at", field_description: "Planning Decision Due At", ttype: "datetime" },
-  { name: "x_action_days_remaining", field_description: "Action Days Remaining", ttype: "integer" },
-  { name: "x_deadline_urgency", field_description: "Deadline Urgency", ttype: "char" },
-  { name: "x_rfi_trigger", field_description: "RFI / Acoustic Trigger", ttype: "char" },
-  { name: "x_acoustic_appointment_status", field_description: "Acoustic Appointment Status", ttype: "char" },
-  { name: "x_appointed_acoustician", field_description: "Appointed Acoustician", ttype: "char" },
-  { name: "x_appointment_evidence", field_description: "Appointment Evidence", ttype: "text" },
-  { name: "x_appointment_evidence_source_url", field_description: "Appointment Evidence Source", ttype: "text" },
-  { name: "x_competitive_quote_opportunity", field_description: "Competitive Quote Opportunity", ttype: "boolean" },
-  { name: "x_outreach_eligibility", field_description: "Outreach Eligibility", ttype: "char" },
-  { name: "x_outreach_suppression_reason", field_description: "Outreach Safeguard Reason", ttype: "text" },
-  { name: "x_outreach_key", field_description: "Outreach Deduplication Key", ttype: "char" },
-  { name: "x_buildinginfo_search_profile", field_description: "BuildingInfo Search Profile", ttype: "char" },
-  { name: "x_source_reference", field_description: "Source Reference", ttype: "char" },
-  { name: "x_relationship_summary", field_description: "Relationship Summary", ttype: "text" },
-  { name: "x_relationship_evidence", field_description: "Relationship Evidence (Restricted)", ttype: "text" },
-  { name: "x_project_history_summary", field_description: "Previous iAcoustics Project Summary", ttype: "text" },
-  { name: "x_project_history_evidence", field_description: "Previous Project Evidence (Restricted)", ttype: "text" },
+  ...ODOO_TENDER_FIELD_CONTRACT
+    .filter((field) => !studioOwnedFieldNames.has(field.name))
+    .map((field) => ({
+      name: field.name,
+      field_description: field.label,
+      ttype: field.type,
+    })),
+  // This legacy Studio field is read only. Creating an empty compatible field
+  // on databases that do not already have it keeps normalization safe without
+  // generating or overwriting a human CRM reference.
+  { name: "x_studio_reference", field_description: "Lead Reference", ttype: "char" },
 ];
-const fieldNames = [...customFields.map((field) => field.name), "x_assigned_person"];
+const fieldNames = [
+  ...customFields.map((field) => field.name),
+  ...studioOwnedFieldNames,
+];
 const existingFields = await call("ir.model.fields", "search_read", {
   domain: [["model_id", "=", leadModelId], ["name", "in", fieldNames]],
   fields: ["id", "name", "field_description", "ttype", "state"],
@@ -115,14 +105,15 @@ for (const field of customFields) {
   }
 }
 
-const assignedField = fieldByName.get("x_assigned_person");
-if (!assignedField) throw new Error("Existing x_assigned_person field was not found.");
-if (assignedField.field_description !== "Assigned Acoustic Consultant") {
-  await call("ir.model.fields", "write", {
-    ids: [assignedField.id],
-    vals: { field_description: "Assigned Acoustic Consultant" },
-  });
-  fieldsUpdated.push({ id: assignedField.id, name: "x_assigned_person" });
+for (const studioOwnedFieldName of studioOwnedFieldNames) {
+  const studioOwnedField = fieldByName.get(studioOwnedFieldName);
+  if (!studioOwnedField) {
+    throw new Error(`Required Odoo Studio field ${studioOwnedFieldName} was not found; no selection choices were invented.`);
+  }
+  const expected = ODOO_TENDER_FIELD_CONTRACT.find((field) => field.name === studioOwnedFieldName);
+  if (!expected || studioOwnedField.ttype !== expected.type) {
+    throw new Error(`${studioOwnedFieldName} exists with type ${studioOwnedField.ttype}, expected ${expected?.type ?? "unknown"}.`);
+  }
 }
 
 const baseViewRows = await call("ir.model.data", "search_read", {
