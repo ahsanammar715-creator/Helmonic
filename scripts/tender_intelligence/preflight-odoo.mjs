@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { preflightOdoo } from "../../src/lib/tender-intelligence/odoo-client.ts";
+import { preflightOdoo, resolveOdooOwnerUserIds } from "../../src/lib/tender-intelligence/odoo-client.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -14,7 +14,7 @@ const integerEnv = (name) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 };
 
-const result = await preflightOdoo([], {
+const config = await resolveOdooOwnerUserIds({
   enabled: false,
   baseUrl: process.env.ODOO_BASE_URL,
   expectedBaseUrl: process.env.HELMONIC_ODOO_EXPECTED_BASE_URL,
@@ -29,6 +29,7 @@ const result = await preflightOdoo([], {
   requestIntervalMs: Number.parseInt(process.env.ODOO_REQUEST_INTERVAL_MS || "1000", 10),
   timeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
 });
+const result = await preflightOdoo([], config);
 
 const timestamp = new Date().toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z");
 const outputDirectory = path.join(artifactRoot, "odoo-preflight-runs", timestamp);

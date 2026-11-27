@@ -294,17 +294,82 @@ async function routingRecord(
   return records[0];
 }
 
+type OdooRoutingUser = { id?: number; name?: string; login?: string };
+
+function expectedRoutingUser(record: OdooRoutingUser, expectedName: string, expectedLogin: string) {
+  const name = String(record.name ?? "").trim().toLowerCase();
+  const login = String(record.login ?? "").trim().toLowerCase();
+  return name === expectedName.toLowerCase() || login === expectedLogin.toLowerCase();
+}
+
+async function resolveRoutingUser(
+  config: ReturnType<typeof requiredConfig>,
+  configuredId: number | undefined,
+  expectedName: string,
+  expectedLogin: string,
+  fetcher: typeof fetch,
+) {
+  if (configuredId) {
+    const configured = await json2Call(config, "res.users", "search_read", {
+      domain: [["id", "=", configuredId]],
+      fields: ["id", "name", "login"],
+      limit: 2,
+    }, fetcher) as OdooRoutingUser[];
+    if (configured.length === 1 && configured[0]?.id === configuredId
+      && expectedRoutingUser(configured[0], expectedName, expectedLogin)) {
+      return configured[0];
+    }
+  }
+
+  const matches = await json2Call(config, "res.users", "search_read", {
+    domain: ["|", ["login", "=ilike", expectedLogin], ["name", "=ilike", expectedName]],
+    fields: ["id", "name", "login"],
+    limit: 10,
+  }, fetcher) as OdooRoutingUser[];
+  const exact = Array.isArray(matches)
+    ? matches.filter((record) => Number.isInteger(record.id)
+      && expectedRoutingUser(record, expectedName, expectedLogin))
+    : [];
+  if (exact.length !== 1) {
+    throw new Error(`Odoo preflight failed; could not uniquely resolve ${expectedName} by name or login. No records were written.`);
+  }
+  return exact[0];
+}
+
+export async function resolveOdooOwnerUserIds(
+  inputConfig: OdooJson2Config,
+  fetcher: typeof fetch = fetch,
+): Promise<OdooJson2Config> {
+  const config = requiredConfig(inputConfig);
+  const odooFetch = rateLimitedFetcher(fetcher, config.requestIntervalMs);
+  const [glen, eoghan] = await Promise.all([
+    resolveRoutingUser(config, config.glenUserId, "Glen Plunkett", "glen.plunkett@iacoustics.net", odooFetch),
+    resolveRoutingUser(config, config.eoghanUserId, "Eoghan Tyrrell", "eoghan.tyrrell@iacoustics.net", odooFetch),
+  ]);
+  return {
+    ...inputConfig,
+    glenUserId: glen.id,
+    eoghanUserId: eoghan.id,
+  };
+}
+
 async function assertRoutingRecordsExist(config: ReturnType<typeof requiredConfig>, fetcher: typeof fetch) {
   const team = await routingRecord(config, "crm.team", config.salesTeamId!, "sales team", fetcher);
   const stage = await routingRecord(config, "crm.stage", config.initialStageId!, "initial stage", fetcher);
-  const glen = await routingRecord(config, "res.users", config.glenUserId!, "Glen owner user", fetcher);
-  const eoghan = await routingRecord(config, "res.users", config.eoghanUserId!, "Eoghan owner user", fetcher);
-  if (!String(glen.name ?? "").toLowerCase().includes("glen")) {
-    throw new Error(`Odoo preflight failed; user ID ${config.glenUserId} does not resolve to Glen. No records were written.`);
-  }
-  if (!String(eoghan.name ?? "").toLowerCase().includes("eoghan")) {
-    throw new Error(`Odoo preflight failed; user ID ${config.eoghanUserId} does not resolve to Eoghan. No records were written.`);
-  }
+  const glen = await resolveRoutingUser(
+    config,
+    config.glenUserId,
+    "Glen Plunkett",
+    "glen.plunkett@iacoustics.net",
+    fetcher,
+  );
+  const eoghan = await resolveRoutingUser(
+    config,
+    config.eoghanUserId,
+    "Eoghan Tyrrell",
+    "eoghan.tyrrell@iacoustics.net",
+    fetcher,
+  );
   return { team, stage, glen, eoghan };
 }
 
@@ -318,7 +383,7 @@ export async function preflightOdoo(
   assertCompletePreflightRoutingConfig(config);
   const apiVersion = await assertSupportedVersion(config, odooFetch);
   const { requiredFieldCount } = await assertFieldsExist(config, payloads, odooFetch);
-  await assertRoutingRecordsExist(config, odooFetch);
+  const routing = await assertRoutingRecordsExist(config, odooFetch);
   return {
     status: "completed",
     apiVersion,
@@ -327,7 +392,7 @@ export async function preflightOdoo(
     requiredFieldCount,
     salesTeamId: config.salesTeamId!,
     initialStageId: config.initialStageId!,
-    ownerUserIds: { glen: config.glenUserId!, eoghan: config.eoghanUserId! },
+    ownerUserIds: { glen: routing.glen.id!, eoghan: routing.eoghan.id! },
     checks: ["version", "field-contract", "sales-team", "initial-stage", "owner-users"],
     writesAttempted: 0,
   };

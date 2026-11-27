@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { OdooSyncError, syncOdooLeads } from "../../src/lib/tender-intelligence/odoo-client.ts";
+import { OdooSyncError, resolveOdooOwnerUserIds, syncOdooLeads } from "../../src/lib/tender-intelligence/odoo-client.ts";
 import { buildOdooDryRun } from "../../src/lib/tender-intelligence/odoo-payload.ts";
 import { recordsForOdooSync } from "../../src/lib/tender-intelligence/odoo-record-source.ts";
 
@@ -36,7 +36,7 @@ const integerEnv = (name) => {
 let syncError;
 let result;
 try {
-  result = await syncOdooLeads(payloads, {
+  const config = await resolveOdooOwnerUserIds({
   enabled: process.env.HELMONIC_ODOO_SYNC_ENABLED === "true",
   baseUrl: process.env.ODOO_BASE_URL,
   expectedBaseUrl: process.env.HELMONIC_ODOO_EXPECTED_BASE_URL,
@@ -62,6 +62,7 @@ try {
   requestIntervalMs: Number.parseInt(process.env.ODOO_REQUEST_INTERVAL_MS || "1000", 10),
   timeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
   });
+  result = await syncOdooLeads(payloads, config);
 } catch (error) {
   if (!(error instanceof OdooSyncError)) throw error;
   result = error.result;
