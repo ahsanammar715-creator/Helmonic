@@ -6,10 +6,15 @@ set -euo pipefail
 : "${TENDER_INTELLIGENCE_IMAGE:?TENDER_INTELLIGENCE_IMAGE is required}"
 
 expected_live_url="${HELMONIC_ODOO_EXPECTED_BASE_URL:-}"
+expected_live_database="${HELMONIC_ODOO_EXPECTED_DATABASE:-iacoustics}"
 max_ledger_age_hours="${HELMONIC_COMPLETED_LEDGER_MAX_AGE_HOURS:-36}"
 
 if [[ "$expected_live_url" != "https://iacoustics.odoo.com" ]]; then
   echo "Live Odoo promotion refused: HELMONIC_ODOO_EXPECTED_BASE_URL must be exactly https://iacoustics.odoo.com." >&2
+  exit 1
+fi
+if [[ "$expected_live_database" != "iacoustics" ]]; then
+  echo "Live Odoo promotion refused: HELMONIC_ODOO_EXPECTED_DATABASE must be exactly iacoustics." >&2
   exit 1
 fi
 if ! [[ "$max_ledger_age_hours" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
@@ -107,6 +112,8 @@ restore_safe_live_recurring_mode() {
     --image "$TENDER_INTELLIGENCE_IMAGE" \
     --set-env-vars \
       HELMONIC_ODOO_SYNC_ENABLED="$sync_enabled" \
+      ODOO_BASE_URL="$expected_live_url" \
+      ODOO_DATABASE="$expected_live_database" \
       HELMONIC_ODOO_EXPECTED_BASE_URL="$expected_live_url" \
       HELMONIC_COMPLETED_LEDGER_MAX_AGE_HOURS="$max_ledger_age_hours" \
       HELMONIC_RFI_EMAIL_ENABLED=false \
@@ -138,6 +145,8 @@ az containerapp job update \
   --image "$TENDER_INTELLIGENCE_IMAGE" \
   --set-env-vars \
     HELMONIC_ODOO_SYNC_ENABLED=false \
+    ODOO_BASE_URL="$expected_live_url" \
+    ODOO_DATABASE="$expected_live_database" \
     HELMONIC_ODOO_EXPECTED_BASE_URL="$expected_live_url" \
     HELMONIC_COMPLETED_LEDGER_MAX_AGE_HOURS="$max_ledger_age_hours" \
     HELMONIC_RFI_EMAIL_ENABLED=false \
@@ -163,6 +172,8 @@ az containerapp job update \
   --image "$TENDER_INTELLIGENCE_IMAGE" \
   --set-env-vars \
     HELMONIC_ODOO_SYNC_ENABLED=false \
+    ODOO_BASE_URL="$expected_live_url" \
+    ODOO_DATABASE="$expected_live_database" \
     HELMONIC_ODOO_EXPECTED_BASE_URL="$expected_live_url" \
     HELMONIC_RFI_EMAIL_ENABLED=false \
     HELMONIC_OUTREACH_SEND_ENABLED=false \
@@ -185,6 +196,8 @@ az containerapp job update \
   --image "$TENDER_INTELLIGENCE_IMAGE" \
   --set-env-vars \
     HELMONIC_ODOO_SYNC_ENABLED=true \
+    ODOO_BASE_URL="$expected_live_url" \
+    ODOO_DATABASE="$expected_live_database" \
     HELMONIC_ODOO_EXPECTED_BASE_URL="$expected_live_url" \
     HELMONIC_COMPLETED_LEDGER_MAX_AGE_HOURS="$max_ledger_age_hours" \
     HELMONIC_RFI_EMAIL_ENABLED=false \

@@ -961,6 +961,7 @@ jobs:
         env:
           TENDER_INTELLIGENCE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
           HELMONIC_ODOO_EXPECTED_BASE_URL: https://iacoustics.odoo.com
+          HELMONIC_ODOO_EXPECTED_DATABASE: iacoustics
           HELMONIC_COMPLETED_LEDGER_MAX_AGE_HOURS: "36"
           LIVE_ODOO_TARGET_CONFIRMATION: ${{ inputs.live_odoo_target_confirmation }}
         run: |
