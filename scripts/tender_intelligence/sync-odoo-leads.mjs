@@ -48,6 +48,7 @@ try {
   initialStageId: integerEnv("ODOO_INITIAL_STAGE_ID"),
   glenUserId: integerEnv("ODOO_GLEN_USER_ID"),
   eoghanUserId: integerEnv("ODOO_EOGHAN_USER_ID"),
+  assignNativeOwners: process.env.ODOO_ASSIGN_NATIVE_OWNERS === "true",
   populateAttribution: process.env.ODOO_POPULATE_ATTRIBUTION === "true",
   createMissingAttribution: process.env.ODOO_CREATE_MISSING_ATTRIBUTION === "true",
   linkPrimaryContact: process.env.ODOO_LINK_PRIMARY_CONTACT === "true",

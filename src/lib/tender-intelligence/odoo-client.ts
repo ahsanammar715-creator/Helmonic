@@ -23,6 +23,7 @@ export type OdooJson2Config = {
   initialStageId?: number;
   glenUserId?: number;
   eoghanUserId?: number;
+  assignNativeOwners?: boolean;
   populateAttribution?: boolean;
   createMissingAttribution?: boolean;
   linkPrimaryContact?: boolean;
@@ -107,6 +108,7 @@ function requiredConfig(config: OdooJson2Config) {
     initialStageId: positiveInteger(config.initialStageId),
     glenUserId: positiveInteger(config.glenUserId),
     eoghanUserId: positiveInteger(config.eoghanUserId),
+    assignNativeOwners: config.assignNativeOwners === true,
     populateAttribution: config.populateAttribution === true,
     createMissingAttribution: config.createMissingAttribution === true,
     linkPrimaryContact: config.linkPrimaryContact === true,
@@ -183,10 +185,28 @@ async function json2Call(
     "User-Agent": "Helmonic-Tender-Intelligence/1.0",
   };
   if (config.database) headers["X-Odoo-Database"] = config.database;
+  const existingContext = body.context && typeof body.context === "object" && !Array.isArray(body.context)
+    ? body.context as Record<string, unknown>
+    : {};
+  const requestBody = ["create", "write"].includes(method)
+    ? {
+        ...body,
+        context: {
+          ...existingContext,
+          // Integration writes must stay silent: no automatic followers,
+          // chatter tracking, creation log, posts or mail notifications.
+          tracking_disable: true,
+          mail_create_nosubscribe: true,
+          mail_create_nolog: true,
+          mail_notrack: true,
+          mail_notify_force_send: false,
+        },
+      }
+    : body;
   const response = await fetcher(`${config.baseUrl}/json/2/${encodeURIComponent(model)}/${encodeURIComponent(method)}`, {
     method: "POST",
     headers,
-    body: JSON.stringify(body),
+    body: JSON.stringify(requestBody),
     signal: AbortSignal.timeout(config.timeoutMs),
   });
   if (!response.ok) throw new Error(await responseError(response));
@@ -254,10 +274,14 @@ function assertRoutingConfig(config: ReturnType<typeof requiredConfig>, payloads
   if (payloads.length === 0) return;
   const missing: string[] = [];
   if (!config.salesTeamId) missing.push("ODOO_SALES_TEAM_ID");
-  if (payloads.some((payload) => payload.values.x_assigned_person === "Glen Plunkett") && !config.glenUserId) {
+  if (config.assignNativeOwners
+    && payloads.some((payload) => payload.values.x_assigned_person === "Glen Plunkett")
+    && !config.glenUserId) {
     missing.push("ODOO_GLEN_USER_ID");
   }
-  if (payloads.some((payload) => payload.values.x_assigned_person === "Eoghan Tyrrell") && !config.eoghanUserId) {
+  if (config.assignNativeOwners
+    && payloads.some((payload) => payload.values.x_assigned_person === "Eoghan Tyrrell")
+    && !config.eoghanUserId) {
     missing.push("ODOO_EOGHAN_USER_ID");
   }
   if (missing.length > 0) {
@@ -399,6 +423,7 @@ export async function preflightOdoo(
 }
 
 function ownerUserId(payload: OdooLeadDryRun, config: ReturnType<typeof requiredConfig>) {
+  if (!config.assignNativeOwners) return false;
   if (payload.values.x_assigned_person === "Glen Plunkett") return config.glenUserId;
   if (payload.values.x_assigned_person === "Eoghan Tyrrell") return config.eoghanUserId;
   return false;
@@ -724,6 +749,19 @@ function valuesForOdoo(
   // are protected separately by payloadWithExistingEvidence and are only
   // populated when blank.
   if (existing.partner_id) delete values.partner_id;
+
+  // A lead may have been created by an older integration release which set a
+  // native salesperson and caused Odoo to notify that consultant. Remove only
+  // those integration-owned assignments while retaining the relationship and
+  // consultant evidence in the dedicated Helmonic fields.
+  if (!config.assignNativeOwners) {
+    const existingOwnerId = Array.isArray(existing.user_id)
+      ? Number(existing.user_id[0])
+      : Number(existing.user_id || 0);
+    if (existingOwnerId === config.glenUserId || existingOwnerId === config.eoghanUserId) {
+      values.user_id = false;
+    }
+  }
 
   // A controlled, explicitly enabled migration may move a managed record back
   // to the separate Leads queue. Ordinary recurring syncs never change type.
@@ -1370,6 +1408,8 @@ async function normalizeHistoricalOdooRecords(
       || nativeOwnerId === config.glenUserId
       || nativeOwnerId === config.eoghanUserId
     );
+    const silentNativeOwnerRemoval = !config.assignNativeOwners
+      && (nativeOwnerId === config.glenUserId || nativeOwnerId === config.eoghanUserId);
     const boundedPriorityRank = boundedOdooInteger(priority.rank);
     if (record.x_pipeline_priority_rank !== boundedPriorityRank) values.x_pipeline_priority_rank = boundedPriorityRank;
     if (record.x_pipeline_priority_reason !== priority.reason) values.x_pipeline_priority_reason = priority.reason;
@@ -1383,6 +1423,7 @@ async function normalizeHistoricalOdooRecords(
     }
     const visualPriority = odooPriorityFromRank(priority.rank);
     if (record.priority !== visualPriority) values.priority = visualPriority;
+    if (silentNativeOwnerRemoval) values.user_id = false;
     if (staleAutomatedAssignment) {
       // Retain the verified relationship/tag/contact evidence, but remove the
       // operational assignment created by older releases. A historical email

@@ -964,7 +964,10 @@ test("Odoo creates new Tender Desk records as leads, preserves conversion and su
       assert.equal(body.vals_list[0].x_helmonic_external_id, payloads[0].matchValue);
       assert.equal(body.vals_list[0].team_id, 41);
       assert.equal(body.vals_list[0].x_assigned_person, "Eoghan Tyrrell");
-      assert.equal(body.vals_list[0].user_id, 6);
+      assert.equal(body.vals_list[0].user_id, false);
+      assert.equal(body.context.tracking_disable, true);
+      assert.equal(body.context.mail_create_nosubscribe, true);
+      assert.equal(body.context.mail_create_nolog, true);
       assert.equal(body.vals_list[0].type, "lead");
       creates += 1;
       existingId = 731;
@@ -972,6 +975,8 @@ test("Odoo creates new Tender Desk records as leads, preserves conversion and su
     }
     if (url.endsWith("/write")) {
       assert.deepEqual(body.ids, [existingId]);
+      assert.equal(body.context.tracking_disable, true);
+      assert.equal(body.context.mail_notrack, true);
       writtenTypes.push(body.vals.type);
       writtenValues.push(body.vals);
       writes += 1;
