@@ -168,7 +168,7 @@ const viewArchitecture = `<data>
         <group string="Consultant and relationship">
           <field name="user_id" string="Assigned Consultant"/>
           <field name="x_assigned_person" string="Suggested Consultant" readonly="1"/>
-          <field name="x_warm_connection_verified" string="Warm Relationship" readonly="1"/>
+          <field name="x_warm_connection_verified" string="Relationship Matched" readonly="1"/>
           <field name="x_routing_reason" readonly="1"/>
           <field name="x_relationship_summary" string="Relationship Summary" readonly="1"/>
           <field name="x_project_history_summary" string="Previous iAcoustics Projects" readonly="1"/>
@@ -333,7 +333,7 @@ const leadSearchValues = {
       <filter name="helmonic_primary_targets" string="Primary Acoustic Targets" domain="[('active', '=', True), ('x_project_link', '!=', False), ('x_lead_panel', 'in', ['Urgent Acoustic RFI', 'Granted with Acoustic Conditions'])]"/>
       <filter name="helmonic_live_rfis" string="Live RFI Work Queue" domain="[('active', '=', True), ('x_helmonic_external_id', '!=', False), ('x_classification', 'in', ['noise-related-rfi', 'further-information-request'])]"/>
       <filter name="helmonic_live_acoustic_rfis" string="Acoustic RFIs" domain="[('active', '=', True), ('x_helmonic_external_id', '!=', False), ('x_classification', '=', 'noise-related-rfi')]"/>
-      <filter name="helmonic_warm_rfis" string="Warm Relationships" domain="[('active', '=', True), ('x_helmonic_external_id', '!=', False), ('x_classification', 'in', ['noise-related-rfi', 'further-information-request']), ('x_warm_connection_verified', '=', True)]"/>
+      <filter name="helmonic_warm_rfis" string="Relationship Matched" domain="[('active', '=', True), ('x_helmonic_external_id', '!=', False), ('x_classification', 'in', ['noise-related-rfi', 'further-information-request']), ('x_warm_connection_verified', '=', True)]"/>
       <filter name="helmonic_unassigned_rfis" string="Needs Assignment" domain="[('active', '=', True), ('x_helmonic_external_id', '!=', False), ('x_classification', 'in', ['noise-related-rfi', 'further-information-request']), ('user_id', '=', False)]"/>
       <filter name="helmonic_my_rfis" string="My RFI Assignments" domain="[('active', '=', True), ('x_helmonic_external_id', '!=', False), ('x_classification', 'in', ['noise-related-rfi', 'further-information-request']), ('user_id', '=', uid)]"/>
       <filter name="helmonic_granted_acoustic_conditions" string="Granted — Acoustic Conditions" domain="[('x_lead_panel', '=', 'Granted with Acoustic Conditions')]"/>
