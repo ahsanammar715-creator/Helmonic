@@ -6,6 +6,7 @@ type OpportunityDocument = {
 };
 
 type AuditDocument = {
+  completedAt?: string;
   totals?: {
     qualifiedWorkingList?: number;
   };
@@ -106,14 +107,27 @@ export function recordsForOdooSync({
   ledger,
   audit,
   useCompletedLedger,
+  maxCompletedLedgerAgeHours,
+  now = new Date(),
 }: {
   state: OpportunityDocument | TenderOpportunity[];
   ledger?: OpportunityDocument | TenderOpportunity[];
   audit?: AuditDocument;
   useCompletedLedger: boolean;
+  maxCompletedLedgerAgeHours?: number;
+  now?: Date;
 }) {
   if (!useCompletedLedger) return coalesceOdooRecords(opportunities(state, "Pipeline state"));
   if (!ledger) throw new Error("Completed-ledger Odoo sync was requested but the confirmed ledger is missing.");
+
+  if (Number.isFinite(maxCompletedLedgerAgeHours)) {
+    const completedAt = Date.parse(audit?.completedAt ?? "");
+    const ageMs = now.getTime() - completedAt;
+    const maxAgeMs = maxCompletedLedgerAgeHours! * 60 * 60 * 1_000;
+    if (!Number.isFinite(completedAt) || ageMs < 0 || ageMs > maxAgeMs) {
+      throw new Error(`Completed-ledger Odoo sync refused: the completed audit is missing or older than ${maxCompletedLedgerAgeHours} hours.`);
+    }
+  }
 
   const records = opportunities(ledger, "Confirmed ledger");
   const auditCount = audit?.totals?.qualifiedWorkingList;

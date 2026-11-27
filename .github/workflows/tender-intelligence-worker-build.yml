@@ -8,6 +8,16 @@ on:
         required: true
         default: false
         type: boolean
+      promote_completed_rfi_ledger_to_live:
+        description: Promote the fresh completed RFI ledger to live iAcoustics Odoo after a no-write rehearsal and strict target preflight
+        required: true
+        default: false
+        type: boolean
+      live_odoo_target_confirmation:
+        description: Required for live promotion; enter exactly iacoustics.odoo.com
+        required: false
+        default: ""
+        type: string
       run_full_odoo_test_collection:
         description: Run one guarded full official-source collection and refresh the Odoo test Leads queue (BuildingInfo browser disabled)
         required: true
@@ -84,6 +94,7 @@ on:
       - scripts/deployment/provision-buildinginfo-job.sh
       - scripts/deployment/provision-education-lookup-job.sh
       - scripts/deployment/provision-tender-watchdog.sh
+      - scripts/deployment/run-live-odoo-migration.sh
       - src/lib/tender-intelligence/**
       - .github/workflows/tender-intelligence-worker-build.yml
 
@@ -941,6 +952,24 @@ jobs:
           TENDER_INTELLIGENCE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
           HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY: "true"
         run: bash scripts/deployment/run-full-odoo-test-collection.sh
+
+      - name: Promote the fresh completed RFI ledger to live iAcoustics Odoo
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.promote_completed_rfi_ledger_to_live) ||
+          contains(github.event.head_commit.message, '[promote-rfi-ledger-live]')
+        shell: bash
+        env:
+          TENDER_INTELLIGENCE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+          HELMONIC_ODOO_EXPECTED_BASE_URL: https://iacoustics.odoo.com
+          HELMONIC_COMPLETED_LEDGER_MAX_AGE_HOURS: "36"
+          LIVE_ODOO_TARGET_CONFIRMATION: ${{ inputs.live_odoo_target_confirmation }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "$LIVE_ODOO_TARGET_CONFIRMATION" != "iacoustics.odoo.com" ]]; then
+            echo "Live Odoo promotion refused: enter iacoustics.odoo.com in the target confirmation field." >&2
+            exit 1
+          fi
+          bash scripts/deployment/run-live-odoo-migration.sh
 
       - name: Audit acoustic and noise RFIs in the completed ledger
         if: github.event_name == 'workflow_dispatch' && inputs.audit_completed_rfi_ledger

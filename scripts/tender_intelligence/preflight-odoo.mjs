@@ -17,6 +17,7 @@ const integerEnv = (name) => {
 const result = await preflightOdoo([], {
   enabled: false,
   baseUrl: process.env.ODOO_BASE_URL,
+  expectedBaseUrl: process.env.HELMONIC_ODOO_EXPECTED_BASE_URL,
   database: process.env.ODOO_DATABASE,
   apiKey: process.env.ODOO_API_KEY,
   model: process.env.ODOO_MODEL || "crm.lead",

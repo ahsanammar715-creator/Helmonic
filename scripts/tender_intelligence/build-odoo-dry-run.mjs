@@ -28,6 +28,9 @@ const sourceRecords = recordsForOdooSync({
   ledger,
   audit,
   useCompletedLedger: completedLedgerSyncOnly,
+  maxCompletedLedgerAgeHours: completedLedgerSyncOnly
+    ? Number.parseFloat(process.env.HELMONIC_COMPLETED_LEDGER_MAX_AGE_HOURS || "")
+    : undefined,
 });
 const payloads = buildOdooDryRun(sourceRecords);
 const summary = summarizeOdooDryRun(payloads);

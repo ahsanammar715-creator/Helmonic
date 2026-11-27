@@ -14,6 +14,7 @@ function boundedOdooInteger(value: number) {
 export type OdooJson2Config = {
   enabled: boolean;
   baseUrl?: string;
+  expectedBaseUrl?: string;
   database?: string;
   apiKey?: string;
   model?: string;
@@ -91,8 +92,13 @@ function requiredConfig(config: OdooJson2Config) {
   if (!config.baseUrl || !config.apiKey) {
     throw new Error("Odoo synchronization is enabled but ODOO_BASE_URL or ODOO_API_KEY is missing.");
   }
+  const baseUrl = config.baseUrl.replace(/\/+$/, "");
+  const expectedBaseUrl = config.expectedBaseUrl?.replace(/\/+$/, "");
+  if (expectedBaseUrl && baseUrl.toLowerCase() !== expectedBaseUrl.toLowerCase()) {
+    throw new Error(`Odoo target mismatch: expected ${expectedBaseUrl}, received ${baseUrl}. No records were written.`);
+  }
   return {
-    baseUrl: config.baseUrl.replace(/\/+$/, ""),
+    baseUrl,
     apiKey: config.apiKey,
     database: config.database,
     model: config.model || "crm.lead",

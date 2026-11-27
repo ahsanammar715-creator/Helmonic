@@ -890,6 +890,7 @@ test("Odoo preflight validates the complete contract and routing with zero write
   const result = await preflightOdoo([], {
     enabled: false,
     baseUrl: "https://odoo.example.test",
+    expectedBaseUrl: "https://odoo.example.test/",
     apiKey: "test-only-key",
     salesTeamId: 1,
     initialStageId: 1,
@@ -900,6 +901,16 @@ test("Odoo preflight validates the complete contract and routing with zero write
   assert.equal(result.writesAttempted, 0);
   assert.ok(result.requiredFieldCount > 20);
   assert.ok(calls.every(({ url }) => !url.endsWith("/create") && !url.endsWith("/write")));
+  await assert.rejects(() => preflightOdoo([], {
+    enabled: false,
+    baseUrl: "https://odoo-test.example.test",
+    expectedBaseUrl: "https://iacoustics.odoo.com",
+    apiKey: "test-only-key",
+    salesTeamId: 1,
+    initialStageId: 1,
+    glenUserId: 7,
+    eoghanUserId: 6,
+  }, fetcher), /Odoo target mismatch.*No records were written/);
 });
 
 test("Odoo creates new Tender Desk records as leads, preserves conversion and supports a controlled migration", async () => {
@@ -4279,12 +4290,15 @@ test("completed-ledger Odoo sync ignores a partial scan only when ledger and aud
     leadDisposition: "background",
   };
   const ledger = { opportunities: [liveRfi, resolved] };
+  const completedAt = "2026-11-27T08:00:00.000Z";
 
   const completedRecords = recordsForOdooSync({
     state: partialState,
     ledger,
-    audit: { totals: { qualifiedWorkingList: 1 } },
+    audit: { completedAt, totals: { qualifiedWorkingList: 1 } },
     useCompletedLedger: true,
+    maxCompletedLedgerAgeHours: 36,
+    now: new Date("2026-11-27T10:00:00.000Z"),
   });
   assert.equal(completedRecords.length, 1);
   assert.equal(completedRecords[0].id, liveRfi.id);
@@ -4299,6 +4313,14 @@ test("completed-ledger Odoo sync ignores a partial scan only when ledger and aud
     audit: { totals: { qualifiedWorkingList: 2 } },
     useCompletedLedger: true,
   }), /Completed-ledger Odoo sync refused/);
+  assert.throws(() => recordsForOdooSync({
+    state: partialState,
+    ledger,
+    audit: { completedAt, totals: { qualifiedWorkingList: 1 } },
+    useCompletedLedger: true,
+    maxCompletedLedgerAgeHours: 24,
+    now: new Date("2026-11-29T10:00:00.000Z"),
+  }), /older than 24 hours/);
 });
 
 test("automation health proves the document audit and Odoo population completed in the same run", () => {
