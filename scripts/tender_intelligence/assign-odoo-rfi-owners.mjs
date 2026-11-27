@@ -27,7 +27,24 @@ const sourceRecords = recordsForOdooSync({
   useCompletedLedger: true,
   maxCompletedLedgerAgeHours: Number.parseFloat(process.env.HELMONIC_COMPLETED_LEDGER_MAX_AGE_HOURS || "36"),
 });
-const payloads = buildOdooDryRun(sourceRecords);
+const singleOwnerRelationships = new Map(sourceRecords
+  .filter((record) => record.emailRelationshipStatus === "verified-single-owner"
+    && (record.emailRelationshipOwner === "Glen" || record.emailRelationshipOwner === "Owen"))
+  .map((record) => [
+    record.crmExternalId,
+    record.emailRelationshipOwner === "Glen" ? "Glen Plunkett" : "Eoghan Tyrrell",
+  ]));
+const payloads = buildOdooDryRun(sourceRecords).map((payload) => {
+  const matchedConsultant = singleOwnerRelationships.get(payload.matchValue);
+  if (!matchedConsultant) return payload;
+  return {
+    ...payload,
+    values: {
+      ...payload.values,
+      x_assigned_person: matchedConsultant,
+    },
+  };
+});
 const integerEnv = (name) => {
   const parsed = Number.parseInt(process.env[name] || "", 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;

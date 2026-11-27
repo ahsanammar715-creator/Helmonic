@@ -448,6 +448,38 @@ function isRfiPayload(payload: OdooLeadDryRun) {
     || payload.values.x_classification === "further-information-request";
 }
 
+function balancedRfiOwnerPlan(
+  payloads: OdooLeadDryRun[],
+  config: ReturnType<typeof requiredConfig>,
+) {
+  const planned = new Map<string, number>();
+  const pending: OdooLeadDryRun[] = [];
+  let glenLoad = 0;
+  let eoghanLoad = 0;
+
+  // Exact single-owner relationship routes are fixed first. Every remaining
+  // RFI is then assigned to the currently lighter queue, with a stable
+  // external-ID ordering so repeated runs cannot reshuffle the workload.
+  for (const payload of [...payloads].sort((left, right) => left.matchValue.localeCompare(right.matchValue))) {
+    const explicitOwner = ownerUserId(payload, config);
+    if (explicitOwner) {
+      planned.set(payload.matchValue, explicitOwner);
+      if (explicitOwner === config.glenUserId) glenLoad += 1;
+      if (explicitOwner === config.eoghanUserId) eoghanLoad += 1;
+    } else {
+      pending.push(payload);
+    }
+  }
+  for (const payload of pending) {
+    const desiredOwner = glenLoad <= eoghanLoad ? config.glenUserId : config.eoghanUserId;
+    if (!desiredOwner) continue;
+    planned.set(payload.matchValue, desiredOwner);
+    if (desiredOwner === config.glenUserId) glenLoad += 1;
+    else eoghanLoad += 1;
+  }
+  return planned;
+}
+
 /**
  * Update only Odoo's native Salesperson field for existing, active Helmonic
  * RFI leads. This intentionally does not create records or write stages,
@@ -498,6 +530,7 @@ export async function assignOdooRfiOwners(
 
   const result = empty("completed");
   const byExternalId = new Map(eligible.map((payload) => [payload.matchValue, payload]));
+  const desiredOwnerByExternalId = balancedRfiOwnerPlan(eligible, config);
   const externalIds = [...byExternalId.keys()];
   const chunkSize = 250;
   for (let offset = 0; offset < externalIds.length; offset += chunkSize) {
@@ -527,7 +560,7 @@ export async function assignOdooRfiOwners(
         result.skippedNonRfi += 1;
         continue;
       }
-      const desiredOwner = ownerUserId(payload, config);
+      const desiredOwner = desiredOwnerByExternalId.get(externalId);
       if (!desiredOwner) {
         result.failures.push({ externalId, error: "No resolved consultant owner is present in the approved routing payload." });
         continue;

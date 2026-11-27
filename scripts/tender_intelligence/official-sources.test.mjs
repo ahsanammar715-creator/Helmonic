@@ -799,6 +799,18 @@ test("silent RFI owner assignment writes only Salesperson for active managed RFI
     },
     {
       ...planningLead({
+      id: "owner-unrouted-rfi",
+      sourceRecordId: "OWNER-UNROUTED-RFI",
+      classification: "further-information-request",
+      evidenceStatus: "official-text",
+      leadDisposition: "active",
+      routedTo: "unassigned",
+      emailRelationshipStatus: "no-confirmed-match",
+      }),
+      crmExternalId: "helmonic-lead:owner-unrouted-rfi",
+    },
+    {
+      ...planningLead({
       id: "owner-non-rfi",
       sourceRecordId: "OWNER-NON-RFI",
       classification: "design-construction-potential",
@@ -829,6 +841,7 @@ test("silent RFI owner assignment writes only Salesperson for active managed RFI
     if (url.endsWith("/crm.lead/search_read")) {
       const warm = payloads.find((payload) => payload.matchValue === "helmonic-lead:owner-warm-rfi");
       const balanced = payloads.find((payload) => payload.matchValue === "helmonic-lead:owner-balanced-rfi");
+      const unrouted = payloads.find((payload) => payload.matchValue === "helmonic-lead:owner-unrouted-rfi");
       return Response.json([
       {
         id: 101,
@@ -843,6 +856,13 @@ test("silent RFI owner assignment writes only Salesperson for active managed RFI
         x_classification: "further-information-request",
         user_id: false,
         x_helmonic_external_id: balanced.matchValue,
+      },
+      {
+        id: 103,
+        active: true,
+        x_classification: "further-information-request",
+        user_id: false,
+        x_helmonic_external_id: unrouted.matchValue,
       },
       ]);
     }
@@ -866,7 +886,7 @@ test("silent RFI owner assignment writes only Salesperson for active managed RFI
     eoghanUserId: 6,
     requestIntervalMs: 0,
   }, fetcher);
-  assert.equal(result.assigned, 2, JSON.stringify({
+  assert.equal(result.assigned, 3, JSON.stringify({
     result,
     assignments: payloads.map((payload) => ({
       id: payload.matchValue,
@@ -878,9 +898,9 @@ test("silent RFI owner assignment writes only Salesperson for active managed RFI
     writes,
   }));
   assert.equal(result.relationshipAssignments, 1);
-  assert.equal(result.balancedAssignments, 1);
+  assert.equal(result.balancedAssignments, 2);
   assert.equal(result.skippedNonRfi, 1);
-  assert.deepEqual(writes.map((write) => write.vals), [{ user_id: 7 }, { user_id: 6 }]);
+  assert.deepEqual(writes.map((write) => write.vals), [{ user_id: 7 }, { user_id: 6 }, { user_id: 7 }]);
   assert.ok(writes.every((write) => Object.keys(write.vals).join(",") === "user_id"));
 });
 
