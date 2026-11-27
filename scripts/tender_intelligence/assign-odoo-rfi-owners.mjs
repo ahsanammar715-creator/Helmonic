@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { assignOdooRfiOwners } from "../../src/lib/tender-intelligence/odoo-client.ts";
 import { buildOdooDryRun } from "../../src/lib/tender-intelligence/odoo-payload.ts";
 import { recordsForOdooSync } from "../../src/lib/tender-intelligence/odoo-record-source.ts";
+import { hydrateTenderArtifacts } from "../../src/lib/tender-intelligence/blob-artifacts.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "../..");
@@ -12,6 +13,10 @@ const artifactRoot = process.env.HELMONIC_TENDER_ARTIFACT_ROOT
   ? path.resolve(process.env.HELMONIC_TENDER_ARTIFACT_ROOT)
   : path.join(repoRoot, "local-artifacts", "tender-intelligence");
 
+const hydration = await hydrateTenderArtifacts(artifactRoot);
+if (!hydration.enabled || hydration.downloaded === 0) {
+  throw new Error("RFI assignment refused: the durable completed ledger could not be hydrated. No Odoo assignments were written.");
+}
 const state = JSON.parse(await readFile(path.join(artifactRoot, "document-proven", "pipeline-state.json"), "utf8"));
 const ledger = JSON.parse(await readFile(path.join(artifactRoot, "document-proven", "confirmed-ledger.json"), "utf8"));
 const audit = JSON.parse(await readFile(path.join(artifactRoot, "document-proven", "latest-audit.json"), "utf8"));
@@ -43,4 +48,4 @@ const result = await assignOdooRfiOwners(payloads, {
   timeoutMs: Number.parseInt(process.env.ODOO_TIMEOUT_MS || "30000", 10),
 });
 
-console.log(`ODOO_RFI_ASSIGNMENT_JSON=${JSON.stringify(result)}`);
+console.log(`ODOO_RFI_ASSIGNMENT_JSON=${JSON.stringify({ ...result, artifactHydration: hydration })}`);
