@@ -38,6 +38,11 @@ on:
         required: true
         default: false
         type: boolean
+      assign_live_odoo_rfi_owners_only:
+        description: Silently assign active live Odoo RFIs by verified relationship, then balanced load; do not send email or outreach
+        required: true
+        default: false
+        type: boolean
       suspend_buildinginfo_job:
         description: Suspend the automatic BuildingInfo schedule while keeping manual runs available
         required: true
@@ -952,6 +957,23 @@ jobs:
           TENDER_INTELLIGENCE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
           HELMONIC_ODOO_COMPLETED_LEDGER_SYNC_ONLY: "true"
         run: bash scripts/deployment/run-full-odoo-test-collection.sh
+
+      - name: Silently assign live Odoo RFI salespeople only
+        if: github.event_name == 'workflow_dispatch' && inputs.assign_live_odoo_rfi_owners_only
+        shell: bash
+        env:
+          TENDER_INTELLIGENCE_IMAGE: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+          HELMONIC_ODOO_EXPECTED_BASE_URL: https://iacoustics.odoo.com
+          HELMONIC_ODOO_EXPECTED_DATABASE: iacoustics
+          HELMONIC_COMPLETED_LEDGER_MAX_AGE_HOURS: "36"
+          LIVE_ODOO_TARGET_CONFIRMATION: ${{ inputs.live_odoo_target_confirmation }}
+        run: |
+          set -euo pipefail
+          if [[ "$LIVE_ODOO_TARGET_CONFIRMATION" != "iacoustics.odoo.com" ]]; then
+            echo "Live Odoo RFI assignment refused: enter iacoustics.odoo.com in the target confirmation field." >&2
+            exit 1
+          fi
+          bash scripts/deployment/run-live-odoo-rfi-assignment.sh
 
       - name: Promote the fresh completed RFI ledger to live iAcoustics Odoo
         if: >-

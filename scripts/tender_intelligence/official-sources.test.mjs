@@ -77,6 +77,7 @@ import {
   summarizeOdooDryRun,
 } from "../../src/lib/tender-intelligence/odoo-payload.ts";
 import {
+  assignOdooRfiOwners,
   legacySourceReferenceInLeadReference,
   preflightOdoo,
   syncOdooLeads,
@@ -336,7 +337,7 @@ test("same RFI across sources merges, while a separate RFI on the same project r
       sourceRecordId: "Meath County Council:2662001",
       projectReference: "2662001",
       planningAuthority: "Meath County Council",
-      classification: "further-information-request",
+      classification: "noise-related-rfi",
       evidenceExcerpt: "Further Information Requested.",
       matchedTerms: [],
       rfiReceivedAt: "2026-09-01",
@@ -767,6 +768,120 @@ test("Odoo synchronization remains completely inert while disabled", async () =>
   });
   assert.equal(result.status, "disabled");
   assert.equal(calls, 0);
+});
+
+test("silent RFI owner assignment writes only Salesperson for active managed RFIs", async () => {
+  const payloads = buildOdooDryRun([
+    {
+      ...planningLead({
+      id: "owner-warm-rfi",
+      sourceRecordId: "OWNER-WARM-RFI",
+      classification: "noise-related-rfi",
+      evidenceStatus: "official-text",
+      leadDisposition: "active",
+      routedTo: "Glen",
+      emailRelationshipStatus: "verified-single-owner",
+      emailRelationshipOwner: "Glen",
+      }),
+      crmExternalId: "helmonic-lead:owner-warm-rfi",
+    },
+    {
+      ...planningLead({
+      id: "owner-balanced-rfi",
+      sourceRecordId: "OWNER-BALANCED-RFI",
+      classification: "further-information-request",
+      evidenceStatus: "official-text",
+      leadDisposition: "active",
+      routedTo: "Owen",
+      emailRelationshipStatus: "no-confirmed-match",
+      }),
+      crmExternalId: "helmonic-lead:owner-balanced-rfi",
+    },
+    {
+      ...planningLead({
+      id: "owner-non-rfi",
+      sourceRecordId: "OWNER-NON-RFI",
+      classification: "design-construction-potential",
+      evidenceStatus: "official-text",
+      leadDisposition: "active",
+      routedTo: "Glen",
+      }),
+      crmExternalId: "helmonic-lead:owner-non-rfi",
+    },
+  ]);
+  const writes = [];
+  const fetcher = async (request, options = {}) => {
+    const url = String(request);
+    const body = options.body ? JSON.parse(String(options.body)) : {};
+    if (url.endsWith("/res.users/search_read")) {
+      const expectedGlen = JSON.stringify(body.domain).toLowerCase().includes("glen");
+      return Response.json([expectedGlen
+        ? { id: 7, name: "Glen Plunkett", login: "glen.plunkett@iacoustics.net" }
+        : { id: 6, name: "Eoghan Tyrrell", login: "eoghan.tyrrell@iacoustics.net" }]);
+    }
+    if (url.endsWith("/web/version")) return Response.json({ version_info: [19, 0, 0, "final"] });
+    if (url.endsWith("/crm.lead/fields_get")) return Response.json({
+      x_helmonic_external_id: { type: "char" },
+      active: { type: "boolean" },
+      x_classification: { type: "char" },
+      user_id: { type: "many2one", relation: "res.users" },
+    });
+    if (url.endsWith("/crm.lead/search_read")) {
+      const warm = payloads.find((payload) => payload.matchValue === "helmonic-lead:owner-warm-rfi");
+      const balanced = payloads.find((payload) => payload.matchValue === "helmonic-lead:owner-balanced-rfi");
+      return Response.json([
+      {
+        id: 101,
+        active: true,
+        x_classification: "noise-related-rfi",
+        user_id: false,
+        x_helmonic_external_id: warm.matchValue,
+      },
+      {
+        id: 102,
+        active: true,
+        x_classification: "further-information-request",
+        user_id: false,
+        x_helmonic_external_id: balanced.matchValue,
+      },
+      ]);
+    }
+    if (url.endsWith("/crm.lead/write")) {
+      writes.push(body);
+      assert.equal(body.context.tracking_disable, true);
+      assert.equal(body.context.mail_create_nosubscribe, true);
+      assert.equal(body.context.mail_create_nolog, true);
+      assert.equal(body.context.mail_notrack, true);
+      return Response.json(true);
+    }
+    return new Response(`Unexpected request ${url}`, { status: 500 });
+  };
+  const result = await assignOdooRfiOwners(payloads, {
+    enabled: true,
+    baseUrl: "https://odoo.example.test",
+    expectedBaseUrl: "https://odoo.example.test",
+    database: "test",
+    apiKey: "test-only-key",
+    glenUserId: 7,
+    eoghanUserId: 6,
+    requestIntervalMs: 0,
+  }, fetcher);
+  assert.equal(result.assigned, 2, JSON.stringify({
+    result,
+    assignments: payloads.map((payload) => ({
+      id: payload.matchValue,
+      active: payload.values.active,
+      classification: payload.values.x_classification,
+      assignedPerson: payload.values.x_assigned_person,
+      warm: payload.values.x_warm_connection_verified,
+    })),
+    writes,
+  }));
+  assert.equal(result.relationshipAssignments, 1);
+  assert.equal(result.balancedAssignments, 1);
+  assert.equal(result.skippedNonRfi, 1);
+  assert.deepEqual(writes.map((write) => write.vals), [{ user_id: 7 }, { user_id: 6 }]);
+  assert.ok(writes.every((write) => Object.keys(write.vals).join(",") === "user_id"));
 });
 
 test("Odoo bulk sync creates current Leads, archives existing stale records and never creates new inactive history", async () => {

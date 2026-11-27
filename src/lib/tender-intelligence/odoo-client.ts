@@ -89,6 +89,20 @@ export type OdooPreflightResult = {
   writesAttempted: 0;
 };
 
+export type OdooRfiOwnerAssignmentResult = {
+  status: "disabled" | "completed";
+  eligible: number;
+  matched: number;
+  assigned: number;
+  unchanged: number;
+  skippedInactive: number;
+  skippedNonRfi: number;
+  missing: number;
+  relationshipAssignments: number;
+  balancedAssignments: number;
+  failures: Array<{ externalId: string; error: string }>;
+};
+
 function requiredConfig(config: OdooJson2Config) {
   if (!config.baseUrl || !config.apiKey) {
     throw new Error("Odoo synchronization is enabled but ODOO_BASE_URL or ODOO_API_KEY is missing.");
@@ -429,6 +443,123 @@ function ownerUserId(payload: OdooLeadDryRun, config: ReturnType<typeof required
   return false;
 }
 
+function isRfiPayload(payload: OdooLeadDryRun) {
+  return payload.values.x_classification === "noise-related-rfi"
+    || payload.values.x_classification === "further-information-request";
+}
+
+/**
+ * Update only Odoo's native Salesperson field for existing, active Helmonic
+ * RFI leads. This intentionally does not create records or write stages,
+ * priorities, teams, tags, chatter, followers, mail or any financial model.
+ */
+export async function assignOdooRfiOwners(
+  payloads: OdooLeadDryRun[],
+  inputConfig: OdooJson2Config,
+  fetcher: typeof fetch = fetch,
+): Promise<OdooRfiOwnerAssignmentResult> {
+  const eligible = payloads.filter((payload) => payload.values.active !== false && isRfiPayload(payload));
+  const empty = (status: "disabled" | "completed"): OdooRfiOwnerAssignmentResult => ({
+    status,
+    eligible: eligible.length,
+    matched: 0,
+    assigned: 0,
+    unchanged: 0,
+    skippedInactive: payloads.filter((payload) => payload.values.active === false && isRfiPayload(payload)).length,
+    skippedNonRfi: payloads.filter((payload) => !isRfiPayload(payload)).length,
+    missing: 0,
+    relationshipAssignments: 0,
+    balancedAssignments: 0,
+    failures: [],
+  });
+  if (!inputConfig.enabled) return empty("disabled");
+
+  const resolved = await resolveOdooOwnerUserIds({ ...inputConfig, assignNativeOwners: true }, fetcher);
+  const config = requiredConfig({ ...resolved, assignNativeOwners: true });
+  const odooFetch = rateLimitedFetcher(fetcher, config.requestIntervalMs);
+  await assertSupportedVersion(config, odooFetch);
+
+  const fields = await json2Call(config, config.model, "fields_get", {
+    allfields: [config.externalIdField, "active", "x_classification", "user_id"],
+    attributes: ["type", "readonly", "relation"],
+  }, odooFetch) as Record<string, OdooFieldInfo>;
+  const requiredTypes: Record<string, string> = {
+    [config.externalIdField]: "char",
+    active: "boolean",
+    x_classification: "char",
+    user_id: "many2one",
+  };
+  const invalid = Object.entries(requiredTypes)
+    .filter(([name, type]) => fields[name]?.type !== type)
+    .map(([name, type]) => `${name} expected ${type}, found ${fields[name]?.type ?? "missing"}`);
+  if (invalid.length > 0) {
+    throw new Error(`Odoo RFI assignment preflight failed: ${invalid.join("; ")}. No assignments were written.`);
+  }
+
+  const result = empty("completed");
+  const byExternalId = new Map(eligible.map((payload) => [payload.matchValue, payload]));
+  const externalIds = [...byExternalId.keys()];
+  const chunkSize = 250;
+  for (let offset = 0; offset < externalIds.length; offset += chunkSize) {
+    const chunk = externalIds.slice(offset, offset + chunkSize);
+    const records = await json2Call(config, config.model, "search_read", {
+      domain: [[config.externalIdField, "in", chunk]],
+      fields: ["id", "active", "x_classification", "user_id", config.externalIdField],
+      limit: chunk.length + 1,
+      context: { active_test: false },
+    }, odooFetch) as ExistingLeadValues[];
+    const seen = new Set<string>();
+    for (const record of records) {
+      const externalId = String((record as Record<string, unknown>)[config.externalIdField] ?? "").trim();
+      const payload = byExternalId.get(externalId);
+      if (!payload) continue;
+      if (seen.has(externalId)) {
+        result.failures.push({ externalId, error: "More than one Odoo lead has this Helmonic external ID." });
+        continue;
+      }
+      seen.add(externalId);
+      result.matched += 1;
+      if (record.active === false) {
+        result.skippedInactive += 1;
+        continue;
+      }
+      if (!historicalIsRfiClassification(record.x_classification)) {
+        result.skippedNonRfi += 1;
+        continue;
+      }
+      const desiredOwner = ownerUserId(payload, config);
+      if (!desiredOwner) {
+        result.failures.push({ externalId, error: "No resolved consultant owner is present in the approved routing payload." });
+        continue;
+      }
+      const currentOwner = Array.isArray(record.user_id) ? Number(record.user_id[0]) : Number(record.user_id || 0);
+      if (currentOwner === desiredOwner) {
+        result.unchanged += 1;
+        continue;
+      }
+      try {
+        await json2Call(config, config.model, "write", {
+          ids: [record.id],
+          vals: { user_id: desiredOwner },
+        }, odooFetch);
+        result.assigned += 1;
+        if (payload.values.x_warm_connection_verified === true) result.relationshipAssignments += 1;
+        else result.balancedAssignments += 1;
+      } catch (error) {
+        result.failures.push({
+          externalId,
+          error: error instanceof Error ? error.message : "Unknown Odoo assignment failure",
+        });
+      }
+    }
+    result.missing += chunk.filter((externalId) => !seen.has(externalId)).length;
+  }
+  if (result.failures.length > 0) {
+    throw new Error(`Odoo RFI assignment completed with ${result.failures.length} failure(s): ${result.failures.map((failure) => `${failure.externalId}: ${failure.error}`).join("; ")}`);
+  }
+  return result;
+}
+
 function odooPriorityFromRank(rank: number) {
   // Reserve Odoo's three-star treatment for live and recent undated RFIs.
   // Expired RFIs retain their date-led queue position but are visually
@@ -753,11 +884,13 @@ function valuesForOdoo(
   // populated when blank.
   if (existing.partner_id) delete values.partner_id;
 
-  // A lead may have been created by an older integration release which set a
-  // native salesperson and caused Odoo to notify that consultant. Remove only
-  // those integration-owned assignments while retaining the relationship and
-  // consultant evidence in the dedicated Helmonic fields.
-  if (!config.assignNativeOwners) {
+  // Native ownership is opt-in and confined to active RFI records. The API
+  // write context is silent, so this updates the Salesperson field without
+  // subscribing, posting to chatter or notifying the consultant.
+  const desiredOwner = ownerUserId(payload, config);
+  if (config.assignNativeOwners && isRfiPayload(payload) && payload.values.active !== false && desiredOwner) {
+    values.user_id = desiredOwner;
+  } else if (!config.assignNativeOwners) {
     const existingOwnerId = Array.isArray(existing.user_id)
       ? Number(existing.user_id[0])
       : Number(existing.user_id || 0);
