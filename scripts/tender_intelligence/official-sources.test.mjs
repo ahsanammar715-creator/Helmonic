@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { strToU8, zipSync } from "fflate";
+
+const odooCrmUiConfigurationSource = readFileSync(
+  new URL("./configure-odoo-crm-ui.mjs", import.meta.url),
+  "utf8",
+);
 
 import {
   buildPlanningLeadsSearchUrls,
@@ -428,6 +434,31 @@ test("same-address applications with different references are flagged but retain
   assert.ok(records.every((record) => record.deduplicationStatus === "possible-duplicate"));
   assert.notEqual(records[0].crmExternalId, records[1].crmExternalId);
   assert.deepEqual(records[0].possibleDuplicateIds, ["dcc-b"]);
+});
+
+test("Odoo CRM repair keeps non-Helmonic leads standard and makes the RFI queue opt-in", () => {
+  const formArchitecture = odooCrmUiConfigurationSource.slice(
+    odooCrmUiConfigurationSource.indexOf("const viewArchitecture"),
+    odooCrmUiConfigurationSource.indexOf("const existingViews"),
+  );
+  const kanbanConfiguration = odooCrmUiConfigurationSource.slice(
+    odooCrmUiConfigurationSource.indexOf("const kanbanOrderValues"),
+    odooCrmUiConfigurationSource.indexOf("let kanbanOrderViewId"),
+  );
+  const listConfiguration = odooCrmUiConfigurationSource.slice(
+    odooCrmUiConfigurationSource.indexOf("const leadListOrderValues"),
+    odooCrmUiConfigurationSource.indexOf("let leadListOrderViewId"),
+  );
+
+  assert.match(formArchitecture, /page string="RFI Intelligence"[^>]+invisible="not x_helmonic_external_id"/);
+  assert.match(formArchitecture, /field name="user_id" string="Assigned Consultant"/);
+  assert.doesNotMatch(formArchitecture, /Acoustic Consultant/);
+  assert.doesNotMatch(formArchitecture, /field\[@name='phone'\]/);
+  assert.match(kanbanConfiguration, /active: false/);
+  assert.match(listConfiguration, /active: false/);
+  assert.match(odooCrmUiConfigurationSource, /const filterName = "Helmonic Live RFI Queue"/);
+  assert.match(odooCrmUiConfigurationSource, /\["x_classification", "in", \["noise-related-rfi", "further-information-request"\]\]/);
+  assert.match(odooCrmUiConfigurationSource, /is_default: false/);
 });
 
 test("Odoo dry-run upserts once per deduplicated CRM identity and retains every contributing source", () => {

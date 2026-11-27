@@ -154,103 +154,31 @@ if (leadSearchModelRows.length !== 1 || !Number.isInteger(leadSearchModelRows[0]
 
 const viewName = "Helmonic Tender Intelligence CRM lead form";
 const viewArchitecture = `<data>
-  <xpath expr="//field[@name='phone']/ancestor::div[1]" position="after">
-    <label for="x_source_reference" string="Source Reference"/>
-    <div>
-      <field name="x_source_reference" nolabel="1" readonly="1"/>
-    </div>
-  </xpath>
-<xpath expr="//field[@name='user_id']" position="attributes">
-    <attribute name="string">Acoustic Consultant</attribute>
-  </xpath>
-  <xpath expr="//field[@name='expected_revenue']/ancestor::h2" position="attributes">
-    <attribute name="invisible" add="x_helmonic_external_id" separator=" or "/>
-  </xpath>
-  <xpath expr="//field[@name='probability']" position="attributes">
-    <attribute name="invisible" add="x_helmonic_external_id" separator=" or "/>
-  </xpath>
-  <xpath expr="//field[@name='date_deadline']" position="attributes">
-    <attribute name="invisible" add="x_helmonic_external_id" separator=" or "/>
-  </xpath>
-  <xpath expr="//field[@name='date_deadline']" position="after">
-    <field name="x_deadline" string="Action Deadline" invisible="not x_helmonic_external_id"/>
-    <field name="x_rfi_published_at" string="RFI Published" invisible="not x_helmonic_external_id"/>
-    <field name="x_rfi_received_at" string="RFI Received / Detected" invisible="not x_helmonic_external_id"/>
-    <field name="x_rfi_response_due_at" string="RFI Response Due" invisible="not x_helmonic_external_id"/>
-    <field name="x_rfi_response_received_at" string="FI Response Received" invisible="not x_helmonic_external_id"/>
-    <field name="x_planning_received_at" string="Planning Received" invisible="not x_helmonic_external_id"/>
-    <field name="x_planning_validated_at" string="Planning Validated" invisible="not x_helmonic_external_id"/>
-    <field name="x_decision_due_at" string="Planning Decision Due" invisible="not x_helmonic_external_id"/>
-    <field name="x_lead_quality" string="Lead Quality" invisible="not x_helmonic_external_id"/>
-    <field name="x_warm_connection_verified" string="Verified Email Match" invisible="not x_helmonic_external_id"/>
-    <field name="x_deadline_urgency" string="Deadline Urgency" invisible="not x_helmonic_external_id"/>
-  </xpath>
   <xpath expr="//notebook" position="inside">
-    <page string="Lead Intelligence" name="helmonic_tender_intelligence">
+    <page string="RFI Intelligence" name="helmonic_tender_intelligence" invisible="not x_helmonic_external_id">
       <group>
-        <group string="Source and qualification">
-          <field name="x_helmonic_external_id"/>
-          <field name="x_deduplication_status"/>
-          <field name="x_source_record_ids"/>
-          <field name="x_source_ledger"/>
-          <field name="x_first_seen_at"/>
-          <field name="x_last_seen_at"/>
-          <field name="x_source_systems"/>
-          <field name="x_source_reference"/>
-          <field name="x_project_link" widget="url"/>
-          <field name="x_project_reference"/>
-          <field name="x_county"/>
-          <field name="x_project_stage"/>
-          <field name="x_classification"/>
-          <field name="x_rfi_trigger"/>
-          <field name="x_rfi_published_at"/>
-          <field name="x_rfi_received_at"/>
-          <field name="x_rfi_response_due_at"/>
-          <field name="x_rfi_response_received_at"/>
-          <field name="x_rfi_date_source"/>
-          <field name="x_rfi_date_confidence"/>
-          <field name="x_planning_received_at"/>
-          <field name="x_planning_validated_at"/>
-          <field name="x_decision_due_at"/>
-          <field name="x_action_days_remaining"/>
-          <field name="x_deadline_urgency"/>
-          <field name="x_lead_quality"/>
-          <field name="x_pipeline_bucket"/>
-          <field name="x_pipeline_priority_rank"/>
-          <field name="x_pipeline_priority_reason"/>
-          <field name="x_lead_panel"/>
+        <group string="RFI review">
+          <field name="x_lead_panel" string="RFI Type" readonly="1"/>
+          <field name="x_rfi_received_at" string="RFI Received / Detected" readonly="1"/>
+          <field name="x_rfi_response_due_at" string="RFI Response Due" readonly="1"/>
+          <field name="x_deadline_urgency" readonly="1"/>
+          <field name="x_lead_quality" readonly="1"/>
+          <field name="x_project_link" widget="url" readonly="1"/>
         </group>
         <group string="Consultant and relationship">
-          <field name="x_project_value"/>
-          <field name="x_location"/>
-          <field name="x_assigned_person"/>
-          <field name="x_warm_connection_verified"/>
-          <field name="x_routing_reason"/>
+          <field name="user_id" string="Assigned Consultant"/>
+          <field name="x_assigned_person" string="Suggested Consultant" readonly="1"/>
+          <field name="x_warm_connection_verified" string="Warm Relationship" readonly="1"/>
+          <field name="x_routing_reason" readonly="1"/>
           <field name="x_relationship_summary" string="Relationship Summary" readonly="1"/>
           <field name="x_project_history_summary" string="Previous iAcoustics Projects" readonly="1"/>
         </group>
       </group>
-      <group string="Appointment and outreach safeguard">
-        <group>
-          <field name="x_acoustic_appointment_status"/>
-          <field name="x_appointed_acoustician"/>
-          <field name="x_competitive_quote_opportunity"/>
-          <field name="x_outreach_eligibility"/>
-          <field name="x_outreach_key"/>
-          <field name="x_buildinginfo_search_profile"/>
-        </group>
-        <group>
-          <field name="x_outreach_suppression_reason"/>
-          <field name="x_appointment_evidence"/>
-          <field name="x_appointment_evidence_source_url"/>
-        </group>
-      </group>
-      <group string="Project parties and evidence">
-        <field name="x_party_details"/>
-        <field name="x_evidence_status"/>
-        <field name="x_evidence_excerpt"/>
-        <field name="x_source_urls"/>
-        <field name="x_evidence_document_urls"/>
+      <group string="Source evidence">
+        <field name="x_source_systems" string="Source" readonly="1"/>
+        <field name="x_source_reference" readonly="1"/>
+        <field name="x_evidence_excerpt" readonly="1"/>
+        <field name="x_evidence_document_urls" readonly="1"/>
       </group>
     </page>
   </xpath>
@@ -297,7 +225,7 @@ const kanbanOrderValues = {
   mode: "extension",
   inherit_id: kanbanModelRows[0].res_id,
   priority: 100,
-  active: true,
+  active: false,
   arch_db: `<data><xpath expr="//kanban" position="attributes"><attribute name="default_order">x_pipeline_priority_rank desc, x_rfi_response_due_at asc, x_rfi_received_at desc, x_rfi_published_at desc, x_project_value desc, x_source_updated_at desc, priority desc, id desc</attribute></xpath></data>`,
 };
 let kanbanOrderViewId;
@@ -326,7 +254,7 @@ const leadListOrderValues = {
   mode: "extension",
   inherit_id: leadListModelRows[0].res_id,
   priority: 100,
-  active: true,
+  active: false,
   arch_db: `<data>
     <xpath expr="//list" position="attributes">
       <attribute name="default_order">x_pipeline_priority_rank desc, x_rfi_response_due_at asc, x_rfi_received_at desc, x_rfi_published_at desc, x_project_value desc, x_source_updated_at desc, priority desc, id desc</attribute>
@@ -336,10 +264,10 @@ const leadListOrderValues = {
       <attribute name="optional">show</attribute>
     </xpath>
     <xpath expr="//field[@name='contact_name']" position="attributes">
-      <attribute name="optional">show</attribute>
+      <attribute name="optional">hide</attribute>
     </xpath>
     <xpath expr="//field[@name='email_from']" position="attributes">
-      <attribute name="optional">show</attribute>
+      <attribute name="optional">hide</attribute>
     </xpath>
     <xpath expr="//field[@name='team_id']" position="attributes">
       <attribute name="optional">hide</attribute>
@@ -348,21 +276,22 @@ const leadListOrderValues = {
       <attribute name="optional">hide</attribute>
     </xpath>
     <xpath expr="//field[@name='email_from']" position="after">
-      <field name="x_source_systems" string="Source" optional="show"/>
-      <field name="x_source_reference" string="Source Reference" optional="show"/>
-      <field name="x_lead_panel" string="Lead Review Panel" optional="show"/>
-      <field name="x_lead_quality" string="Lead Quality" optional="show"/>
-      <field name="x_project_stage" string="Project Stage" widget="badge" optional="show"
+      <field name="x_source_systems" string="Source" optional="hide"/>
+      <field name="x_source_reference" string="Source Reference" optional="hide"/>
+      <field name="x_lead_panel" string="RFI Type" optional="show"/>
+      <field name="x_lead_quality" string="Lead Quality" optional="hide"/>
+      <field name="x_project_stage" string="Project Stage" widget="badge" optional="hide"
         decoration-info="x_project_stage in ['Plans Applied', 'PLANS APPLIED', 'New Application', 'NEW APPLICATION', 'Validated', 'VALIDATED', 'Tender', 'TENDER', 'Quotation', 'QUOTATION']"
         decoration-success="x_project_stage in ['Plans Granted', 'PLANS GRANTED', 'Permission Granted', 'PERMISSION GRANTED', 'Grant Permission with Conditions', 'GRANT PERMISSION WITH CONDITIONS', 'Conditional', 'CONDITIONAL']"
         decoration-warning="x_project_stage in ['Commencement', 'COMMENCEMENT', 'Construction', 'CONSTRUCTION', 'On Site', 'ON SITE']"
         decoration-muted="x_project_stage in ['Refused', 'REFUSED', 'Withdrawn', 'WITHDRAWN', 'Invalidated', 'INVALIDATED', 'Completed', 'COMPLETED', 'Closed', 'CLOSED']"/>
       <field name="x_rfi_response_due_at" string="RFI Response Due" optional="show"/>
       <field name="x_rfi_received_at" string="RFI Received / Detected" optional="show"/>
-      <field name="x_decision_due_at" string="Planning Decision Due" optional="show"/>
-      <field name="x_warm_connection_verified" string="Verified Email Match" optional="show"/>
-      <field name="x_project_value" string="Project Value" optional="show"/>
-      <field name="x_project_link" string="Project Link" widget="url" optional="show"/>
+      <field name="x_decision_due_at" string="Planning Decision Due" optional="hide"/>
+      <field name="x_warm_connection_verified" string="Warm Relationship" optional="show"/>
+      <field name="x_assigned_person" string="Suggested Consultant" optional="show"/>
+      <field name="x_project_value" string="Project Value" optional="hide"/>
+      <field name="x_project_link" string="Project Link" widget="url" optional="hide"/>
       <field name="x_rfi_published_at" string="RFI Published" optional="hide"/>
       <field name="x_rfi_response_received_at" string="FI Response Received" optional="hide"/>
       <field name="x_planning_received_at" string="Planning Received" optional="hide"/>
@@ -402,7 +331,11 @@ const leadSearchValues = {
     <xpath expr="//search" position="inside">
       <separator/>
       <filter name="helmonic_primary_targets" string="Primary Acoustic Targets" domain="[('active', '=', True), ('x_project_link', '!=', False), ('x_lead_panel', 'in', ['Urgent Acoustic RFI', 'Granted with Acoustic Conditions'])]"/>
-      <filter name="helmonic_live_acoustic_rfis" string="Live Further Information Requests" domain="[('x_lead_panel', '=', 'Urgent Acoustic RFI')]"/>
+      <filter name="helmonic_live_rfis" string="Live RFI Work Queue" domain="[('active', '=', True), ('x_helmonic_external_id', '!=', False), ('x_classification', 'in', ['noise-related-rfi', 'further-information-request'])]"/>
+      <filter name="helmonic_live_acoustic_rfis" string="Acoustic RFIs" domain="[('active', '=', True), ('x_helmonic_external_id', '!=', False), ('x_classification', '=', 'noise-related-rfi')]"/>
+      <filter name="helmonic_warm_rfis" string="Warm Relationships" domain="[('active', '=', True), ('x_helmonic_external_id', '!=', False), ('x_classification', 'in', ['noise-related-rfi', 'further-information-request']), ('x_warm_connection_verified', '=', True)]"/>
+      <filter name="helmonic_unassigned_rfis" string="Needs Assignment" domain="[('active', '=', True), ('x_helmonic_external_id', '!=', False), ('x_classification', 'in', ['noise-related-rfi', 'further-information-request']), ('user_id', '=', False)]"/>
+      <filter name="helmonic_my_rfis" string="My RFI Assignments" domain="[('active', '=', True), ('x_helmonic_external_id', '!=', False), ('x_classification', 'in', ['noise-related-rfi', 'further-information-request']), ('user_id', '=', uid)]"/>
       <filter name="helmonic_granted_acoustic_conditions" string="Granted — Acoustic Conditions" domain="[('x_lead_panel', '=', 'Granted with Acoustic Conditions')]"/>
       <filter name="helmonic_education_bim" string="Education / BIM Opportunities" domain="[('tag_ids.name', '=', 'Education / BIM Opportunities')]"/>
       <filter name="helmonic_secondary_potential" string="Secondary / Potential" domain="[('x_lead_panel', 'in', ['Confirmed Acoustic Opportunity', 'Potential Acoustic Fit'])]"/>
@@ -437,20 +370,25 @@ const targetLeadActions = leadActions.filter((action) => String(action.domain ??
   || String(action.domain ?? "").includes("type") && String(action.domain ?? "").includes("lead"));
 const defaultFilterActions = [];
 for (const action of targetLeadActions) {
-  const filterName = "Helmonic Active Lead Queue";
-  const legacyFilterName = "Helmonic Primary Acoustic Targets";
+  const filterName = "Helmonic Live RFI Queue";
+  const legacyFilterName = "Helmonic Active Lead Queue";
+  const olderLegacyFilterName = "Helmonic Primary Acoustic Targets";
   const existingFilters = await call("ir.filters", "search_read", {
-    domain: ["|", ["name", "=", filterName], ["name", "=", legacyFilterName], ["model_id", "=", "crm.lead"], ["action_id", "=", action.id]],
+    domain: ["|", "|", ["name", "=", filterName], ["name", "=", legacyFilterName], ["name", "=", olderLegacyFilterName], ["model_id", "=", "crm.lead"], ["action_id", "=", action.id]],
     fields: ["id", "name", "domain", "context", "sort", "is_default", "action_id"],
     limit: 2,
   });
   const filterValues = {
     name: filterName,
     model_id: "crm.lead",
-    domain: JSON.stringify([["active", "=", true]]),
+    domain: JSON.stringify([
+      ["active", "=", true],
+      ["x_helmonic_external_id", "!=", false],
+      ["x_classification", "in", ["noise-related-rfi", "further-information-request"]],
+    ]),
     context: JSON.stringify({}),
     sort: JSON.stringify(["x_pipeline_priority_rank desc", "x_rfi_response_due_at asc"]),
-    is_default: true,
+    is_default: false,
     action_id: action.id,
   };
   if (existingFilters.length === 1) {
